@@ -46,6 +46,8 @@ lens.rotation.x = Math.PI / 2;
 lens.position.set(0, 0.06, -0.005);
 phone.add(phoneBody, lens);
 phone.position.set(0, -0.02, 0.02);
+// Hidden by default: in first person the phone is a reference, not part of the shot.
+phone.visible = false;
 scene.add(phone);
 
 const grid = new THREE.GridHelper(1.2, 24, 0x7f9aa3, 0x7f9aa3);
@@ -93,7 +95,7 @@ function setView(name) {
   camera.position.fromArray(v.pos);
   controls.target.fromArray(v.target);
   controls.update();
-  phone.visible = name !== 'cam';
+  phone.visible = name !== 'cam' && $('show-phone').checked;
   $('view-fp').setAttribute('aria-pressed', name === 'fp');
   $('view-cam').setAttribute('aria-pressed', name === 'cam');
 }
@@ -264,6 +266,7 @@ const bindSlider = (id, obj, key) => {
 bindSlider('mincut', filterParams, 'minCutoff');
 bindSlider('beta', filterParams, 'beta');
 $('show-joints').onchange = (e) => SIDES.forEach((s) => rigs[s].setJointsVisible(e.target.checked));
+$('show-phone').onchange = (e) => (phone.visible = e.target.checked && $('view-cam').getAttribute('aria-pressed') !== 'true');
 $('show-raw').onchange = (e) => SIDES.forEach((s) => (rawDots[s].visible = e.target.checked));
 $('ghost').onchange = (e) =>
   SIDES.forEach((s) => {
