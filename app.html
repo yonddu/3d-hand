@@ -1,0 +1,224 @@
+<title>Hand Motion Studio</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap">
+<style>
+  /* Layout: one-screen studio. 3D stage fills the left, an instrument rail on the right; stacks on phones. */
+  :root {
+    --bg: #e7ecee;
+    --stage: #dfe6e9;
+    --surface: #f6f8f9;
+    --ink: #13222a;
+    --muted: #5a6a72;
+    --line: #cbd5d9;
+    --accent: #0c7680;
+    --accent-ink: #ffffff;
+    --left: #b8641f;
+    --right: #2a6fb4;
+    --warn: #a3471f;
+    --ok: #2c7a4b;
+    --font-body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+    --r: 8px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0c1519; --stage: #0f1b20; --surface: #132228; --ink: #dbe6ea; --muted: #8ea0a8;
+      --line: #223740; --accent: #3cbcc5; --accent-ink: #061215; --left: #e5975a; --right: #64a8ec;
+      --warn: #ec8a5e; --ok: #6cc18e; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0c1519; --stage: #0f1b20; --surface: #132228; --ink: #dbe6ea; --muted: #8ea0a8;
+    --line: #223740; --accent: #3cbcc5; --accent-ink: #061215; --left: #e5975a; --right: #64a8ec;
+    --warn: #ec8a5e; --ok: #6cc18e; color-scheme: dark;
+  }
+  html, body { height: 100%; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 14px; line-height: 1.5; }
+  .app { height: 100%; display: grid; grid-template-columns: minmax(0, 1fr) 380px; }
+  .stage { position: relative; background: var(--stage); min-width: 0; overflow: hidden; }
+  #viewport { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  .stage-bar {
+    position: absolute; left: 0; right: 0; top: 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    padding: 12px max(16px, env(safe-area-inset-left, 0px)) 0; pointer-events: none;
+  }
+  .stage-bar > * { pointer-events: auto; }
+  .brand { font-weight: 600; letter-spacing: 0.01em; margin-right: auto; }
+  .brand small { display: block; font-weight: 400; color: var(--muted); font-size: 12px; }
+  .stage-foot {
+    position: absolute; left: 0; right: 0; bottom: 0; display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end;
+    padding: 0 max(16px, env(safe-area-inset-left, 0px)) 12px; pointer-events: none;
+    font-family: var(--font-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums;
+  }
+  .stage-foot .legend { display: flex; gap: 12px; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+  .banner {
+    position: absolute; left: 50%; top: 64px; transform: translateX(-50%); background: var(--ink); color: var(--bg);
+    padding: 8px 12px; border-radius: var(--r); display: flex; width: max-content; gap: 12px; align-items: center; max-width: calc(100% - 32px);
+  }
+  .banner span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .banner button { flex: none; background: var(--bg); color: var(--ink); border-color: transparent; }
+  .countdown {
+    position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none;
+    font-family: var(--font-mono); font-size: 120px; font-weight: 500; color: var(--accent); text-shadow: 0 2px 24px var(--bg);
+  }
+
+  .rail { background: var(--surface); border-left: 1px solid var(--line); overflow-y: auto; min-width: 0; }
+  .rail section { padding: 16px max(16px, env(safe-area-inset-right, 0px)) 16px 16px; border-bottom: 1px solid var(--line); display: grid; gap: 10px; }
+  .rail h2 { margin: 0; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); display: flex; justify-content: space-between; align-items: center; }
+  .rail h2 span { text-transform: none; letter-spacing: 0; font-weight: 400; font-family: var(--font-mono); }
+
+  button, .btn {
+    font: inherit; font-size: 13px; color: var(--ink); background: transparent; border: 1px solid var(--line);
+    border-radius: 6px; padding: 6px 10px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+  }
+  button:hover, .btn:hover { border-color: var(--muted); }
+  button:focus-visible, .btn:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 500; }
+  button:disabled { opacity: 0.45; cursor: default; }
+  .seg { display: flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--surface); }
+  .seg button { border: 0; border-radius: 0; flex: 1; justify-content: center; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .row > .grow { flex: 1; min-width: 0; }
+  label.check { display: flex; gap: 8px; align-items: center; cursor: pointer; }
+  .slider { display: grid; grid-template-columns: 88px minmax(0, 1fr) 44px; gap: 8px; align-items: center; }
+  .slider output { font-family: var(--font-mono); font-size: 12px; text-align: right; color: var(--muted); }
+  input[type="range"] { width: 100%; accent-color: var(--accent); }
+  input[type="text"], select {
+    font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; min-width: 0;
+  }
+  .hint { color: var(--muted); font-size: 12px; margin: 0; }
+  .status { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+  .status.err { color: var(--warn); }
+
+  .preview { position: relative; background: #000; border-radius: var(--r); overflow: hidden; aspect-ratio: 4 / 3; max-width: 100%; }
+  .preview video, .preview canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+  .preview.mirror video, .preview.mirror canvas { transform: scaleX(-1); }
+  .preview .empty { position: absolute; inset: 0; display: grid; place-items: center; color: #9fb0b7; font-size: 12px; text-align: center; padding: 16px; }
+
+  table.angles { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  table.angles th { font-weight: 500; color: var(--muted); font-size: 11px; text-align: right; padding: 2px 4px; }
+  table.angles th:first-child, table.angles td:first-child { text-align: left; }
+  table.angles td { font-family: var(--font-mono); font-size: 12px; text-align: right; padding: 3px 4px; border-top: 1px solid var(--line); }
+  table.angles td.low { color: var(--warn); }
+  .conf { display: inline-block; width: 36px; height: 4px; background: var(--line); border-radius: 2px; vertical-align: middle; overflow: hidden; }
+  .conf i { display: block; height: 100%; background: var(--ok); }
+  .tabs { display: flex; gap: 4px; }
+  .tabs button[aria-pressed="true"] { border-color: currentColor; }
+  .tabs .l { color: var(--left); } .tabs .r { color: var(--right); }
+
+  .poses { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .poses li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 8px; align-items: center; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
+  .poses .name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .poses .meta { grid-column: 1 / -1; font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+  .poses .acts { display: flex; gap: 4px; }
+  .poses .acts button { padding: 3px 7px; font-size: 12px; }
+  .poses .empty { color: var(--muted); font-size: 12px; border-style: dashed; display: block; }
+  .file-btn input { display: none; }
+  .toast { position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 6px; font-size: 13px; z-index: 20; }
+  textarea.json { width: 100%; min-height: 120px; font-family: var(--font-mono); font-size: 11px; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 8px; box-sizing: border-box; }
+
+  @media (max-width: 860px) {
+    html, body { height: auto; }
+    .app { grid-template-columns: minmax(0, 1fr); height: auto; }
+    .stage { height: 58svh; min-height: 340px; }
+    .rail { border-left: 0; border-top: 1px solid var(--line); overflow: visible; }
+    .rail section { padding-left: max(16px, env(safe-area-inset-left, 0px)); }
+    .countdown { font-size: 88px; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="app">
+  <div class="stage">
+    <canvas id="viewport"></canvas>
+    <div class="stage-bar">
+      <div class="brand">Hand Motion Studio<small>양손 추적 → 관절 회전 → 포즈 저장</small></div>
+      <div class="seg" role="group" aria-label="시점">
+        <button id="view-fp" aria-pressed="true">1인칭</button>
+        <button id="view-cam" aria-pressed="false">카메라 시점</button>
+      </div>
+    </div>
+    <div class="banner" id="pose-banner" hidden>
+      <span id="pose-banner-text">저장된 포즈 보는 중</span>
+      <button id="back-live">라이브로 돌아가기</button>
+    </div>
+    <div class="countdown" id="countdown" hidden></div>
+    <div class="stage-foot">
+      <div class="legend"><span><i class="dot" style="background:var(--left)"></i>왼손 <b id="seen-left">–</b></span><span><i class="dot" style="background:var(--right)"></i>오른손 <b id="seen-right">–</b></span></div>
+      <span id="fps">0 fps</span>
+      <span id="gesture"></span>
+    </div>
+  </div>
+
+  <aside class="rail">
+    <section>
+      <h2>입력 <span id="engine-status">데모 재생 중</span></h2>
+      <div class="seg" role="group" aria-label="입력 방식">
+        <button id="src-demo" aria-pressed="true">데모</button>
+        <button id="src-camera" aria-pressed="false">카메라</button>
+        <button id="src-video" aria-pressed="false">동영상 파일</button>
+      </div>
+      <div class="row" id="camera-opts" hidden>
+        <select id="facing" class="grow" aria-label="카메라 선택">
+          <option value="environment">후면 카메라 (거치대 촬영)</option>
+          <option value="user">전면 카메라 / 웹캠</option>
+        </select>
+      </div>
+      <label class="btn file-btn" id="video-pick" hidden>동영상 선택…<input type="file" id="video-file" accept="video/*"></label>
+      <div class="preview" id="preview">
+        <video id="video" playsinline muted loop></video>
+        <canvas id="overlay"></canvas>
+        <div class="empty" id="preview-empty">데모는 카메라 없이 가상의 손 관절 데이터를 같은 파이프라인에 흘려 보냅니다.</div>
+      </div>
+      <label class="check"><input type="checkbox" id="swap"> 왼손·오른손 바꾸기 <span class="hint">(손이 반대로 붙을 때)</span></label>
+    </section>
+
+    <section>
+      <h2>관절 엔진</h2>
+      <label class="check"><input type="checkbox" id="limits" checked> 관절 가동 범위 제한</label>
+      <div class="slider"><label for="mincut">떨림 보정</label><input type="range" id="mincut" min="0.1" max="5" step="0.1" value="1.2"><output id="mincut-out">1.2</output></div>
+      <div class="slider"><label for="beta">반응 속도</label><input type="range" id="beta" min="0" max="40" step="1" value="12"><output id="beta-out">12</output></div>
+      <div class="row">
+        <label class="check"><input type="checkbox" id="show-joints"> 관절 점</label>
+        <label class="check"><input type="checkbox" id="show-raw"> 원본 랜드마크</label>
+        <label class="check"><input type="checkbox" id="ghost"> 귀신 손 재질</label>
+      </div>
+    </section>
+
+    <section>
+      <h2>관절 각도 <span>굽힘 / 벌림 (°)</span></h2>
+      <div class="tabs" role="group" aria-label="손 선택">
+        <button class="l" id="tab-left" aria-pressed="false">왼손</button>
+        <button class="r" id="tab-right" aria-pressed="true">오른손</button>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="angles">
+          <thead><tr><th>손가락</th><th>1관절</th><th>2관절</th><th>3관절</th><th>신뢰도</th></tr></thead>
+          <tbody id="angle-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <h2>포즈 <span id="pose-count">0개</span></h2>
+      <div class="row">
+        <input type="text" id="pose-name" class="grow" placeholder="포즈 이름 (예: 귀신 손 01)" maxlength="60">
+      </div>
+      <div class="row">
+        <button class="primary" id="capture">포즈 캡처</button>
+        <button id="capture-timer">3초 후 캡처</button>
+        <span class="hint">단축키 Space</span>
+      </div>
+      <ul class="poses" id="pose-list"></ul>
+      <div class="row">
+        <label class="btn file-btn">JSON 불러오기<input type="file" id="pose-file" accept="application/json,.json"></label>
+        <button id="export-all">전체 내보내기</button>
+      </div>
+      <textarea class="json" id="json-out" readonly hidden aria-label="포즈 JSON"></textarea>
+    </section>
+  </aside>
+</div>
+<div class="toast" id="toast" hidden></div>
