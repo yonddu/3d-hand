@@ -5,6 +5,7 @@ import { HandRig } from './handRig.js';
 import { HandSolver } from './solver.js';
 import { PointSetFilter } from './filters.js';
 import { DemoSource } from './demo.js';
+import { loadHandGLB, RealHand, questMaterial } from './realHand.js';
 import { capturePose, validatePose, applyPose, loadLibrary, saveLibrary } from './pose.js';
 
 const CONFIG = window.HMS_CONFIG || {};
@@ -35,20 +36,6 @@ scene.add(rim);
 
 const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
-// The phone on its stand sits at the origin, looking down -Z at the hands.
-const phone = new THREE.Group();
-const phoneBody = new THREE.Mesh(
-  new THREE.BoxGeometry(0.075, 0.155, 0.008),
-  new THREE.MeshStandardMaterial({ color: 0x1d2a30, roughness: 0.4 }),
-);
-const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.003, 20), new THREE.MeshBasicMaterial({ color: 0x3fd0c9 }));
-lens.rotation.x = Math.PI / 2;
-lens.position.set(0, 0.06, -0.005);
-phone.add(phoneBody, lens);
-phone.position.set(0, -0.02, 0.02);
-// Hidden by default: in first person the phone is a reference, not part of the shot.
-phone.visible = false;
-scene.add(phone);
 
 const grid = new THREE.GridHelper(1.2, 24, 0x7f9aa3, 0x7f9aa3);
 grid.material.transparent = true;
@@ -73,7 +60,7 @@ for (const side of SIDES) {
   solvers[side] = new HandSolver(rigs[side]);
   filters[side] = new PointSetFilter(21, filterParams);
   anchorFilters[side] = new PointSetFilter(1, anchorParams);
-  rigs[side].group.position.set(side === 'right' ? -0.11 : 0.11, -0.08, -0.42);
+  rigs[side].group.position.set(side === 'right' ? 0.11 : -0.11, -0.11, -0.42);
 
   // Raw (unfiltered, unconstrained) landmarks for comparison.
   const g = new THREE.BufferGeometry();
@@ -84,24 +71,17 @@ for (const side of SIDES) {
   scene.add(rawDots[side]);
 }
 
-const VIEWS = {
-  // Behind the hands, looking toward the phone: what the player sees in first person.
-  fp: { pos: [0, 0.16, -1.0], target: [0, -0.01, -0.4] },
-  // From the phone, the way the camera sees the hands.
-  cam: { pos: [0, 0.0, 0.12], target: [0, -0.01, -0.42] },
-};
-function setView(name) {
-  const v = VIEWS[name];
-  camera.position.fromArray(v.pos);
-  controls.target.fromArray(v.target);
+// The phone sits at the player's eyes and looks the same way they do (-Z), so
+// the camera's view of the hands is the first-person view: backs of the hands,
+// reaching forward. Orbiting is for inspection; reset returns to the eye.
+const EYE = { pos: [0, 0.03, 0.06], target: [0, -0.03, -0.42] };
+function resetView() {
+  camera.position.fromArray(EYE.pos);
+  controls.target.fromArray(EYE.target);
   controls.update();
-  phone.visible = name !== 'cam' && $('show-phone').checked;
-  $('view-fp').setAttribute('aria-pressed', name === 'fp');
-  $('view-cam').setAttribute('aria-pressed', name === 'cam');
 }
-setView('fp');
-$('view-fp').onclick = () => setView('fp');
-$('view-cam').onclick = () => setView('cam');
+resetView();
+$('view-reset').onclick = resetView;
 
 function resize() {
   const { clientWidth: w, clientHeight: h } = canvas;
@@ -266,12 +246,37 @@ const bindSlider = (id, obj, key) => {
 bindSlider('mincut', filterParams, 'minCutoff');
 bindSlider('beta', filterParams, 'beta');
 $('show-joints').onchange = (e) => SIDES.forEach((s) => rigs[s].setJointsVisible(e.target.checked));
-$('show-phone').onchange = (e) => (phone.visible = e.target.checked && $('view-cam').getAttribute('aria-pressed') !== 'true');
 $('show-raw').onchange = (e) => SIDES.forEach((s) => (rawDots[s].visible = e.target.checked));
-$('ghost').onchange = (e) =>
-  SIDES.forEach((s) => {
-    rigs[s].mesh.material.dispose();
-    rigs[s].mesh.material = e.target.checked ? ghostMat() : skinMat();
+const MATERIALS = { quest: questMaterial, skin: skinMat, ghost: ghostMat };
+function applyLook() {
+  const make = MATERIALS[$('look').value];
+  for (const s of SIDES) {
+    const target = realHands[s] || rigs[s];
+    target.mesh.material.dispose();
+    const mat = make();
+    if (realHands[s]) realHands[s].setMaterial(mat);
+    else rigs[s].mesh.material = mat;
+  }
+}
+$('look').onchange = applyLook;
+
+// Realistic hand meshes replace the procedural capsules once they load.
+const realHands = { left: null, right: null };
+Promise.all(
+  SIDES.map(async (side) => {
+    const src = CONFIG.handModels && CONFIG.handModels[side];
+    if (!src) return;
+    const gltf = await loadHandGLB(src);
+    const real = new RealHand(gltf, rigs[side], questMaterial());
+    scene.add(real.root);
+    rigs[side].mesh.visible = false;
+    realHands[side] = real;
+  }),
+)
+  .then(applyLook)
+  .catch((err) => {
+    console.warn('Realistic hand model failed to load; using the procedural hand.', err);
+    SIDES.forEach((s) => (rigs[s].mesh.visible = true));
   });
 
 // --- per-frame pipeline --------------------------------------------------------------
@@ -280,6 +285,8 @@ const HFOV = (63 * Math.PI) / 180;
 const FOCAL = 0.5 / Math.tan(HFOV / 2); // in image-width units
 const WORK_DEPTH = 0.42;
 const LIVE_WINDOW = 1.0; // seconds a hand counts as tracked after its last detection
+
+const facingUser = () => state.source === 'camera' && $('facing').value === 'user';
 
 // MediaPipe hand -> rig-oriented world points + scene anchor for the wrist.
 function fromMediaPipe(hand) {
@@ -295,6 +302,12 @@ function fromMediaPipe(hand) {
   // depth changes still move the hand, at half strength.
   const k = WORK_DEPTH / FOCAL;
   const anchor = new THREE.Vector3((a.x - 0.5) * k, (-(a.y - 0.5) / aspect) * k, -(WORK_DEPTH + 0.5 * (z - WORK_DEPTH)));
+  if (facingUser()) {
+    // A camera facing the person sees the palms. Turn the hands 180 degrees
+    // around the work plane so the scene is still the player's own view.
+    world.forEach((p) => p.set(-p.x, p.y, -p.z));
+    anchor.set(-anchor.x, anchor.y, -2 * WORK_DEPTH - anchor.z);
+  }
   return { side: hand.side, world, anchor };
 }
 
@@ -382,7 +395,7 @@ function tick(now) {
       feed(inputs, t);
       state.gesture = inputs[1].gesture;
     } else if (tracker && video.readyState >= 2) {
-      const hands = tracker.detect(video, now, { swapHandedness: state.swap });
+      const hands = tracker.detect(video, now, { swapHandedness: state.swap, rightOnImageRight: !facingUser() });
       if (hands) {
         drawOverlay(hands);
         feed(hands.map(fromMediaPipe), t);
@@ -390,6 +403,7 @@ function tick(now) {
     }
     relaxLost(t);
   }
+  for (const side of SIDES) if (realHands[side]) realHands[side].update();
   controls.update();
   renderer.render(scene, camera);
 
@@ -630,4 +644,4 @@ $('export-all').onclick = () => {
 renderLibrary();
 renderTable();
 requestAnimationFrame(tick);
-window.__hms = { rigs, solvers, state, capture, viewPose };
+window.__hms = { scene, rigs, solvers, state, capture, viewPose };

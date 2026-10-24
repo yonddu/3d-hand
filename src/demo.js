@@ -67,18 +67,20 @@ export class DemoSource {
 
       const w = mix(a.wrist, b.wrist);
       const sway = Math.sin(t * 0.9 + si) * 8;
-      // Palms facing the camera (+Z toward viewer); fingers up.
+      // Seen from the player's eyes: backs of the hands toward the camera,
+      // fingers reaching up and forward (turned 180 degrees, tilted 40).
+      const reach = new THREE.Quaternion().setFromEuler(new THREE.Euler(40 * D2R, Math.PI, 0, 'YXZ'));
       const rot = new THREE.Quaternion().setFromEuler(
         new THREE.Euler((w[0] + sway * 0.5) * D2R, (w[1] * s + sway) * D2R, (w[2] * s - 8 * s) * D2R, 'YXZ'),
       );
-      rig.wrist.quaternion.copy(rot).multiply(rig.wristRest);
+      rig.wrist.quaternion.copy(reach).multiply(rot).multiply(rig.wristRest);
 
       const P = rig.landmarkPositions();
       // Camera-like jitter (~2.5 mm) so the smoothing has something to do.
       P.forEach((p) => p.add(new THREE.Vector3(gauss() * 0.0025, gauss() * 0.0025, gauss() * 0.004)));
       const anchor = new THREE.Vector3(
-        -0.11 * s + Math.sin(t * 0.7 + si * 2) * 0.015,
-        -0.08 + Math.sin(t * 1.1 + si) * 0.01,
+        0.11 * s + Math.sin(t * 0.7 + si * 2) * 0.015,
+        -0.11 + Math.sin(t * 1.1 + si) * 0.01,
         -0.42,
       );
       return { side, world: P, anchor, gesture: name };

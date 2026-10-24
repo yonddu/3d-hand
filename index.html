@@ -52,6 +52,7 @@
     padding: 12px max(16px, env(safe-area-inset-left, 0px)) 0; pointer-events: none;
   }
   .stage-bar > * { pointer-events: auto; }
+  #view-reset { background: var(--surface); }
   .brand { font-weight: 600; letter-spacing: 0.01em; margin-right: auto; }
   .brand small { display: block; font-weight: 400; color: var(--muted); font-size: 12px; }
   .stage-foot {
@@ -145,10 +146,7 @@
     <canvas id="viewport"></canvas>
     <div class="stage-bar">
       <div class="brand">Hand Motion Studio<small>양손 추적 → 관절 회전 → 포즈 저장</small></div>
-      <div class="seg" role="group" aria-label="시점">
-        <button id="view-fp" aria-pressed="true">1인칭</button>
-        <button id="view-cam" aria-pressed="false">카메라 시점</button>
-      </div>
+      <button id="view-reset" title="드래그로 돌려 본 화면을 다시 1인칭(폰 카메라) 시점으로">1인칭 시점으로</button>
     </div>
     <div class="banner" id="pose-banner" hidden>
       <span id="pose-banner-text">저장된 포즈 보는 중</span>
@@ -172,8 +170,8 @@
       </div>
       <div class="row" id="camera-opts" hidden>
         <select id="facing" class="grow" aria-label="카메라 선택">
-          <option value="environment">후면 카메라 (거치대 촬영)</option>
-          <option value="user">전면 카메라 / 웹캠</option>
+          <option value="environment">후면 카메라 (폰 뒤에서 손 뻗기)</option>
+          <option value="user">전면 카메라 / 웹캠 (카메라와 마주 보기)</option>
         </select>
       </div>
       <label class="btn file-btn" id="video-pick" hidden>동영상 선택…<input type="file" id="video-file" accept="video/*"></label>
@@ -193,8 +191,14 @@
       <div class="row">
         <label class="check"><input type="checkbox" id="show-joints"> 관절 점</label>
         <label class="check"><input type="checkbox" id="show-raw"> 원본 랜드마크</label>
-        <label class="check"><input type="checkbox" id="show-phone"> 스마트폰 위치</label>
-        <label class="check"><input type="checkbox" id="ghost"> 귀신 손 재질</label>
+      </div>
+      <div class="row">
+        <label for="look">손 재질</label>
+        <select id="look" class="grow">
+          <option value="quest">퀘스트 스타일</option>
+          <option value="skin">피부</option>
+          <option value="ghost">귀신 손</option>
+        </select>
       </div>
     </section>
 
@@ -233,7 +237,7 @@
 </div>
 <div class="toast" id="toast" hidden></div>
 
-<script>window.HMS_CONFIG = {"wasmBase":"vendor/mediapipe/wasm","modelPath":"vendor/models/hand_landmarker.task"};</script>
+<script>window.HMS_CONFIG = {"wasmBase":"vendor/mediapipe/wasm","modelPath":"vendor/models/hand_landmarker.task","handModels":{"left":{"url":"vendor/models/hand-left.glb"},"right":{"url":"vendor/models/hand-right.glb"}}};</script>
 <script type="importmap">{
   "imports": {
     "three": "./vendor/three/three.module.min.js",

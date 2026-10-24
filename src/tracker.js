@@ -39,7 +39,7 @@ export class HandTracker {
   }
 
   // Returns null when the frame was already processed.
-  detect(video, nowMs, { swapHandedness = false } = {}) {
+  detect(video, nowMs, { swapHandedness = false, rightOnImageRight = true } = {}) {
     if (!this.landmarker || video.readyState < 2) return null;
     if (video.currentTime === this.lastVideoTime) return null;
     this.lastVideoTime = video.currentTime;
@@ -51,18 +51,19 @@ export class HandTracker {
       if (swapHandedness) side = side === 'left' ? 'right' : 'left';
       return { side, score: cat.score, landmarks: lm, world: res.worldLandmarks[i] };
     });
-    return resolveSides(hands, swapHandedness);
+    return resolveSides(hands, rightOnImageRight !== swapHandedness);
   }
 }
 
 // Two hands with the same label: keep the more confident label and give the
-// other hand the opposite side. In an unmirrored view the person's right hand
-// is the one further left in the image.
-function resolveSides(hands, swapHandedness) {
+// other hand the opposite side, by where each hand is in the image. A camera
+// behind the hands (looking the way the person looks) has the right hand on
+// the image right; a camera facing the person has it on the image left.
+function resolveSides(hands, rightOnImageRight) {
   if (hands.length === 2 && hands[0].side === hands[1].side) {
     const [a, b] = hands;
     const aLeftInImage = a.landmarks[0].x < b.landmarks[0].x;
-    const leftImageSide = swapHandedness ? 'left' : 'right';
+    const leftImageSide = rightOnImageRight ? 'left' : 'right';
     a.side = aLeftInImage ? leftImageSide : opposite(leftImageSide);
     b.side = opposite(a.side);
   }
