@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { FINGERS, HAND_CONNECTIONS } from './skeleton.js';
+import { FINGERS, HAND_CONNECTIONS, restLandmarks } from './skeleton.js';
 import { HandRig } from './handRig.js';
 import { HandSolver } from './solver.js';
 import { PointSetFilter } from './filters.js';
@@ -181,13 +181,10 @@ async function ensureTracker() {
       const t = new HandTracker(CONFIG);
       await t.init((s) => setStatus(s));
       tracker = t;
-      t.initObjects((s) => setStatus(s))
-        .catch((err) => {
-          console.warn(err);
-          setStatus(`추적 준비됨 (${t.delegate}) · 물건 인식 없음`);
-        })
-        .then(() => t.initPose())
-        .then(() => t.pose && setStatus(`추적 + 물건 + 팔꿈치 인식 준비됨 (${t.delegate})`))
+      // Held-object recognition is switched off (the user asked for no virtual
+      // objects in the hand); only the pose model loads, for the elbows.
+      t.initPose()
+        .then(() => t.pose && setStatus(`추적 + 팔꿈치 인식 준비됨 (${t.delegate})`))
         .catch((err) => console.warn('pose model unavailable; elbows use IK only', err));
       return t;
     })().catch((err) => {
@@ -402,6 +399,13 @@ const focalW = (aspect) => (Math.max(1, 1 / aspect) * 0.5) / Math.tan(LONG_FOV /
 const WORK_DEPTH = 0.42;
 const LIVE_WINDOW = 1.0; // seconds a hand counts as tracked after its last detection
 
+const PALM_SEGMENTS = [[0, 5], [0, 9], [0, 17], [5, 17], [5, 9], [9, 17]];
+const MODEL_PALM = Object.fromEntries(
+  PALM_SEGMENTS.map(([i, j]) => {
+    const R = restLandmarks('right');
+    return [`${i}-${j}`, Math.hypot(R[i][0] - R[j][0], R[i][1] - R[j][1], R[i][2] - R[j][2])];
+  }),
+);
 const facingUser = () => state.source === 'camera' && $('facing').value === 'user';
 
 // MediaPipe hand -> rig-oriented world points + scene anchor for the wrist.
@@ -410,11 +414,18 @@ function fromMediaPipe(hand) {
   const world = hand.world.map((p) => new THREE.Vector3(p.x, -p.y, -p.z));
   const aspect = (video.videoWidth || 4) / (video.videoHeight || 3);
   const a = hand.landmarks[0];
-  const b = hand.landmarks[9];
-  const pix = Math.hypot(b.x - a.x, (b.y - a.y) / aspect);
-  const real = world[0].distanceTo(world[9]);
   const FOCAL = focalW(aspect);
-  const z = THREE.MathUtils.clamp((FOCAL * real) / Math.max(pix, 1e-3), 0.18, 1.2);
+  // Distance at which the 3D hand model (not the person's hand, whose size we
+  // don't know) covers the hand in the picture. Each palm segment shrinks
+  // differently when the palm tilts; the least shortened one is the honest one.
+  let z = Infinity;
+  for (const [i, j] of PALM_SEGMENTS) {
+    const p = hand.landmarks[i];
+    const q = hand.landmarks[j];
+    const pix = Math.hypot(q.x - p.x, (q.y - p.y) / aspect);
+    z = Math.min(z, (FOCAL * MODEL_PALM[`${i}-${j}`]) / Math.max(pix, 1e-3));
+  }
+  z = THREE.MathUtils.clamp(z, 0.18, 1.2);
   const vision = objectForHand(state.detections, hand, aspect);
   if (state.ar) {
     // Passthrough: put the wrist on its own camera ray at its real distance,
@@ -685,7 +696,7 @@ function tick(now) {
       }
       let hands = null;
       try {
-        hands = tracker.detect(video, now, { swapHandedness: state.swap, rightOnImageRight: !facingUser() });
+        hands = tracker.detect(video, now, { swapHandedness: state.swap, rightOnImageRight: !facingUser(), firstPerson: state.source === 'camera' && !facingUser() });
       } catch (err) {
         console.error(err);
         fallbackToCPU('추적 오류');

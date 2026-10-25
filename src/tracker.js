@@ -136,7 +136,7 @@ export class HandTracker {
   }
 
   // Returns null when the frame was already processed.
-  detect(video, nowMs, { swapHandedness = false, rightOnImageRight = true } = {}) {
+  detect(video, nowMs, { swapHandedness = false, rightOnImageRight = true, firstPerson = false } = {}) {
     if (!this.landmarker || video.readyState < 2 || !video.videoWidth) return null;
     if (video.srcObject) {
       if (this.rvfc) {
@@ -158,15 +158,21 @@ export class HandTracker {
       return { side, score: cat.score, landmarks: lm, world: res.worldLandmarks[i], chiral: chirality(res.worldLandmarks[i]) };
     });
     this.lastHands = hands;
-    return resolveSides(this.keepSides(hands, nowMs, swapHandedness), rightOnImageRight !== swapHandedness);
+    return resolveSides(this.keepSides(hands, nowMs, swapHandedness, firstPerson ? video.videoWidth / video.videoHeight : 0), rightOnImageRight !== swapHandedness);
   }
 
-  // The left/right label of a lone hand flickers, most of all while it turns
-  // between palm and back. A wrong label mirrors the palm frame and bends the
-  // fingers backward, so the hand's 3D shape decides first (chirality), and
-  // when that is unclear (flat hand) a hand that continues one from the last
-  // frames keeps its side unless the new label holds for several frames.
-  keepSides(hands, nowMs, swap = false) {
+  // Left or right. Seen from behind (first person), the back of a left hand and
+  // the palm of a right hand make the same picture, and the model sometimes
+  // takes one for the other, mostly while the wrist turns. Its 3D landmarks
+  // then belong to the wrong hand too, so a wrong side twists the whole hand.
+  // In first person (aspect > 0) the arm settles it: a forearm runs back
+  // toward its own shoulder, the left one below and left of the picture. The
+  // landmarks' depth is then mirrored to match. Otherwise the hand's 3D shape
+  // (chirality) decides, and when that is unclear too (flat hand) a hand that
+  // continues one from the last frames keeps its side unless the new label
+  // holds for several frames. In first person a hand keeps the side the arm
+  // gave it for as long as it is tracked.
+  keepSides(hands, nowMs, swap = false, aspect = 0) {
     const prev = (this.tracks || []).filter((k) => nowMs - k.t < 400);
     this.tracks = hands.map((h) => {
       const x = h.landmarks[0].x;
@@ -180,20 +186,48 @@ export class HandTracker {
           bestD = d;
         }
       }
+      const shapeSide = (c) => (c > 0 !== swap ? 'right' : 'left');
+      const arm = aspect ? armSide(h.landmarks, aspect) : null;
       const chiral = best ? best.chiral * 0.4 + h.chiral * 0.6 : h.chiral;
       let flips = 0;
-      if (Math.abs(chiral) > CHIRAL_SURE) h.side = chiral > 0 !== swap ? 'right' : 'left';
+      if (arm) h.side = arm;
+      else if (aspect && best) h.side = best.side; // the arm decided earlier; keep it while it is unclear
+      else if (Math.abs(chiral) > CHIRAL_SURE) h.side = shapeSide(chiral);
       else if (best && best.side !== h.side) {
         flips = best.flips + 1;
         if (flips < SIDE_FLIP_FRAMES) h.side = best.side;
         else flips = 0;
       }
-      return { side: h.side, x, y, t: nowMs, flips, chiral };
+      if (aspect && Math.abs(h.chiral) > 0.1 && shapeSide(h.chiral) !== h.side) {
+        h.world = h.world.map((p) => ({ x: p.x, y: p.y, z: -p.z }));
+        h.chiral = -h.chiral;
+        h.mirrored = true;
+      }
+      return { side: h.side, x, y, t: nowMs, flips, chiral: best ? best.chiral * 0.4 + h.chiral * 0.6 : h.chiral };
     });
     return hands;
   }
 }
 
+// First person: which shoulder the forearm line points back to. The line runs
+// from the middle knuckle through the wrist; the shoulders sit below the
+// picture, out to each side. null when the angles are too close to call.
+function armSide(L, aspect) {
+  const w = [L[0].x, L[0].y / aspect];
+  const d = [L[0].x - L[9].x, (L[0].y - L[9].y) / aspect];
+  if (Math.hypot(...d) < 1e-4) return null;
+  const bottom = 1 / aspect;
+  const angleTo = (sx) => {
+    const t = [sx - w[0], bottom + 0.6 - w[1]];
+    return Math.acos(Math.max(-1, Math.min(1, (d[0] * t[0] + d[1] * t[1]) / Math.hypot(...d) / Math.hypot(...t))));
+  };
+  const l = angleTo(-0.35);
+  const r = angleTo(1.35);
+  if (Math.abs(l - r) < ARM_MARGIN) return null;
+  return l < r ? 'left' : 'right';
+}
+
+const ARM_MARGIN = (30 * Math.PI) / 180;
 const SIDE_FLIP_FRAMES = 8;
 const CHIRAL_SURE = 0.25;
 

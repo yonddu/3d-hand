@@ -287,21 +287,9 @@
         <label class="check"><input type="checkbox" id="show-joints"> 관절 점</label>
         <label class="check"><input type="checkbox" id="show-raw"> 원본 랜드마크</label>
       </div>
-      <div class="row">
-        <label for="object-mode">쥔 물건</label>
-        <select id="object-mode" class="grow">
-          <option value="auto">자동 (카메라 인식 + 손 모양)</option>
-          <option value="hand">손 모양으로만 추정</option>
-          <option value="cylinder">원기둥으로 고정</option>
-          <option value="sphere">공으로 고정</option>
-          <option value="box">상자로 고정</option>
-          <option value="rod">막대로 고정</option>
-          <option value="off">끄기</option>
-        </select>
-      </div>
-      <div class="row">
-        <label class="check"><input type="checkbox" id="contact" checked> 손가락 접촉 보정</label>
-      </div>
+      <!-- Held objects are switched off; the controls stay hidden for the code that reads them. -->
+      <select id="object-mode" hidden><option value="off" selected>끄기</option></select>
+      <input type="checkbox" id="contact" hidden>
       <div class="row">
         <label class="check"><input type="checkbox" id="show-arm" checked> 아래팔·팔꿈치</label>
         <label class="check"><input type="checkbox" id="show-upper"> 위팔</label>
@@ -335,9 +323,7 @@
       <div class="row">
         <button id="rec-json" disabled>마지막 테이크 JSON</button>
       </div>
-      <div class="row">
-        <label class="check"><input type="checkbox" id="rec-object" checked> 쥔 물체도 GLB에 넣기</label>
-      </div>
+      <input type="checkbox" id="rec-object" hidden>
       <p class="hint">녹화는 화면 아래 빨간 버튼으로 합니다. 입력이 동영상 파일이면 처음부터 끝까지 한 프레임씩(30fps) 자동으로 녹화합니다. GLB에는 어깨·위팔·아래팔·손목·손가락 뼈대(믹사모 이름)와 스킨 메시, 애니메이션이 들어가서 블렌더·유니티·언리얼에 바로 넣을 수 있습니다.</p>
     </section>
 
