@@ -1,5 +1,5 @@
 // MediaPipe Hand Landmarker wrapper: video frame -> up to two labelled hands.
-import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
+import { FilesetResolver, HandLandmarker, ObjectDetector, PoseLandmarker } from '@mediapipe/tasks-vision';
 
 export class HandTracker {
   constructor(config) {
@@ -7,6 +7,10 @@ export class HandTracker {
     this.landmarker = null;
     this.delegate = null;
     this.lastVideoTime = -1;
+    this.objects = null; // object detector, created after the hand model
+    this.lastObjectTime = -1;
+    this.pose = null; // body pose, for elbows when they are in view
+    this.lastPoseTime = -1;
   }
 
   async init(onStatus = () => {}) {
@@ -36,6 +40,72 @@ export class HandTracker {
       this.delegate = 'CPU';
     }
     onStatus(`추적 준비됨 (${this.delegate})`);
+    this.fileset = fileset;
+  }
+
+  // Object detector for "what is in the hand". Optional: tracking works without it.
+  async initObjects(onStatus = () => {}) {
+    const { objectModelPath, objectModelBase64Path } = this.config;
+    if (!objectModelPath && !objectModelBase64Path) return;
+    onStatus('물건 인식 모델 불러오는 중…');
+    const model = objectModelBase64Path
+      ? { modelAssetBuffer: await fetchBase64(objectModelBase64Path) }
+      : { modelAssetPath: objectModelPath };
+    const options = (delegate) => ({
+      baseOptions: { ...model, delegate },
+      runningMode: 'VIDEO',
+      scoreThreshold: 0.3,
+      maxResults: 6,
+    });
+    // CPU: the int8 detector is small, runs a few times a second, and leaves
+    // the GPU to the hand model and the renderer.
+    this.objects = await ObjectDetector.createFromOptions(this.fileset, options('CPU'));
+    onStatus(`추적 + 물건 인식 준비됨 (${this.delegate})`);
+  }
+
+  async initPose() {
+    const { poseModelPath, poseModelBase64Path } = this.config;
+    if (!poseModelPath && !poseModelBase64Path) return;
+    const model = poseModelBase64Path
+      ? { modelAssetBuffer: await fetchBase64(poseModelBase64Path) }
+      : { modelAssetPath: poseModelPath };
+    const options = (delegate) => ({ baseOptions: { ...model, delegate }, runningMode: 'VIDEO', numPoses: 1 });
+    try {
+      this.pose = await PoseLandmarker.createFromOptions(this.fileset, options(this.delegate));
+    } catch (err) {
+      console.warn('pose on', this.delegate, 'failed, trying CPU', err);
+      this.pose = await PoseLandmarker.createFromOptions(this.fileset, options('CPU'));
+    }
+  }
+
+  // { landmarks, world } for one person (MediaPipe pose indices), or null.
+  detectPose(video, nowMs) {
+    if (!this.pose || video.readyState < 2) return null;
+    if (nowMs <= this.lastPoseTime) return null;
+    this.lastPoseTime = nowMs;
+    const res = this.pose.detectForVideo(video, nowMs);
+    if (!res.landmarks.length) return { landmarks: null, world: null };
+    return { landmarks: res.landmarks[0], world: res.worldLandmarks[0] };
+  }
+
+  // [{ category, score, x, y, w, h }] with the box normalized to the frame.
+  detectObjects(video, nowMs) {
+    if (!this.objects || video.readyState < 2 || !video.videoWidth) return null;
+    if (nowMs <= this.lastObjectTime) return null;
+    this.lastObjectTime = nowMs;
+    const res = this.objects.detectForVideo(video, nowMs);
+    const W = video.videoWidth;
+    const H = video.videoHeight;
+    return res.detections
+      .filter((d) => d.categories[0] && d.categories[0].categoryName !== 'person')
+      .map((d) => ({
+        category: d.categories[0].categoryName,
+        score: d.categories[0].score,
+        x: d.boundingBox.originX / W,
+        y: d.boundingBox.originY / H,
+        w: d.boundingBox.width / W,
+        h: d.boundingBox.height / H,
+      }));
   }
 
   // Returns null when the frame was already processed.

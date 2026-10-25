@@ -7,6 +7,8 @@ import { PointSetFilter } from './filters.js';
 import { DemoSource } from './demo.js';
 import { loadHandGLB, RealHand, questMaterial } from './realHand.js';
 import { GraspEstimator, OBJECT_LABEL, handFeatures } from './grasp.js';
+import { objectForHand, manualObject } from './objects.js';
+import { ArmRig } from './arm.js';
 import { capturePose, validatePose, applyPose, loadLibrary, saveLibrary } from './pose.js';
 
 const CONFIG = window.HMS_CONFIG || {};
@@ -107,6 +109,10 @@ const state = {
   lastSolve: { left: null, right: null },
   rawLandmarks: { left: null, right: null },
   tableSide: 'right',
+  detections: [],
+  detAt: -1e9,
+  pose: null,
+  poseAt: -1e9,
   gesture: '',
 };
 const demo = new DemoSource();
@@ -134,6 +140,14 @@ async function ensureTracker() {
       const t = new HandTracker(CONFIG);
       await t.init((s) => setStatus(s));
       tracker = t;
+      t.initObjects((s) => setStatus(s))
+        .catch((err) => {
+          console.warn(err);
+          setStatus(`추적 준비됨 (${t.delegate}) · 물건 인식 없음`);
+        })
+        .then(() => t.initPose())
+        .then(() => t.pose && setStatus(`추적 + 물건 + 팔꿈치 인식 준비됨 (${t.delegate})`))
+        .catch((err) => console.warn('pose model unavailable; elbows use IK only', err));
       return t;
     })().catch((err) => {
       trackerLoading = null;
@@ -258,6 +272,10 @@ function applyLook() {
     const mat = make();
     if (realHands[s]) realHands[s].setMaterial(mat);
     else rigs[s].mesh.material = mat;
+    const armMat = make();
+    armMat.transparent = true;
+    armMat.opacity = Math.min(armMat.opacity, 0.55);
+    arms[s].forearm.material = arms[s].upperArm.material = armMat;
   }
 }
 $('look').onchange = applyLook;
@@ -269,9 +287,30 @@ const realHands = { left: null, right: null };
 const objectMat = new THREE.MeshStandardMaterial({ color: 0xd99a4e, roughness: 0.55, transparent: true, opacity: 0.5, depthWrite: false });
 const grasps = {};
 SIDES.forEach((s) => (grasps[s] = new GraspEstimator(rigs[s], objectMat)));
-$('grasp').onchange = (e) => {
-  if (!e.target.checked) SIDES.forEach((s) => grasps[s].reset());
-};
+$('object-mode').onchange = () => SIDES.forEach((s) => grasps[s].reset());
+
+// Forearm + elbow per side.
+const arms = {};
+const armResults = { left: null, right: null };
+for (const s of SIDES) {
+  const mat = questMaterial();
+  mat.opacity = 0.55;
+  arms[s] = new ArmRig(s, mat);
+  scene.add(arms[s].group);
+}
+const syncArmVisibility = () =>
+  SIDES.forEach((s) => arms[s].setVisible($('show-arm').checked, $('show-upper').checked, $('show-arm').checked));
+$('show-arm').onchange = syncArmVisibility;
+$('show-upper').onchange = syncArmVisibility;
+
+// Which object description to give the grasp estimator this frame.
+function graspOptions(input) {
+  const mode = $('object-mode').value;
+  const correct = $('contact').checked;
+  if (mode === 'auto') return { correct, vision: input.vision || null };
+  if (mode === 'hand') return { correct, handOnly: true };
+  return { correct, vision: manualObject(mode), forced: true };
+}
 Promise.all(
   SIDES.map(async (side) => {
     const src = CONFIG.handModels && CONFIG.handModels[side];
@@ -312,13 +351,36 @@ function fromMediaPipe(hand) {
   // depth changes still move the hand, at half strength.
   const k = WORK_DEPTH / FOCAL;
   const anchor = new THREE.Vector3((a.x - 0.5) * k, (-(a.y - 0.5) / aspect) * k, -(WORK_DEPTH + 0.5 * (z - WORK_DEPTH)));
+  const elbow = elbowFromPose(hand, anchor, aspect, k);
   if (facingUser()) {
     // A camera facing the person sees the palms. Turn the hands 180 degrees
     // around the work plane so the scene is still the player's own view.
     world.forEach((p) => p.set(-p.x, p.y, -p.z));
     anchor.set(-anchor.x, anchor.y, -2 * WORK_DEPTH - anchor.z);
+    if (elbow) elbow.set(-elbow.x, elbow.y, -2 * WORK_DEPTH - elbow.z);
   }
-  return { side: hand.side, world, anchor };
+  const vision = objectForHand(state.detections, hand, aspect);
+  return { side: hand.side, world, anchor, vision, elbow };
+}
+
+// Elbow seen by the pose model, placed relative to this hand's wrist.
+const POSE_ARM = { left: { elbow: 13, wrist: 15 }, right: { elbow: 14, wrist: 16 } };
+function elbowFromPose(hand, anchor, aspect, k) {
+  const pose = state.pose;
+  if (!pose || !pose.landmarks) return null;
+  const ids = POSE_ARM[hand.side];
+  const e = pose.landmarks[ids.elbow];
+  const w = pose.landmarks[ids.wrist];
+  const hw = hand.landmarks[0];
+  // Same arm as this hand, and the elbow clearly visible.
+  if ((e.visibility ?? 0) < 0.6 || Math.hypot(w.x - hw.x, w.y - hw.y) > 0.15) return null;
+  const ew = pose.world[ids.elbow];
+  const ww = pose.world[ids.wrist];
+  return new THREE.Vector3(
+    anchor.x + (e.x - hw.x) * k,
+    anchor.y - ((e.y - hw.y) / aspect) * k,
+    anchor.z - (ew.z - ww.z),
+  );
 }
 
 function feed(inputs, t) {
@@ -340,7 +402,8 @@ function feed(inputs, t) {
     rig.group.visible = true;
     rig.group.position.set(anc[0], anc[1], anc[2]);
     state.lastSolve[side] = solvers[side].solve(smooth, { limits: state.limits });
-    if ($('grasp').checked) grasps[side].update({ correct: $('contact').checked });
+    if ($('object-mode').value !== 'off') grasps[side].update(graspOptions(input));
+    armResults[side] = arms[side].update(rig.group.position, rig.wrist.quaternion, input.elbow || null);
     updateRaw(side, input.world, rig.group.position);
   }
 }
@@ -393,6 +456,18 @@ function drawOverlay(hands) {
       octx.fill();
     }
   }
+  // Recognized objects.
+  const accent = cssVar('--accent');
+  octx.font = `${Math.max(12, w / 45)}px ${cssVar('--font-mono') || 'monospace'}`;
+  for (const d of state.detections || []) {
+    octx.strokeStyle = accent;
+    octx.lineWidth = Math.max(2, w / 400);
+    octx.setLineDash([8, 6]);
+    octx.strokeRect(d.x * w, d.y * h, d.w * w, d.h * h);
+    octx.setLineDash([]);
+    octx.fillStyle = accent;
+    octx.fillText(`${d.category} ${Math.round(d.score * 100)}%`, d.x * w + 4, Math.max(14, d.y * h - 6));
+  }
 }
 
 let frames = 0;
@@ -407,6 +482,21 @@ function tick(now) {
       feed(inputs, t);
       state.gesture = inputs[1].gesture;
     } else if (tracker && video.readyState >= 2) {
+      if (tracker.objects && now - state.detAt > 150) {
+        const found = tracker.detectObjects(video, now);
+        if (found) {
+          state.detections = found;
+          state.detAt = now;
+        }
+      }
+      if (now - state.detAt > 800) state.detections = [];
+      if (tracker.pose && now - state.poseAt > 100) {
+        const p = tracker.detectPose(video, now);
+        if (p) {
+          state.pose = p;
+          state.poseAt = now;
+        }
+      }
       const hands = tracker.detect(video, now, { swapHandedness: state.swap, rightOnImageRight: !facingUser() });
       if (hands) {
         drawOverlay(hands);
@@ -416,6 +506,18 @@ function tick(now) {
     relaxLost(t);
   }
   for (const side of SIDES) if (realHands[side]) realHands[side].update();
+  for (const side of SIDES) {
+    arms[side].group.visible = rigs[side].group.visible;
+    // Saved poses and lost hands still need a forearm under the wrist.
+    if (state.frozen) {
+      const a = arms[side];
+      a.place(a.forearm, a.elbow, rigs[side].group.position, rigs[side].wrist.quaternion);
+      a.place(a.upperArm, a.shoulder, a.elbow, null);
+      a.elbowDot.position.copy(a.elbow);
+    } else if (state.lastSeen[side] < 0 || now / 1000 - state.lastSeen[side] > 0.2) {
+      arms[side].update(rigs[side].group.position, rigs[side].wrist.quaternion, null);
+    }
+  }
   controls.update();
   renderer.render(scene, camera);
 
@@ -431,9 +533,7 @@ function tick(now) {
     $('gesture').textContent = state.source === 'demo' && !state.frozen ? `데모 동작: ${state.gesture}` : '';
     $('object-info').textContent = SIDES.map((s) => {
       const o = grasps[s].current;
-      if (!o) return '';
-      const size = o.type === 'cylinder' || o.type === 'sphere' ? ` Ø${(o.radius * 200).toFixed(1)}cm` : ` ${(o.radius * 200).toFixed(1)}cm`;
-      return `${s === 'left' ? '왼손' : '오른손'}: ${OBJECT_LABEL[o.type]}${size}`;
+      return o ? `${s === 'left' ? '왼손' : '오른손'}: ${describeObject(o)}` : '';
     }).filter(Boolean).join(' · ');
   }
   if (now - tableT > 120) {
@@ -441,6 +541,17 @@ function tick(now) {
     renderTable();
   }
   requestAnimationFrame(tick);
+}
+
+const SOURCE_LABEL = { camera: '카메라 인식', demo: '데모 인식', hand: '손 모양 추정', manual: '직접 선택' };
+function describeObject(o) {
+  const cm = (m) => (m * 100).toFixed(1);
+  let size;
+  if (o.type === 'box') size = `${cm(o.size[0])}×${cm(o.size[1])}×${cm(o.size[2])}cm`;
+  else if (o.type === 'cylinder' || o.type === 'rod') size = `Ø${cm(o.radius * 2)} × ${cm(o.length)}cm`;
+  else size = `Ø${cm(o.radius * 2)}cm`;
+  const name = o.label ? `${o.label}(${OBJECT_LABEL[o.type]})` : OBJECT_LABEL[o.type];
+  return `${name} ${size} · ${SOURCE_LABEL[o.source] || ''}`;
 }
 
 // --- angle table -----------------------------------------------------------------------
@@ -465,6 +576,12 @@ function renderTable() {
     const bar = c === null ? '–' : `<span class="conf" title="${Math.round(c * 100)}%"><i style="width:${Math.round(c * 100)}%"></i></span>`;
     return `<tr><td>${f.label}</td>${cells}<td>${bar}</td></tr>`;
   });
+  const arm = state.frozen ? frozenArms[side] : armResults[side];
+  if (arm) {
+    const src = arm.source === 'pose' ? '인식' : 'IK 추정';
+    rows.push(`<tr><td>손목</td><td>${arm.wristFlex.toFixed(0)} / ${arm.wristDeviation.toFixed(0)}</td><td colspan="2" class="note">굽힘 / 꺾임</td><td></td></tr>`);
+    rows.push(`<tr><td>팔꿈치</td><td>${arm.elbowFlex.toFixed(0)}</td><td colspan="2" class="note">${src}</td><td></td></tr>`);
+  }
   body.innerHTML = rows.join('');
 }
 for (const side of SIDES) {
@@ -479,6 +596,23 @@ for (const side of SIDES) {
 
 let library = loadLibrary();
 const frozenAngles = { left: null, right: null };
+const frozenArms = { left: null, right: null };
+
+function roundArm(a, side) {
+  const prefix = side === 'left' ? 'Left' : 'Right';
+  const r = (v) => +v.toFixed(4);
+  return {
+    source: a.source,
+    shoulder: a.shoulder.map(r),
+    elbow: a.elbow.map(r),
+    wrist: a.wrist.map(r),
+    elbowFlex: +a.elbowFlex.toFixed(1),
+    wristFlex: +a.wristFlex.toFixed(1),
+    wristDeviation: +a.wristDeviation.toFixed(1),
+    // Mixamo names: LeftArm / LeftForeArm rotations in scene space.
+    bones: { [`${prefix}Arm`]: a.upperArmQuat.map(r), [`${prefix}ForeArm`]: a.forearmQuat.map(r) },
+  };
+}
 
 function toast(msg) {
   const el = $('toast');
@@ -504,6 +638,7 @@ function capture() {
   const pose = capturePose(nextPoseName(), rigs, state.rawLandmarks);
   SIDES.forEach((s) => (rigs[s].group.visible = visible[s]));
   for (const s of SIDES) if (pose.hands[s]) pose.hands[s].object = grasps[s].toJSON();
+  for (const s of SIDES) if (pose.hands[s]) pose.hands[s].arm = roundArm(armResults[s] || arms[s].measure(rigs[s].wrist.quaternion), s);
   if (!pose.hands.left && !pose.hands.right) {
     toast('추적 중인 손이 없어 캡처하지 않았습니다.');
     return;
@@ -571,6 +706,8 @@ function viewPose(pose) {
   for (const side of SIDES) {
     const h = pose.hands[side];
     grasps[side].fromJSON(h ? h.object : null);
+    frozenArms[side] = h && h.arm ? h.arm : null;
+    if (h && h.arm) arms[side].setFromSaved(h.arm);
     frozenAngles[side] = h && h.angles ? { angles: h.angles } : null;
   }
   $('pose-banner').hidden = false;
@@ -664,4 +801,4 @@ $('export-all').onclick = () => {
 renderLibrary();
 renderTable();
 requestAnimationFrame(tick);
-window.__hms = { handFeatures, grasps, scene, rigs, solvers, state, capture, viewPose };
+window.__hms = { armResults: () => armResults, tracker: () => ensureTracker(), handFeatures, grasps, scene, rigs, solvers, state, capture, viewPose };

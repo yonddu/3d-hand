@@ -25,6 +25,8 @@ ${body}
 ${config({
   wasmBase: 'vendor/mediapipe/wasm',
   modelPath: 'vendor/models/hand_landmarker.task',
+  objectModelPath: 'vendor/models/efficientdet_lite0.tflite',
+  poseModelPath: 'vendor/models/pose_landmarker_lite.task',
   handModels: { left: { url: 'vendor/models/hand-left.glb' }, right: { url: 'vendor/models/hand-right.glb' } },
 })}
 ${importMap({
@@ -56,6 +58,8 @@ ${config({
   wasmLoaderPath: `${jsd}/@mediapipe/tasks-vision@${MP_VERSION}/wasm/vision_wasm_internal.js`,
   wasmBinaryPath: 'vision_wasm_internal.wasm',
   modelBase64Path: 'hand_landmarker.task.b64.txt',
+  objectModelBase64Path: 'efficientdet_lite0.tflite.b64.txt',
+  poseModelBase64Path: 'pose_landmarker_lite.task.b64.txt',
   // .glb is not a served artifact type; the two small hand meshes ride inline.
   handModels: {
     left: { base64: readFileSync('vendor/models/hand-left.glb').toString('base64') },
@@ -73,4 +77,6 @@ writeFileSync(`${out}/index.html`, artifact);
 copyFileSync('vendor/mediapipe/wasm/vision_wasm_internal.wasm', `${out}/vision_wasm_internal.wasm`);
 // Artifacts serve only web media types, so the model goes as base64 text.
 writeFileSync(`${out}/hand_landmarker.task.b64.txt`, readFileSync('vendor/models/hand_landmarker.task').toString('base64'));
+writeFileSync(`${out}/pose_landmarker_lite.task.b64.txt`, readFileSync('vendor/models/pose_landmarker_lite.task').toString('base64'));
+writeFileSync(`${out}/efficientdet_lite0.tflite.b64.txt`, readFileSync('vendor/models/efficientdet_lite0.tflite').toString('base64'));
 console.log('built index.html and dist/artifact/');

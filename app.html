@@ -104,6 +104,7 @@
   table.angles th:first-child, table.angles td:first-child { text-align: left; }
   table.angles td { font-family: var(--font-mono); font-size: 12px; text-align: right; padding: 3px 4px; border-top: 1px solid var(--line); }
   table.angles td.low { color: var(--warn); }
+  table.angles td.note { font-family: var(--font-body); color: var(--muted); text-align: left; }
   .conf { display: inline-block; width: 36px; height: 4px; background: var(--line); border-radius: 2px; vertical-align: middle; overflow: hidden; }
   .conf i { display: block; height: 100%; background: var(--ok); }
   .tabs { display: flex; gap: 4px; }
@@ -185,8 +186,23 @@
         <label class="check"><input type="checkbox" id="show-raw"> 원본 랜드마크</label>
       </div>
       <div class="row">
-        <label class="check"><input type="checkbox" id="grasp" checked> 쥔 물건 추정</label>
+        <label for="object-mode">쥔 물건</label>
+        <select id="object-mode" class="grow">
+          <option value="auto">자동 (카메라 인식 + 손 모양)</option>
+          <option value="hand">손 모양으로만 추정</option>
+          <option value="cylinder">원기둥으로 고정</option>
+          <option value="sphere">공으로 고정</option>
+          <option value="box">상자로 고정</option>
+          <option value="rod">막대로 고정</option>
+          <option value="off">끄기</option>
+        </select>
+      </div>
+      <div class="row">
         <label class="check"><input type="checkbox" id="contact" checked> 손가락 접촉 보정</label>
+      </div>
+      <div class="row">
+        <label class="check"><input type="checkbox" id="show-arm" checked> 아래팔·팔꿈치</label>
+        <label class="check"><input type="checkbox" id="show-upper"> 위팔</label>
       </div>
       <div class="row">
         <label for="look">손 재질</label>

@@ -1,22 +1,28 @@
 // Held-object estimation and contact correction.
 //
-// The camera rarely sees the object well (the hand covers it), so the shape is
-// inferred from the hand itself: a curled hand wraps a cylinder (power grip),
-// a spread cupped hand holds a sphere, and thumb + index tips close together
-// pinch something small. We fit that primitive to the finger joints, then
-// adjust each finger's curl so its tip rests on the surface instead of
-// floating above it or sinking into it.
+// Two sources describe the object:
+//   camera - the object detector names it (cup, phone, ball, ...), which gives
+//            its shape family and real size (see objects.js);
+//   hand   - when nothing is recognized, the grip itself is read: a deep even
+//            curl wraps a cylinder, a cupped hand holds a sphere, thumb and
+//            index tips together pinch something small.
+// The shape is then seated against the palm or between the pinching tips, and
+// each finger's curl is adjusted so its pad rests on the surface, giving the
+// hand pose that actually holds that object.
 //
-// Everything is computed in the wrist bone's local frame (rig hand frame), so
-// the object moves with the hand and can be saved with the pose.
+// Everything is computed in the wrist bone's local frame (rig hand frame:
+// +Y toward the fingers, +Z out of the palm), so the object moves with the
+// hand and can be saved with the pose.
 import * as THREE from 'three';
 import { FINGERS } from './skeleton.js';
 
 const TIP = { thumb: 4, index: 8, middle: 12, ring: 16, pinky: 20 };
 const SKIN = 0.008; // fingertip pad thickness: tip joint sits this far off the surface
+const PALM_SKIN = 0.012; // palm joint plane -> palm skin
 const STABLE_FRAMES = 8;
+const Y = new THREE.Vector3(0, 1, 0);
 
-export const OBJECT_LABEL = { cylinder: '원기둥', sphere: '공', pinch: '집은 물체' };
+export const OBJECT_LABEL = { cylinder: '원기둥', rod: '막대', sphere: '공', box: '상자', pinch: '집은 물체' };
 
 export class GraspEstimator {
   constructor(rig, material) {
@@ -24,9 +30,12 @@ export class GraspEstimator {
     this.current = null; // smoothed object
     this.candidate = null;
     this.streak = 0;
+    const cyl = new THREE.CylinderGeometry(1, 1, 1, 40, 1, false);
     this.meshes = {
-      cylinder: new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 40, 1, false), material),
+      cylinder: new THREE.Mesh(cyl, material),
+      rod: new THREE.Mesh(cyl, material),
       sphere: new THREE.Mesh(new THREE.SphereGeometry(1, 40, 24), material),
+      box: new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), material),
       pinch: new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), material),
     };
     for (const m of Object.values(this.meshes)) {
@@ -52,21 +61,28 @@ export class GraspEstimator {
   }
 
   // One step per frame after the solver has posed the rig.
-  update({ correct = true } = {}) {
+  //   vision: result of objectForHand / manualObject, or null
+  //   forced: true when the user picked the shape (skip the grip check)
+  update({ correct = true, vision = null, forced = false, handOnly = false } = {}) {
     const J = this.localJoints();
-    const fit = classify(J);
-    if (fit && this.candidate && fit.type === this.candidate.type) this.streak++;
+    const f = handFeatures(J);
+    let fit = null;
+    if (vision && !handOnly && (forced || isGripping(f))) fit = placeObject(vision, J, f);
+    if (!fit && !forced) fit = classify(J, f);
+
+    const key = (o) => o && `${o.type}|${o.label || ''}`;
+    if (fit && this.candidate && key(fit) === key(this.candidate)) this.streak++;
     else this.streak = fit ? 1 : 0;
     this.candidate = fit;
 
     if (!fit) {
-      if (this.streak === 0 && this.current) this.current.hold = (this.current.hold || 0) + 1;
+      if (this.current) this.current.hold = (this.current.hold || 0) + 1;
       if (this.current && this.current.hold > STABLE_FRAMES) this.current = null;
-    } else if (this.current && this.current.type === fit.type) {
+    } else if (this.current && key(this.current) === key(fit)) {
       blend(this.current, fit, 0.25);
       this.current.hold = 0;
-    } else if (this.streak >= STABLE_FRAMES) {
-      this.current = { ...fit, center: fit.center.clone(), axis: fit.axis && fit.axis.clone(), hold: 0 };
+    } else if (this.streak >= (forced ? 1 : STABLE_FRAMES)) {
+      this.current = cloneObj(fit);
     }
 
     if (this.current && correct && this.current.type !== 'pinch') this.correctContacts(this.current);
@@ -74,7 +90,7 @@ export class GraspEstimator {
     return this.current;
   }
 
-  // Scale each finger's flexion so its tip lands on the surface.
+  // Scale each finger's flexion so its pad lands on the surface.
   correctContacts(obj) {
     const rig = this.rig;
     const inv = new THREE.Matrix4();
@@ -88,18 +104,20 @@ export class GraspEstimator {
         inv.copy(rig.wrist.matrixWorld).invert();
         return new THREE.Vector3().setFromMatrixPosition(tipBone.matrixWorld).applyMatrix4(inv);
       };
-      const d0 = sdf(obj, tipAt(1)) - SKIN;
-      // Only fingers already near the object take part.
-      if (Math.abs(d0) > 0.025 || base.every((b) => b.flex < 5)) {
+      const gap = (s) => sdf(obj, tipAt(s)) - SKIN;
+      const d0 = gap(1);
+      // Fingers clearly not involved (a pointing finger, a thumb off to the
+      // side) keep their tracked pose.
+      const reach = finger.key === 'thumb' ? 0.045 : 0.04;
+      if (d0 > reach || base.every((b) => Math.abs(b.flex) < 3)) {
         tipAt(1);
         continue;
       }
       // Inside -> open the finger (s < 1); outside -> close it (s > 1). Bisect.
-      let lo = d0 < 0 ? 0.4 : 1;
-      let hi = d0 < 0 ? 1 : 1.35;
-      const sign = (s) => sdf(obj, tipAt(s)) - SKIN;
-      const dLo = sign(lo);
-      const dHi = sign(hi);
+      let lo = d0 < 0 ? 0.3 : 1;
+      let hi = d0 < 0 ? 1 : finger.key === 'thumb' ? 2.2 : 1.6;
+      const dLo = gap(lo);
+      const dHi = gap(hi);
       if (Math.sign(dLo) === Math.sign(dHi)) {
         // Surface out of reach: get as close as the joint range allows.
         tipAt(Math.abs(dLo) < Math.abs(dHi) ? lo : hi);
@@ -107,7 +125,7 @@ export class GraspEstimator {
       }
       for (let i = 0; i < 10; i++) {
         const mid = (lo + hi) / 2;
-        if (Math.sign(sign(mid)) === Math.sign(sign(lo))) lo = mid;
+        if (Math.sign(gap(mid)) === Math.sign(dLo)) lo = mid;
         else hi = mid;
       }
       tipAt((lo + hi) / 2);
@@ -120,17 +138,16 @@ export class GraspEstimator {
     if (!obj) return;
     const m = this.meshes[obj.type];
     m.position.copy(obj.center);
-    if (obj.type === 'cylinder') {
-      m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), obj.axis);
+    if (obj.type === 'cylinder' || obj.type === 'rod') {
+      m.quaternion.setFromUnitVectors(Y, obj.axis);
       m.scale.set(obj.radius, obj.length, obj.radius);
+    } else if (obj.type === 'box') {
+      m.quaternion.copy(obj.quat);
+      m.scale.fromArray(obj.size);
     } else {
       m.quaternion.identity();
       m.scale.setScalar(obj.radius);
     }
-  }
-
-  setVisible(on) {
-    for (const m of Object.values(this.meshes)) m.material.visible = on;
   }
 
   // Serializable copy (wrist-local, meters).
@@ -138,26 +155,83 @@ export class GraspEstimator {
     const o = this.current;
     if (!o) return null;
     const r = (v) => +v.toFixed(4);
-    return {
-      type: o.type,
-      center: o.center.toArray().map(r),
-      radius: r(o.radius),
-      ...(o.type === 'cylinder' ? { axis: o.axis.toArray().map(r), length: r(o.length) } : {}),
-    };
+    const out = { type: o.type, label: o.label || null, source: o.source, center: o.center.toArray().map(r) };
+    if (o.type === 'box') Object.assign(out, { quaternion: o.quat.toArray().map(r), size: o.size.map(r) });
+    else out.radius = r(o.radius);
+    if (o.axis) Object.assign(out, { axis: o.axis.toArray().map(r), length: r(o.length) });
+    return out;
   }
 
   fromJSON(o) {
     if (!o) return this.reset();
     this.current = {
       type: o.type,
+      label: o.label,
+      source: o.source,
       center: new THREE.Vector3().fromArray(o.center),
-      radius: o.radius,
+      radius: o.radius || 0,
       axis: o.axis ? new THREE.Vector3().fromArray(o.axis) : null,
       length: o.length || 0,
+      quat: o.quaternion ? new THREE.Quaternion().fromArray(o.quaternion) : null,
+      size: o.size || null,
       hold: 0,
     };
     this.render();
   }
+}
+
+function cloneObj(o) {
+  return {
+    ...o,
+    center: o.center.clone(),
+    axis: o.axis && o.axis.clone(),
+    quat: o.quat && o.quat.clone(),
+    size: o.size && [...o.size],
+    hold: 0,
+  };
+}
+
+// --- seating a recognized object in the hand ---------------------------------------
+
+// Some grip is needed before a nearby object counts as held.
+function isGripping(f) {
+  return f.avgCurl > 0.3 || f.pinch < 0.45;
+}
+
+function placeObject(v, J, f) {
+  const Z = new THREE.Vector3(0, 0, 1);
+  const knuckles = J[5].clone().add(J[9]).add(J[13]).add(J[17]).multiplyScalar(0.25);
+  const palm = knuckles.clone().lerp(J[0], 0.35).addScaledVector(Z, PALM_SKIN);
+  const across = J[17].clone().sub(J[5]).normalize();
+  const pinchPoint = J[4].clone().add(J[8]).multiplyScalar(0.5);
+  const pinching = f.pinch < 0.38 && f.curl[0] < 1.0;
+  const base = { label: v.label, source: v.source || 'camera', axis: null, quat: null, size: null, radius: 0, length: 0 };
+
+  if (v.shape === 'sphere') {
+    // Fingertip grip of a small ball sits in front of the tips; a big ball fills the palm.
+    const center = pinching && v.radius < 0.03 ? pinchPoint.clone() : palm.clone().addScaledVector(Z, v.radius);
+    return { ...base, type: 'sphere', center, radius: v.radius };
+  }
+  if (v.shape === 'box') {
+    // Back face on the palm, long side across the hand, fingers wrapping the
+    // far long edge (how a phone or remote is held to look at it).
+    const [w, l, t] = v.size;
+    const quat = new THREE.Quaternion().setFromAxisAngle(Z, Math.PI / 2);
+    const center = palm.clone().addScaledVector(Z, t / 2);
+    center.y = J[6].y - w / 2 + 0.005;
+    return { ...base, type: 'box', center, quat, size: [w, l, t] };
+  }
+  // cylinder / rod
+  if (pinching && v.shape === 'rod') {
+    // Pen-style: through the pinch, resting toward the thumb-index web.
+    const web = J[2].clone().lerp(J[5], 0.5).addScaledVector(Z, 0.01);
+    const axis = web.clone().sub(pinchPoint).normalize();
+    const center = pinchPoint.clone().addScaledVector(axis, v.length * 0.3);
+    return { ...base, type: 'rod', center, axis, radius: v.radius, length: v.length };
+  }
+  // Power grip: axis across the palm, surface against the palm skin.
+  const center = palm.clone().addScaledVector(Z, v.radius);
+  return { ...base, type: v.shape, center, axis: across, radius: v.radius, length: v.length };
 }
 
 // --- shape fitting ---------------------------------------------------------------
@@ -173,14 +247,13 @@ export function handFeatures(J) {
   return { palmLen, curl, avgCurl, curlSpread, tipZ, pinch: J[4].distanceTo(J[8]) / palmLen, spread: J[8].distanceTo(J[20]) / palmLen };
 }
 
-function classify(J) {
-  const f = handFeatures(J);
+function classify(J, f = handFeatures(J)) {
   // Pinch: thumb and index tips nearly touching, index not wrapped around
   // something (in a power grip the thumb often rests on the index too).
   if (f.pinch < 0.35 && f.curl[0] < 0.95) {
     const center = J[4].clone().add(J[8]).multiplyScalar(0.5);
     const radius = THREE.MathUtils.clamp((f.pinch * f.palmLen) / 2 - SKIN * 0.5, 0.006, 0.03);
-    return { type: 'pinch', center, radius, axis: null, length: 0 };
+    return { type: 'pinch', label: null, source: 'hand', center, radius, axis: null, length: 0 };
   }
   // Wrapping grip: all four fingers bent by a similar amount, with the tips
   // standing off the palm (an empty fist folds the tips onto the palm, a claw
@@ -224,7 +297,7 @@ function fitCylinder(J, pts) {
   // The pinky is skipped here; it is short and wraps a narrower part anyway.
   const nearest = Math.min(...p2.filter((_, i) => i < 9 || i > 10).map(([x, y]) => Math.hypot(x - circle.cx, y - circle.cy)));
   const radius = Math.min(circle.r, nearest) - SKIN;
-  return { type: 'cylinder', center, axis, radius, length, rms: circle.rms / Math.max(circle.r, 1e-3) };
+  return { type: 'cylinder', label: null, source: 'hand', center, axis, radius, length, rms: circle.rms / Math.max(circle.r, 1e-3) };
 }
 
 // Algebraic (Kasa) circle fit.
@@ -264,14 +337,23 @@ function fitSphere(pts) {
   const center = new THREE.Vector3(s.x / 2, s.y / 2, s.z / 2);
   const r = Math.sqrt(Math.max(0, s.w + center.lengthSq()));
   const rms = Math.sqrt(pts.reduce((acc, p) => acc + (p.distanceTo(center) - r) ** 2, 0) / n);
-  return { type: 'sphere', center, radius: r - SKIN, axis: null, length: 0, rms: rms / Math.max(r, 1e-3) };
+  return { type: 'sphere', label: null, source: 'hand', center, radius: r - SKIN, axis: null, length: 0, rms: rms / Math.max(r, 1e-3) };
 }
 
 function sdf(obj, p) {
-  if (obj.type === 'cylinder') {
+  if (obj.type === 'cylinder' || obj.type === 'rod') {
+    // Capped cylinder.
     const d = p.clone().sub(obj.center);
     const along = d.dot(obj.axis);
-    return d.sub(obj.axis.clone().multiplyScalar(along)).length() - obj.radius;
+    const radial = d.addScaledVector(obj.axis, -along).length() - obj.radius;
+    const cap = Math.abs(along) - obj.length / 2;
+    return Math.min(Math.max(radial, cap), 0) + Math.hypot(Math.max(radial, 0), Math.max(cap, 0));
+  }
+  if (obj.type === 'box') {
+    const q = p.clone().sub(obj.center).applyQuaternion(obj.quat.clone().invert());
+    const e = [Math.abs(q.x) - obj.size[0] / 2, Math.abs(q.y) - obj.size[1] / 2, Math.abs(q.z) - obj.size[2] / 2];
+    const outside = Math.hypot(...e.map((x) => Math.max(x, 0)));
+    return outside + Math.min(Math.max(...e), 0);
   }
   return p.distanceTo(obj.center) - obj.radius;
 }
@@ -281,6 +363,8 @@ function blend(cur, next, a) {
   cur.radius += (next.radius - cur.radius) * a;
   if (cur.axis && next.axis) cur.axis.lerp(next.axis, a).normalize();
   cur.length += (next.length - cur.length) * a;
+  if (cur.quat && next.quat) cur.quat.slerp(next.quat, a);
+  if (cur.size && next.size) cur.size = cur.size.map((x, i) => x + (next.size[i] - x) * a);
 }
 
 // --- bone angle helpers (same convention as the solver) -------------------------

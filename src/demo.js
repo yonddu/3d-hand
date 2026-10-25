@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { FINGERS, sideSign } from './skeleton.js';
 import { HandRig } from './handRig.js';
+import { CATALOG, measure } from './objects.js';
 
 const D2R = Math.PI / 180;
 
@@ -17,8 +18,11 @@ const GESTURES = [
   { name: '브이', thumb: [35, -10, 45, 50], f: [[0, -10, 0, 0], [0, 10, 0, 0], [88, 0, 105, 70], [88, 0, 100, 68]], wrist: [0, -15, 10] },
   { name: '귀신 손', thumb: [10, 30, 20, 50], f: [[-20, -14, 85, 70], [-22, 0, 95, 75], [-20, 10, 95, 75], [-18, 20, 90, 72]], wrist: [-30, 0, -15] },
   { name: '집기', thumb: [40, 10, 15, 0], f: [[70, 0, 40, 24], [70, 0, 90, 60], [80, 0, 95, 60], [85, 0, 95, 60]], wrist: [15, 25, 0] },
-  { name: '컵 쥐기', thumb: [35, 35, 20, 25], f: [[50, -4, 62, 32], [52, 0, 64, 34], [55, 3, 66, 36], [58, 6, 70, 38]], wrist: [0, 10, 0] },
-  { name: '공 쥐기', thumb: [25, 40, 10, 15], f: [[30, -16, 40, 28], [32, -4, 42, 30], [32, 6, 42, 30], [30, 18, 40, 28]], wrist: [-10, 0, 0] },
+  // `holds`: what a camera would recognize in this grip, [class, long side, short side] in meters.
+  { name: '컵 쥐기', holds: ['cup', 0.1, 0.075], thumb: [35, 35, 20, 25], f: [[50, -4, 62, 32], [52, 0, 64, 34], [55, 3, 66, 36], [58, 6, 70, 38]], wrist: [0, 10, 0] },
+  { name: '공 쥐기', holds: ['orange', 0.078, 0.074], thumb: [25, 40, 10, 15], f: [[30, -16, 40, 28], [32, -4, 42, 30], [32, 6, 42, 30], [30, 18, 40, 28]], wrist: [-10, 0, 0] },
+  { name: '폰 쥐기', holds: ['cell phone', 0.15, 0.072], thumb: [20, 25, 10, 10], f: [[40, 0, 45, 20], [42, 0, 48, 22], [44, 0, 50, 24], [46, 0, 52, 26]], wrist: [-15, 0, 10] },
+  { name: '펜 쥐기', holds: ['toothbrush', 0.15, 0.012], thumb: [40, 10, 15, 0], f: [[62, 0, 38, 20], [70, 0, 70, 45], [80, 0, 95, 60], [85, 0, 95, 60]], wrist: [10, 20, 0] },
 ];
 
 const ease = (t) => t * t * (3 - 2 * t);
@@ -39,7 +43,8 @@ export class DemoSource {
     const k = local < this.hold ? 0 : ease((local - this.hold) / this.blend);
     const a = GESTURES[i];
     const b = GESTURES[(i + 1) % GESTURES.length];
-    return { a, b, k, name: k < 0.5 ? a.name : b.name };
+    const g = k < 0.5 ? a : b;
+    return { a, b, k, name: g.name, holds: g.holds };
   }
 
   // Returns [{ side, world: Vector3[21], anchor: Vector3, gesture }]
@@ -47,7 +52,7 @@ export class DemoSource {
     return ['left', 'right'].map((side, si) => {
       const rig = this.rigs[side];
       const s = sideSign(side);
-      const { a, b, k, name } = this.gestureAt(t, si * 0.9);
+      const { a, b, k, name, holds } = this.gestureAt(t, si * 0.9);
       const mix = (arrA, arrB) => arrA.map((v, j) => lerp(v, arrB[j], k));
 
       const th = mix(a.thumb, b.thumb);
@@ -85,7 +90,8 @@ export class DemoSource {
         -0.11 + Math.sin(t * 1.1 + si) * 0.01,
         -0.42,
       );
-      return { side, world: P, anchor, gesture: name };
+      const vision = holds ? { category: holds[0], score: 0.9, source: 'demo', ...measure(CATALOG[holds[0]], holds[1], holds[2]) } : null;
+      return { side, world: P, anchor, gesture: name, vision };
     });
   }
 }
