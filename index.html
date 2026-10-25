@@ -175,6 +175,9 @@
   .tabs button[aria-pressed="true"] { border-color: currentColor; }
   .tabs .l { color: var(--left); } .tabs .r { color: var(--right); }
 
+  .gestures { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+  .gestures button { padding: 4px 8px; font-size: 12px; }
+  .gestures button[aria-pressed="true"] { border-color: var(--accent, currentColor); font-weight: 600; }
   .poses { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
   .poses li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 8px; align-items: center; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
   .poses .name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -346,6 +349,16 @@
         <button id="export-all">전체 내보내기</button>
       </div>
       <textarea class="json" id="json-out" readonly hidden aria-label="포즈 JSON"></textarea>
+    </section>
+
+    <section>
+      <h2>손모양 사전 <span id="gesture-count"></span></h2>
+      <div class="row">
+        <select id="gesture-cat" class="grow" aria-label="분류"></select>
+        <button id="gesture-export">JSON 내보내기</button>
+      </div>
+      <div class="gestures" id="gesture-list"></div>
+      <p class="hint">누르면 오른손이 그 모양을 합니다. 해부학과 일반적인 설명으로 만든 근사 각도이고, ✱ 표시는 가장 불확실한 항목입니다. 손바닥 방향과 움직임은 들어 있지 않습니다. 보는 중에 "포즈 캡처"로 저장하거나 GLB로 내보낼 수 있습니다.</p>
     </section>
   </aside>
 </div>

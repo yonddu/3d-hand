@@ -12,6 +12,7 @@ import { ArmRig } from './arm.js';
 import { wristLoop } from './armMesh.js';
 import { exportGlb, frameFromLive, frameFromPoseHand, zipFiles } from './exportGlb.js';
 import { capturePose, validatePose, applyPose, loadLibrary, saveLibrary } from './pose.js';
+import { GESTURES, CATEGORIES, applyGesture, gestureData } from './gestures.js';
 import { initRomPanel } from './romPanel.js';
 import { ForearmFinder } from './forearm.js';
 
@@ -58,11 +59,12 @@ const rigs = {};
 const solvers = {};
 const filters = {};
 const anchorFilters = {};
-const filterParams = { minCutoff: 1.2, beta: 12, dCutoff: 1.0 };
-const anchorParams = { minCutoff: 0.6, beta: 2, dCutoff: 1.0 };
+// lead: seconds of motion predicted ahead (maxLead caps it, in the filter's units).
+const filterParams = { minCutoff: 1.2, beta: 12, dCutoff: 1.0, lead: 0.02, maxLead: 0.006 };
+const anchorParams = { minCutoff: 0.6, beta: 2, dCutoff: 1.0, lead: 0.05, maxLead: 0.04 };
 // Passthrough: where the wrist is in the picture is precise and must not lag
 // behind the video; its distance is noisy and gets the heavy smoothing.
-const imageParams = { minCutoff: 3.0, beta: 4, dCutoff: 1.0 };
+const imageParams = { minCutoff: 3.0, beta: 4, dCutoff: 1.0, lead: 0.05, maxLead: 0.04 };
 const depthParams = { minCutoff: 0.8, beta: 1, dCutoff: 1.0 };
 const imageFilters = {};
 const depthFilters = {};
@@ -1065,6 +1067,51 @@ $('pose-file').onchange = async (e) => {
     toast(err.message || 'JSON을 읽지 못했습니다.');
   }
 };
+// Hand shape dictionary: tap a shape to see it on the right hand.
+function renderGestures() {
+  const cat = $('gesture-cat').value;
+  const list = $('gesture-list');
+  list.textContent = '';
+  for (const g of GESTURES.filter((x) => x.category === cat)) {
+    const b = document.createElement('button');
+    b.textContent = g.name + (g.verify ? ' ✱' : '');
+    b.title = [g.region, g.note].filter(Boolean).join(' · ');
+    b.setAttribute('aria-pressed', 'false');
+    b.onclick = () => {
+      list.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+      showGesture(g);
+    };
+    list.appendChild(b);
+  }
+}
+function showGesture(g) {
+  if (review.take) closeReview();
+  state.frozen = true;
+  const rig = rigs.right;
+  // In front of the eyes, a little left of centre so the options panel does not cover it.
+  rig.group.position.set(-0.04, -0.06, -0.38);
+  rig.group.visible = true;
+  rigs.left.group.visible = false;
+  applyGesture(rig, g);
+  if (realHands.right) {
+    realHands.right.thumbWrap = 0;
+    realHands.right.pinches = [];
+    realHands.right.solvedQ = null;
+  }
+  for (const side of SIDES) {
+    grasps[side].fromJSON(null);
+    frozenArms[side] = null;
+    frozenAngles[side] = null;
+  }
+  $('pose-banner').hidden = false;
+  $('pose-banner-text').textContent = `"${g.name}" 보는 중${g.note ? ` · ${g.note}` : ''}`;
+}
+$('gesture-cat').innerHTML = Object.entries(CATEGORIES).map(([k, v]) => `<option value="${k}">${v} (${GESTURES.filter((g) => g.category === k).length})</option>`).join('');
+$('gesture-cat').onchange = renderGestures;
+$('gesture-count').textContent = `${GESTURES.length}개`;
+$('gesture-export').onclick = () => saveJson(gestureData(), 'hand-gestures.json');
+renderGestures();
+
 $('export-all').onclick = () => {
   if (!library.length) return toast('내보낼 포즈가 없습니다.');
   saveJson({ format: 'hand-motion-studio.library', version: 1, poses: library.map((x) => x.pose) }, 'hand-poses.json');

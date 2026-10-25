@@ -16,7 +16,7 @@ function alpha(cutoff, dt) {
 
 export class OneEuro {
   constructor(params) {
-    this.params = params; // shared object: { minCutoff, beta, dCutoff }
+    this.params = params; // shared object: { minCutoff, beta, dCutoff, lead?, maxLead? }
     this.x = new LowPass();
     this.dx = new LowPass();
     this.last = null;
@@ -39,7 +39,12 @@ export class OneEuro {
     const d = (value - prev) / dt;
     const ed = this.dx.filter(d, alpha(dCutoff, dt));
     const cutoff = minCutoff + beta * Math.abs(ed);
-    return this.x.filter(value, alpha(cutoff, dt));
+    const y = this.x.filter(value, alpha(cutoff, dt));
+    // Prediction: lead the smoothed value along its (smoothed) velocity to
+    // make up for the time the camera, the tracker and the smoothing take.
+    // The filter's own state stays unpredicted, so this cannot run away.
+    const { lead = 0, maxLead = 0 } = this.params;
+    return lead ? y + Math.max(-maxLead, Math.min(maxLead, ed * lead)) : y;
   }
 }
 
