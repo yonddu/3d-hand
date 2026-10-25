@@ -157,9 +157,39 @@ export class HandTracker {
       if (swapHandedness) side = side === 'left' ? 'right' : 'left';
       return { side, score: cat.score, landmarks: lm, world: res.worldLandmarks[i] };
     });
-    return resolveSides(hands, rightOnImageRight !== swapHandedness);
+    return resolveSides(this.keepSides(hands, nowMs), rightOnImageRight !== swapHandedness);
+  }
+
+  // The left/right label of a lone hand seen from behind flickers. A hand that
+  // continues one from the last frames (same place in the picture) keeps that
+  // hand's side unless the new label holds for several frames in a row.
+  keepSides(hands, nowMs) {
+    const prev = (this.tracks || []).filter((k) => nowMs - k.t < 400);
+    this.tracks = hands.map((h) => {
+      const x = h.landmarks[0].x;
+      const y = h.landmarks[0].y;
+      let best = null;
+      let bestD = 0.15;
+      for (const k of prev) {
+        const d = Math.hypot(k.x - x, k.y - y);
+        if (d < bestD) {
+          best = k;
+          bestD = d;
+        }
+      }
+      let flips = 0;
+      if (best && best.side !== h.side) {
+        flips = best.flips + 1;
+        if (flips < SIDE_FLIP_FRAMES) h.side = best.side;
+        else flips = 0;
+      }
+      return { side: h.side, x, y, t: nowMs, flips };
+    });
+    return hands;
   }
 }
+
+const SIDE_FLIP_FRAMES = 8;
 
 // Two hands with the same label: keep the more confident label and give the
 // other hand the opposite side, by where each hand is in the image. A camera

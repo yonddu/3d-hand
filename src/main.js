@@ -513,14 +513,16 @@ function updateRaw(side, P, origin) {
 // the player's own resting hands), then disappear the way Quest hands do.
 const LOST_REACH = new THREE.Quaternion().setFromEuler(new THREE.Euler((40 * Math.PI) / 180, Math.PI, 0, 'YXZ'));
 const LOST_HIDE = 1.5; // seconds
+const LOST_HIDE_AR = 0.3; // over the camera picture a hand that is not there must not linger
 function relaxLost(t) {
   for (const side of SIDES) {
     const rig = rigs[side];
+    const hide = state.ar ? LOST_HIDE_AR : LOST_HIDE;
+    if (state.source !== 'demo' && (state.lastSeen[side] < 0 || t - state.lastSeen[side] > hide)) rig.group.visible = false;
     if (state.lastSeen[side] >= 0 && t - state.lastSeen[side] < LIVE_WINDOW) continue;
     if (grasps[side].current) grasps[side].reset();
     rig.wrist.quaternion.slerp(LOST_REACH.clone().multiply(rig.wristRest), 0.06);
     for (const chain of Object.values(rig.chains)) for (const l of chain) l.bone.quaternion.slerp(l.restLocal, 0.06);
-    if (state.source !== 'demo' && (state.lastSeen[side] < 0 || t - state.lastSeen[side] > LOST_HIDE)) rig.group.visible = false;
   }
 }
 
