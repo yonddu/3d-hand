@@ -309,16 +309,20 @@ export class RealHand {
     const thumbDir = M.thumb[3].clone().sub(M.thumb[1]).normalize();
     const ulnar = M.pinky[0].clone().sub(M.index[0]).normalize();
     const thumbBend = bendAt(M.thumb, 1) + bendAt(M.thumb, 2);
-    // A thumb tip near the curled fingers is wrapping whichever way it points:
-    // in a closed fist the thumb goes over the fingers, almost never inside
-    // them, and the camera rarely sees which (from behind the hand the thumb
-    // is hidden). A raised thumb's tip is a thumb length away from them.
-    const onTop = THREE.MathUtils.clamp((0.4 - near) / 0.15, 0, 1);
+    // A thumb tip on the curled index and middle fingers goes over them,
+    // whichever way it points: never tucked inside them or lying along the
+    // index's side. The camera cannot tell those apart (from behind the hand
+    // the thumb is hidden), so over the fingers is the one shape used. A
+    // raised thumb's tip is a thumb length away from them.
+    const onTop = THREE.MathUtils.clamp((0.45 - near) / 0.15, 0, 1);
     const across = Math.max(THREE.MathUtils.smoothstep(thumbDir.dot(ulnar), 0.12, 0.35), THREE.MathUtils.smoothstep(thumbBend, 0.8, 1.2), onTop);
-    // A raised thumb (thumbs-up) points out away from the little finger.
-    const raised = THREE.MathUtils.smoothstep(-thumbDir.dot(ulnar), 0.1, 0.2);
+    // A thumb held away from the fingers (raised as in a thumbs-up, or
+    // opposed around an object) has its tip out past the index's side; one
+    // lying along the index or over the fingers does not.
+    const radial = -tip.clone().sub(M.index[0]).dot(ulnar) / palm;
+    const raised = THREE.MathUtils.smoothstep(radial, 0.13, 0.19);
     this.thumbWrap = bent * onFingers * across * (1 - raised);
-    this.thumbWrapParts = { bent, onFingers, across, near, pip: [bendAt(M.index, 1), bendAt(M.middle, 1)], thumbBend, dir: thumbDir.dot(ulnar) };
+    this.thumbWrapParts = { bent, onFingers, across, raised, radial, near, pip: [bendAt(M.index, 1), bendAt(M.middle, 1)], thumbBend, dir: thumbDir.dot(ulnar) };
   }
 
   wrapThumb() {

@@ -309,8 +309,14 @@ export class ArmRig {
     B.shoulder.position.copy(L.S);
     B.arm.quaternion.copy(L.arm);
     // Forearm = bend (swing) then roll about its own axis (twist), the roll
-    // shared out along the forearm's helpers.
-    const roll = 2 * Math.atan2(L.fore.y, L.fore.w);
+    // shared out along the forearm's helpers. The same turn can be read as a
+    // roll one way or the other way round (a quaternion gives it anywhere in
+    // +-360 degrees); the forearm only turns within pronation/supination, so
+    // the roll is taken within half a turn of neutral (thumb up). Palm down
+    // and palm up are then reached through thumb up, never through thumb
+    // down, and the twist never wraps inside the range of motion.
+    const neutral = (-sideSign(this.side) * Math.PI) / 2; // thumb up, from palm up (roll 0)
+    const roll = neutral + THREE.MathUtils.euclideanModulo(2 * Math.atan2(L.fore.y, L.fore.w) - neutral + Math.PI, 2 * Math.PI) - Math.PI;
     const twist = (k) => new THREE.Quaternion().setFromAxisAngle(Y, roll * k);
     const swing = L.fore.clone().multiply(twist(1).invert());
     const step = 1 / (TWISTS + 2);
