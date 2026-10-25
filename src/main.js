@@ -272,7 +272,10 @@ const bindSlider = (id, obj, key) => {
 };
 bindSlider('mincut', filterParams, 'minCutoff');
 bindSlider('beta', filterParams, 'beta');
-$('show-joints').onchange = (e) => SIDES.forEach((s) => rigs[s].setJointsVisible(e.target.checked));
+$('show-joints').onchange = (e) => {
+  SIDES.forEach((s) => rigs[s].setJointsVisible(e.target.checked));
+  syncArmVisibility();
+};
 $('show-raw').onchange = (e) => SIDES.forEach((s) => (rawDots[s].visible = e.target.checked));
 const MATERIALS = { quest: questMaterial, skin: skinMat, ghost: ghostMat };
 function applyLook() {
@@ -307,7 +310,7 @@ for (const s of SIDES) {
 }
 const syncArmVisibility = () =>
   SIDES.forEach((s) => {
-    arms[s].setVisible($('show-arm').checked, $('show-upper').checked, $('show-arm').checked);
+    arms[s].setVisible($('show-arm').checked, $('show-upper').checked, $('show-arm').checked && $('show-joints').checked);
     // Quest-style wrist fade only when the hand ends at the wrist.
     if (realHands[s]) realHands[s].setWristFade(!$('show-arm').checked);
   });
@@ -554,6 +557,8 @@ function tick(now) {
       arms[side].update(rigs[side].group.position, rigs[side].wrist.quaternion, null);
     }
   }
+  stepReview(now);
+  if (rec.on) $('rec-time').textContent = `● ${(rec.frames.length > 1 ? rec.frames[rec.frames.length - 1].t - rec.frames[0].t : 0).toFixed(1)}초`;
   if (rec.on && !state.frozen) {
     if (!offline) sampleRecording(now);
     else if (rec.frameReady) stepOffline();
@@ -742,6 +747,7 @@ function renderLibrary() {
 }
 
 function viewPose(pose) {
+  if (review.take) closeReview();
   state.frozen = true;
   applyPose(pose, rigs);
   for (const side of SIDES) {
@@ -842,6 +848,7 @@ $('export-all').onclick = () => {
 // --- motion recording + GLB export ----------------------------------------------------
 
 const REC_FPS = 30;
+const takes = []; // this session's recordings, newest first
 const rec = { on: false, offline: false, frameReady: false, frames: [], lastAt: -1e9, name: '' };
 
 function handIsLive(side, t) {
@@ -884,8 +891,13 @@ function updateRecInfo() {
   const dur = f.length > 1 ? f[f.length - 1].t - f[0].t : 0;
   const withHands = f.filter((x) => x.hands.left || x.hands.right).length;
   $('rec-info').textContent = f.length ? `${rec.on ? '녹화 중 · ' : ''}${dur.toFixed(1)}초 · ${f.length}프레임 (손 ${withHands})` : 'GLB · 팔 + 손 + 쥔 물체';
-  $('rec').textContent = rec.on ? '■ 녹화 정지' : '● 녹화 시작';
-  $('rec-glb').disabled = $('rec-json').disabled = rec.on || !withHands;
+  $('rec').classList.toggle('on', rec.on);
+  $('rec').setAttribute('aria-label', rec.on ? '녹화 정지' : '녹화 시작');
+  $('rec-time').classList.toggle('on', rec.on);
+  if (!rec.on) $('rec-time').textContent = '녹화';
+  $('rec-json').disabled = rec.on || !takes.length;
+  $('review-open').disabled = rec.on || !takes.length;
+  $('review-open').textContent = takes.length ? `리뷰 (${takes.length})` : '리뷰';
 }
 
 function startRecording() {
@@ -912,9 +924,12 @@ function stopRecording() {
     resetTracking();
     video.play().catch(() => {});
   }
+  const frames = trimFrames(rec.frames);
+  if (frames.length) {
+    takes.unshift({ id: Date.now().toString(36), name: rec.name, frames, createdAt: new Date() });
+    toast(`테이크 저장: ${(frames[frames.length - 1].t - frames[0].t).toFixed(1)}초. "리뷰"에서 다시 보고 GLB로 저장하세요.`);
+  } else toast('녹화된 손이 없습니다.');
   updateRecInfo();
-  const n = rec.frames.filter((x) => x.hands.left || x.hands.right).length;
-  toast(n ? `녹화 끝: ${rec.frames.length}프레임. "모션 GLB 저장"으로 내보내세요.` : '녹화된 손이 없습니다.');
 }
 
 $('rec').onclick = () => (rec.on ? stopRecording() : startRecording());
@@ -936,9 +951,136 @@ async function saveGlb(frames, name) {
   }
 }
 
-$('rec-glb').onclick = () => saveGlb(trimFrames(rec.frames), rec.name);
-$('rec-json').onclick = () =>
-  saveJson({ format: 'hand-motion-studio.motion', version: 1, name: rec.name, fps: REC_FPS, frames: trimFrames(rec.frames) }, `${slug(rec.name)}.motion.json`);
+$('rec-json').onclick = () => {
+  const take = takes[0];
+  if (take) saveJson({ format: 'hand-motion-studio.motion', version: 1, name: take.name, fps: REC_FPS, frames: take.frames }, `${slug(take.name)}.motion.json`);
+};
+
+// --- review: play a take back on the same rig ---------------------------------------------
+
+const review = { take: null, t: 0, playing: false, lastNow: 0 };
+
+function takeDuration(take) {
+  return take.frames[take.frames.length - 1].t - take.frames[0].t;
+}
+
+function applyFrame(frame) {
+  for (const side of SIDES) {
+    const f = frame.hands[side];
+    const rig = rigs[side];
+    rig.group.visible = !!f;
+    if (!f) continue;
+    rig.setPose({ position: f.wrist, wrist: f.handQ, bones: f.fingers });
+    grasps[side].fromJSON(f.object);
+    arms[side].setFromSaved({ shoulder: f.shoulder, elbow: f.elbow, wrist: f.wrist });
+  }
+}
+
+function seekReview(t) {
+  const take = review.take;
+  const dur = takeDuration(take);
+  review.t = Math.min(Math.max(t, 0), dur);
+  const target = take.frames[0].t + review.t;
+  // Frames are in time order: binary search for the nearest one.
+  let lo = 0;
+  let hi = take.frames.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (take.frames[mid].t < target) lo = mid + 1;
+    else hi = mid;
+  }
+  applyFrame(take.frames[lo]);
+  $('rv-seek').value = dur ? review.t / dur : 0;
+  $('rv-time').textContent = `${review.t.toFixed(1)} / ${dur.toFixed(1)}초`;
+}
+
+function setPlaying(on) {
+  review.playing = on;
+  review.lastNow = performance.now();
+  $('rv-play').textContent = on ? '❚❚' : '▶';
+  $('rv-play').setAttribute('aria-label', on ? '일시정지' : '재생');
+}
+
+function renderTakes() {
+  const sel = $('rv-take');
+  sel.innerHTML = '';
+  for (const take of takes) {
+    const o = document.createElement('option');
+    o.value = take.id;
+    o.textContent = `${take.createdAt.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} · ${takeDuration(take).toFixed(1)}초`;
+    sel.appendChild(o);
+  }
+  if (review.take) sel.value = review.take.id;
+}
+
+function openReview(take = takes[0]) {
+  if (!take) return;
+  if (rec.on) stopRecording();
+  state.frozen = true;
+  $('pose-banner').hidden = true;
+  review.take = take;
+  renderTakes();
+  $('review').hidden = false;
+  $('dock').hidden = true;
+  seekReview(0);
+  setPlaying(true);
+}
+
+function closeReview() {
+  if (!review.take) return;
+  review.take = null;
+  setPlaying(false);
+  $('review').hidden = true;
+  $('dock').hidden = false;
+  exitFrozen();
+}
+
+function stepReview(now) {
+  if (!review.take || !review.playing) return;
+  const dt = (now - review.lastNow) / 1000;
+  review.lastNow = now;
+  const dur = takeDuration(review.take);
+  let t = review.t + dt;
+  if (t > dur) t = 0; // loop
+  seekReview(t);
+}
+
+$('review-open').onclick = () => openReview();
+$('rv-close').onclick = closeReview;
+$('rv-play').onclick = () => setPlaying(!review.playing);
+$('rv-seek').oninput = (e) => {
+  setPlaying(false);
+  seekReview(+e.target.value * takeDuration(review.take));
+};
+$('rv-take').onchange = (e) => {
+  const take = takes.find((x) => x.id === e.target.value);
+  if (take) {
+    review.take = take;
+    seekReview(0);
+    setPlaying(true);
+  }
+};
+$('rv-glb').onclick = () => review.take && saveGlb(review.take.frames, review.take.name);
+
+// --- options drawer + start screen ---------------------------------------------------------
+
+function setOptions(open) {
+  document.querySelector('.app').classList.toggle('options-open', open);
+  $('opt-open').setAttribute('aria-expanded', open);
+}
+$('opt-open').onclick = () => setOptions(!document.querySelector('.app').classList.contains('options-open'));
+$('opt-close').onclick = () => setOptions(false);
+
+$('start-facing').value = MOBILE ? 'environment' : 'user';
+$('start-camera').onclick = () => {
+  $('start').hidden = true;
+  $('facing').value = $('start-facing').value;
+  setSource('camera');
+};
+$('start-demo').onclick = () => {
+  $('start').hidden = true;
+  setSource('demo');
+};
 
 // Drop empty frames at the start and end of a take.
 function trimFrames(frames) {

@@ -3,7 +3,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap">
 <style>
-  /* Layout: one-screen studio. 3D stage fills the left, an instrument rail on the right; stacks on phones. */
+  /* Layout: the 3D hands fill the screen; record/review sit in a bottom dock; everything else lives in a slide-in options drawer. */
   :root {
     --bg: #e7ecee;
     --stage: #dfe6e9;
@@ -35,8 +35,9 @@
   }
   html, body { height: 100%; }
   body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 14px; line-height: 1.5; }
-  .app { height: 100%; display: grid; grid-template-columns: minmax(0, 1fr) 380px; }
-  .stage { position: relative; background: var(--stage); min-width: 0; overflow: hidden; }
+  body { margin: 0; overflow: hidden; }
+  .app { height: 100%; height: 100dvh; position: relative; }
+  .stage { position: absolute; inset: 0; background: var(--stage); overflow: hidden; }
   #viewport { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
   .stage-bar {
     position: absolute; left: 0; right: 0; top: 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
@@ -46,9 +47,10 @@
   #view-reset { background: var(--surface); }
   .brand { font-weight: 600; letter-spacing: 0.01em; margin-right: auto; }
   .brand small { display: block; font-weight: 400; color: var(--muted); font-size: 12px; }
+  /* Status line under the top bar, clear of the record dock and review panel. */
   .stage-foot {
-    position: absolute; left: 0; right: 0; bottom: 0; display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end;
-    padding: 0 max(16px, env(safe-area-inset-left, 0px)) 12px; pointer-events: none;
+    position: absolute; left: 0; right: 0; top: 52px; display: flex; gap: 4px 12px; flex-wrap: wrap; align-items: flex-start;
+    padding: 0 max(16px, env(safe-area-inset-left, 0px)); pointer-events: none;
     font-family: var(--font-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums;
   }
   .stage-foot .legend { display: flex; gap: 12px; }
@@ -64,7 +66,46 @@
     font-family: var(--font-mono); font-size: 120px; font-weight: 500; color: var(--accent); text-shadow: 0 2px 24px var(--bg);
   }
 
-  .rail { background: var(--surface); border-left: 1px solid var(--line); overflow-y: auto; min-width: 0; }
+  .rail {
+    position: fixed; top: 0; right: 0; bottom: 0; width: min(400px, 100%); z-index: 10; background: var(--surface);
+    border-left: 1px solid var(--line); overflow-y: auto; transform: translateX(100%); transition: transform 0.2s ease;
+    padding-bottom: env(safe-area-inset-bottom, 0px); box-shadow: -8px 0 24px rgb(0 0 0 / 0.12);
+  }
+  .app.options-open .rail { transform: none; }
+  .rail-head { position: sticky; top: 0; z-index: 1; display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: var(--surface); border-bottom: 1px solid var(--line); font-weight: 600; }
+
+  /* Bottom dock: record + review. */
+  .dock {
+    position: absolute; left: 0; right: 0; bottom: calc(36px + env(safe-area-inset-bottom, 0px)); display: flex; justify-content: center; align-items: center; gap: 20px;
+    pointer-events: none;
+  }
+  .dock > * { pointer-events: auto; }
+  .rec-btn {
+    width: 72px; height: 72px; border-radius: 50%; padding: 0; justify-content: center; background: var(--surface);
+    border: 3px solid var(--ink); box-shadow: 0 2px 12px rgb(0 0 0 / 0.18);
+  }
+  .rec-btn i { width: 28px; height: 28px; border-radius: 50%; background: #d63b2f; transition: border-radius 0.15s, width 0.15s, height 0.15s; }
+  .rec-btn.on i { width: 24px; height: 24px; border-radius: 5px; }
+  .dock .side { min-width: 92px; justify-content: center; background: var(--surface); box-shadow: 0 2px 10px rgb(0 0 0 / 0.12); }
+  .rec-time { font-family: var(--font-mono); font-variant-numeric: tabular-nums; min-width: 92px; text-align: center; color: var(--muted); }
+  .rec-time.on { color: #d63b2f; font-weight: 500; }
+
+  .review {
+    position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(24px + env(safe-area-inset-bottom, 0px)); width: min(720px, calc(100% - 32px));
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: grid; gap: 8px; box-shadow: 0 4px 20px rgb(0 0 0 / 0.16);
+  }
+  .review .row { flex-wrap: nowrap; }
+  .review .play { width: 40px; height: 40px; border-radius: 50%; padding: 0; justify-content: center; font-size: 16px; flex: none; }
+  .review output { font-family: var(--font-mono); font-size: 12px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .review select { flex: 1; min-width: 0; }
+
+  .start {
+    position: absolute; inset: 0; display: grid; place-items: center; background: color-mix(in srgb, var(--stage) 70%, transparent); z-index: 5; padding: 16px;
+  }
+  .start-card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 20px; width: min(380px, 100%); display: grid; gap: 12px; box-shadow: 0 8px 32px rgb(0 0 0 / 0.16); }
+  .start-card h1 { margin: 0; font-size: 18px; }
+  .start-card p { margin: 0; color: var(--muted); font-size: 13px; }
+  .start-card .big { font-size: 15px; padding: 12px; justify-content: center; }
   .rail section { padding: 16px max(16px, env(safe-area-inset-right, 0px)) 16px 16px; border-bottom: 1px solid var(--line); display: grid; gap: 10px; }
   .rail h2 { margin: 0; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); display: flex; justify-content: space-between; align-items: center; }
   .rail h2 span { text-transform: none; letter-spacing: 0; font-weight: 400; font-family: var(--font-mono); }
@@ -123,12 +164,12 @@
   textarea.json { width: 100%; min-height: 120px; font-family: var(--font-mono); font-size: 11px; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 8px; box-sizing: border-box; }
 
   @media (max-width: 860px) {
-    html, body { height: auto; }
-    .app { grid-template-columns: minmax(0, 1fr); height: auto; }
-    .stage { height: 58svh; min-height: 340px; }
-    .rail { border-left: 0; border-top: 1px solid var(--line); overflow: visible; }
-    .rail section { padding-left: max(16px, env(safe-area-inset-left, 0px)); }
     .countdown { font-size: 88px; }
+    .brand small { display: none; }
+  }
+  @media (max-height: 480px) {
+    .dock { bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
+    .rec-btn { width: 60px; height: 60px; }
   }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
@@ -137,14 +178,47 @@
   <div class="stage">
     <canvas id="viewport"></canvas>
     <div class="stage-bar">
-      <div class="brand">Hand Motion Studio<small>양손 추적 → 관절 회전 → 포즈 저장</small></div>
-      <button id="view-reset" title="드래그로 돌려 본 화면을 다시 1인칭(폰 카메라) 시점으로">1인칭 시점으로</button>
+      <div class="brand">Hand Motion Studio<small>내 손을 따라 움직이는 1인칭 손 · 녹화 → GLB</small></div>
+      <button id="view-reset" title="드래그로 돌려 본 화면을 다시 1인칭(폰 카메라) 시점으로">1인칭</button>
+      <button id="opt-open" aria-expanded="false" aria-controls="rail">⚙ 옵션</button>
     </div>
     <div class="banner" id="pose-banner" hidden>
       <span id="pose-banner-text">저장된 포즈 보는 중</span>
       <button id="back-live">라이브로 돌아가기</button>
     </div>
     <div class="countdown" id="countdown" hidden></div>
+
+    <div class="dock" id="dock">
+      <button class="side" id="review-open" disabled>리뷰</button>
+      <button class="rec-btn" id="rec" aria-label="녹화 시작"><i></i></button>
+      <span class="rec-time" id="rec-time">녹화</span>
+    </div>
+
+    <div class="review" id="review" hidden>
+      <div class="row">
+        <button class="play" id="rv-play" aria-label="재생">▶</button>
+        <input type="range" id="rv-seek" min="0" max="1" step="0.001" value="0" aria-label="재생 위치" class="grow">
+        <output id="rv-time">0.0 / 0.0초</output>
+      </div>
+      <div class="row">
+        <select id="rv-take" aria-label="테이크 선택"></select>
+        <button class="primary" id="rv-glb">GLB 저장</button>
+        <button id="rv-close">닫기</button>
+      </div>
+    </div>
+
+    <div class="start" id="start">
+      <div class="start-card">
+        <h1>내 손으로 움직이기</h1>
+        <p>카메라가 양손과 팔꿈치를 따라가서 3D 손이 그대로 움직입니다. 폰은 눈높이에 두고 폰 뒤에서 손을 앞으로 뻗으세요.</p>
+        <select id="start-facing" aria-label="카메라 선택">
+          <option value="environment">후면 카메라 (폰을 눈앞에 두고 손 뻗기)</option>
+          <option value="user">전면 카메라 / 웹캠 (화면을 보면서)</option>
+        </select>
+        <button class="primary big" id="start-camera">카메라로 시작</button>
+        <button class="big" id="start-demo">카메라 없이 데모 보기</button>
+      </div>
+    </div>
     <div class="stage-foot">
       <div class="legend"><span><i class="dot" style="background:var(--left)"></i>왼손 <b id="seen-left">–</b></span><span><i class="dot" style="background:var(--right)"></i>오른손 <b id="seen-right">–</b></span></div>
       <span id="fps">0 fps</span>
@@ -154,7 +228,8 @@
     </div>
   </div>
 
-  <aside class="rail">
+  <aside class="rail" id="rail" aria-label="옵션">
+    <div class="rail-head">옵션<button id="opt-close" aria-label="옵션 닫기">닫기</button></div>
     <section>
       <h2>입력 <span id="engine-status">데모 재생 중</span></h2>
       <div class="seg" role="group" aria-label="입력 방식">
@@ -230,16 +305,14 @@
     </section>
 
     <section>
-      <h2>모션 녹화 <span id="rec-info">GLB · 팔 + 손 + 쥔 물체</span></h2>
+      <h2>녹화 <span id="rec-info">GLB · 팔 + 손 + 쥔 물체</span></h2>
       <div class="row">
-        <button class="primary" id="rec">● 녹화 시작</button>
-        <button id="rec-glb" disabled>모션 GLB 저장</button>
-        <button id="rec-json" disabled>모션 JSON</button>
+        <button id="rec-json" disabled>마지막 테이크 JSON</button>
       </div>
       <div class="row">
         <label class="check"><input type="checkbox" id="rec-object" checked> 쥔 물체도 GLB에 넣기</label>
       </div>
-      <p class="hint">동영상 파일 입력이면 처음부터 끝까지 자동으로 녹화합니다. GLB에는 어깨·위팔·아래팔·손목·손가락 뼈대(믹사모 이름)와 스킨 메시, 애니메이션이 들어가서 블렌더·유니티·언리얼에 바로 넣을 수 있습니다.</p>
+      <p class="hint">녹화는 화면 아래 빨간 버튼으로 합니다. 입력이 동영상 파일이면 처음부터 끝까지 한 프레임씩(30fps) 자동으로 녹화합니다. GLB에는 어깨·위팔·아래팔·손목·손가락 뼈대(믹사모 이름)와 스킨 메시, 애니메이션이 들어가서 블렌더·유니티·언리얼에 바로 넣을 수 있습니다.</p>
     </section>
 
     <section>
