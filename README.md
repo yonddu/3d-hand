@@ -4,7 +4,7 @@
 
 ## 실행
 
-**폰에서 바로 쓰기:** https://youngdeukss.github.io/3d-hand/ (GitHub Pages, https라 폰 카메라가 열립니다)
+**폰에서 바로 쓰기:** https://yonddu.github.io/3d-hand/ (GitHub Pages, https라 폰 카메라가 열립니다)
 
 빌드된 `index.html`과 `vendor/`(Three.js, MediaPipe wasm, 손 모델)가 모두 들어 있어 인터넷 없이도 돌아갑니다. 정적 서버로만 열면 됩니다.
 

@@ -20,7 +20,7 @@
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { FINGERS, wristName, boneName } from './skeleton.js';
-import { ArmRig, UPPER, FORE, ARM_BIND, limitedArmLocals } from './arm.js';
+import { ArmRig, UPPER, FORE, ARM_BIND, limitedArmLocals, wristPivot, pivotLoop, WRIST_PIVOT } from './arm.js';
 import { wristLoop, buildArm } from './armMesh.js';
 
 const SIDES = ['left', 'right'];
@@ -129,7 +129,9 @@ function buildSide(side, head, skin, shoulder) {
   B.fingers = {};
   for (const finger of FINGERS) {
     let parent = B.hand;
-    let pos = skin.firstJoint[finger.key];
+    // Skin offsets are from the tracked wrist point; the bone is on the pivot.
+    let pos = skin.firstJoint[finger.key].slice();
+    pos[1] -= WRIST_PIVOT;
     for (let k = 0; k < 4; k++) {
       const b = bone(boneName(side, finger, k), parent, pos, k < 3 ? skin.restLocal[finger.key][k] : [0, 0, 0, 1]);
       B.fingers[b.name] = b;
@@ -153,11 +155,11 @@ function buildGeometry(sides, bonesBySide, skins, boneIndex) {
       index: skin.index,
       skinIndex: Uint16Array.from(skin.names, (n) => boneIndex[n] ?? boneIndex[B.hand.name]),
       skinWeight: skin.weights,
-      matrix: B.hand.matrixWorld.clone(),
+      matrix: B.hand.matrixWorld.clone().multiply(new THREE.Matrix4().makeTranslation(0, -WRIST_PIVOT, 0)),
     });
     // Arm skin grown from the hand's wrist border (same as the app shows).
     const P = prefix(side);
-    const arm = buildArm(wristLoop(skin));
+    const arm = buildArm(pivotLoop(wristLoop(skin)));
     for (const { id, normal } of arm.seam) normal.toArray(parts[parts.length - 1].normal, id * 3);
     const n = arm.position.length / 3;
     const idx = new Uint16Array(n * 4);
@@ -253,7 +255,9 @@ function objectTransform(o, type) {
 // upper arm / forearm lengths (arm.js armLocals, the same solve the app shows).
 function sideLocals(f, side) {
   // Same forearm range limit as the app shows.
-  const { L } = limitedArmLocals(new THREE.Vector3().fromArray(f.shoulder), new THREE.Vector3().fromArray(f.elbow), new THREE.Vector3().fromArray(f.wrist), new THREE.Quaternion().fromArray(f.handQ), { side, ...f.armOpts });
+  // The hand bone sits on the wrist pivot (arm.js WRIST_PIVOT), as in the app.
+  const handQ = new THREE.Quaternion().fromArray(f.handQ);
+  const { L } = limitedArmLocals(new THREE.Vector3().fromArray(f.shoulder), new THREE.Vector3().fromArray(f.elbow), wristPivot(new THREE.Vector3().fromArray(f.wrist), handQ), handQ, { side, ...f.armOpts });
   return { shoulderPos: L.S.toArray(), arm: L.arm.toArray(), fore: L.fore.toArray(), hand: L.hand.toArray() };
 }
 

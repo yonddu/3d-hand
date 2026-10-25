@@ -18,7 +18,7 @@ import { addDepthPrepass } from './prepass.js';
 // joint (m). Negative: above the joint, inside the heel of the hand, so the
 // arm skin's bend (armMesh WRIST_BEND) straddles the joint as real skin does
 // instead of all lying below it on the forearm.
-const WRIST_CUT = -0.015;
+const WRIST_CUT = -0.03; // 1.5 cm past the wrist pivot (arm.js WRIST_PIVOT)
 import { basisQuat, handFrameQuat, cupQuat } from './handRig.js';
 
 // WebXR joint names per finger: [metacarpal, proximal, intermediate/distal, distal/tip, tip].

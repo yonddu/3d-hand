@@ -26,6 +26,18 @@ const Y = new THREE.Vector3(0, 1, 0);
 const TWISTS = 5;
 // Forearm roll allowed either side of thumb up: pronation/supination ~80-90
 // degrees plus slack for shoulder rotation and the guessed elbow.
+// Where the hand turns on the forearm, along the hand from the tracked wrist
+// point (m). MediaPipe's wrist point sits on the forearm side of the crease;
+// the wrist bends at the carpal bones, further into the heel of the hand
+// (user: the bend showed ~2 cm too far up the forearm).
+export const WRIST_PIVOT = 0.015;
+export function wristPivot(wrist, handQuat) {
+  return new THREE.Vector3(0, WRIST_PIVOT, 0).applyQuaternion(handQuat).add(wrist);
+}
+// A hand border loop (armMesh.wristLoop) moved into the pivot's frame.
+export function pivotLoop(loop) {
+  return { ...loop, points: loop.points.map((p) => p.clone().setY(p.y - WRIST_PIVOT)) };
+}
 const SEEN_BEND = (20 * Math.PI) / 180; // most a seen forearm may bend the wrist off its rest line
 const REST_EXT = (10 * Math.PI) / 180; // wrist extension held without thinking: median of the arm pose dictionary
 const ROLL_LIMIT = (110 * Math.PI) / 180;
@@ -211,7 +223,7 @@ export class ArmRig {
 
   // Build the arm skin from the hand's wrist border (armMesh.wristLoop()).
   setSkin(loop, material) {
-    const arm = buildArm(loop);
+    const arm = buildArm(pivotLoop(loop));
     this.skinData = arm;
     const n = arm.position.length / 3;
     const g = new THREE.BufferGeometry();
@@ -289,6 +301,7 @@ export class ArmRig {
   // scene space; elbowHint: elbow seen by the pose model (scene space) or null.
   update(wrist, handQuat, elbowHint = null) {
     const handY = Y.clone().applyQuaternion(handQuat);
+    const pivot = wristPivot(wrist, handQuat);
     let target;
     // People hold the wrist nearly straight (a little extended): the forearm
     // continues the hand's line. Reaching back to a guessed shoulder bent the
@@ -303,19 +316,19 @@ export class ArmRig {
         // A forearm read from the picture (skin colour, the pose model) can
         // catch the sleeve or the desk. In first person the wrist rarely sits
         // far off straight, so the seen line may only bend it so far.
-        const d = target.clone().sub(wrist).normalize();
+        const d = target.clone().sub(pivot).normalize();
         const off = d.angleTo(back);
         if (off > SEEN_BEND) d.copy(back).lerp(d, SEEN_BEND / off).normalize();
-        target = wrist.clone().addScaledVector(d, FORE);
+        target = pivot.clone().addScaledVector(d, FORE);
       }
     } else if (this.follow) {
       // First person with no elbow in view: the forearm on the hand's line,
       // and the shoulder gives way.
-      target = wrist.clone().addScaledVector(back, FORE);
+      target = pivot.clone().addScaledVector(back, FORE);
       target.z = Math.min(target.z, -0.06); // never between the eye and the phone
       this.source = 'hand';
     } else {
-      target = solveElbow(this.shoulder, wrist, wrist.clone().addScaledVector(handY, -FORE));
+      target = solveElbow(this.shoulder, pivot, pivot.clone().addScaledVector(handY, -FORE));
       this.source = 'ik';
     }
     // Live passthrough: the forearm lies on the seen line and the shoulder is free.
@@ -327,7 +340,7 @@ export class ArmRig {
   // Pose the bones for this wrist, using the current elbow hint (no smoothing).
   pose(wrist, handQuat) {
     this.wrist.copy(wrist);
-    const { L, fixedQ } = limitedArmLocals(this.shoulder, this.elbow, wrist, handQuat, this.opts);
+    const { L, fixedQ } = limitedArmLocals(this.shoulder, this.elbow, wristPivot(wrist, handQuat), handQuat, this.opts);
     this.fixedHandQ = fixedQ;
     if (fixedQ) handQuat = fixedQ;
     this.lastHandQ = handQuat.clone();
