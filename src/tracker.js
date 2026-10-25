@@ -11,6 +11,22 @@ export class HandTracker {
     this.lastObjectTime = -1;
     this.pose = null; // body pose, for elbows when they are in view
     this.lastPoseTime = -1;
+    this.lastDetectAt = -1;
+    this.frameSeq = 0; // camera frames counted by requestVideoFrameCallback, when available
+    this.lastFrameSeq = -1;
+  }
+
+  // Live camera: some mobile browsers never advance video.currentTime on a
+  // MediaStream, so new frames are counted with requestVideoFrameCallback
+  // (or, without it, assumed at ~30 fps).
+  watchFrames(video) {
+    if (!('requestVideoFrameCallback' in HTMLVideoElement.prototype)) return;
+    const tick = () => {
+      this.frameSeq++;
+      video.requestVideoFrameCallback(tick);
+    };
+    video.requestVideoFrameCallback(tick);
+    this.rvfc = true;
   }
 
   async init(onStatus = () => {}) {
@@ -31,6 +47,7 @@ export class HandTracker {
       minHandPresenceConfidence: 0.5,
       minTrackingConfidence: 0.5,
     });
+    this.handOptions = options;
     try {
       this.landmarker = await HandLandmarker.createFromOptions(fileset, options('GPU'));
       this.delegate = 'GPU';
@@ -41,6 +58,16 @@ export class HandTracker {
     }
     onStatus(`추적 준비됨 (${this.delegate})`);
     this.fileset = fileset;
+  }
+
+  // Some phone GPUs run the model but return no hands; rebuild on the CPU.
+  async useCPU() {
+    if (this.delegate === 'CPU') return;
+    const old = this.landmarker;
+    this.landmarker = await HandLandmarker.createFromOptions(this.fileset, this.handOptions('CPU'));
+    this.delegate = 'CPU';
+    this.lastDetectAt = -1;
+    old.close();
   }
 
   // Object detector for "what is in the hand". Optional: tracking works without it.
@@ -110,9 +137,18 @@ export class HandTracker {
 
   // Returns null when the frame was already processed.
   detect(video, nowMs, { swapHandedness = false, rightOnImageRight = true } = {}) {
-    if (!this.landmarker || video.readyState < 2) return null;
-    if (video.currentTime === this.lastVideoTime) return null;
-    this.lastVideoTime = video.currentTime;
+    if (!this.landmarker || video.readyState < 2 || !video.videoWidth) return null;
+    if (video.srcObject) {
+      if (this.rvfc) {
+        if (this.frameSeq === this.lastFrameSeq) return null;
+        this.lastFrameSeq = this.frameSeq;
+      } else if (nowMs - this.lastDetectAt < 30) return null;
+    } else {
+      if (video.currentTime === this.lastVideoTime) return null;
+      this.lastVideoTime = video.currentTime;
+    }
+    if (nowMs <= this.lastDetectAt) return null;
+    this.lastDetectAt = nowMs;
     const res = this.landmarker.detectForVideo(video, nowMs);
     const hands = res.landmarks.map((lm, i) => {
       const cat = res.handedness[i][0];

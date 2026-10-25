@@ -93,6 +93,7 @@ function resize() {
   if (!w || !h) return;
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
+  if (state.ar) return fitArCamera();
   // Keep a constant horizontal field of view so both hands fit on a portrait phone.
   const hfov = THREE.MathUtils.degToRad(46);
   camera.fov = Math.max(34, THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(hfov / 2) / camera.aspect)));
@@ -116,6 +117,7 @@ const state = {
   pose: null,
   poseAt: -1e9,
   gesture: '',
+  ar: false, // camera picture behind the hands
 };
 const demo = new DemoSource();
 let tracker = null;
@@ -126,6 +128,33 @@ const overlay = $('overlay');
 const octx = overlay.getContext('2d');
 
 // --- input sources ------------------------------------------------------------
+
+// GPU tracking that never finds a hand (some phone GPUs return nothing) is
+// rebuilt on the CPU once. Counted over frames actually processed.
+const gpuWatch = { frames: 0, found: false, since: 0 };
+function watchGpu(count, now) {
+  if (!tracker || tracker.delegate !== 'GPU' || gpuWatch.found) return;
+  if (count) {
+    gpuWatch.found = true;
+    return;
+  }
+  if (!gpuWatch.frames++) gpuWatch.since = now;
+  if (gpuWatch.frames > 60 && now - gpuWatch.since > 4000) fallbackToCPU('GPU에서 손을 못 찾음');
+}
+let switching = false;
+function fallbackToCPU(why) {
+  if (!tracker || tracker.delegate === 'CPU' || switching) return;
+  switching = true;
+  setStatus(`${why} → CPU로 다시 시작하는 중…`);
+  tracker
+    .useCPU()
+    .then(() => setStatus('추적 준비됨 (CPU)'))
+    .catch((err) => {
+      console.error(err);
+      setStatus('CPU 추적을 시작하지 못했습니다', true);
+    })
+    .finally(() => (switching = false));
+}
 
 function setStatus(text, isError = false) {
   const el = $('engine-status');
@@ -235,6 +264,9 @@ async function startCamera() {
   if (state.source !== 'camera') return stopStream();
   video.srcObject = stream;
   await video.play().catch(() => {});
+  ensureTracker()
+    .then((t) => !t.rvfc && t.watchFrames(video))
+    .catch(() => {});
   $('preview-empty').hidden = true;
   // Front cameras feel natural mirrored; tracking still runs on the raw frame.
   $('preview').classList.toggle('mirror', facing === 'user');
@@ -289,6 +321,7 @@ function applyLook() {
     // The arm is one surface with the hand, so it wears the same material.
     arms[s].setMaterial(realHands[s] ? realHands[s].mesh.material : mat);
   }
+  applyOpacity();
 }
 $('look').onchange = applyLook;
 
@@ -359,8 +392,10 @@ Promise.all(
 
 // --- per-frame pipeline --------------------------------------------------------------
 
-const HFOV = (63 * Math.PI) / 180;
-const FOCAL = 0.5 / Math.tan(HFOV / 2); // in image-width units
+// Phone main cameras see about 66 degrees across the long side of the frame.
+const LONG_FOV = (66 * Math.PI) / 180;
+// Focal length in image-width units for a frame of this aspect (width / height).
+const focalW = (aspect) => (Math.max(1, 1 / aspect) * 0.5) / Math.tan(LONG_FOV / 2);
 const WORK_DEPTH = 0.42;
 const LIVE_WINDOW = 1.0; // seconds a hand counts as tracked after its last detection
 
@@ -375,7 +410,20 @@ function fromMediaPipe(hand) {
   const b = hand.landmarks[9];
   const pix = Math.hypot(b.x - a.x, (b.y - a.y) / aspect);
   const real = world[0].distanceTo(world[9]);
+  const FOCAL = focalW(aspect);
   const z = THREE.MathUtils.clamp((FOCAL * real) / Math.max(pix, 1e-3), 0.18, 1.2);
+  const vision = objectForHand(state.detections, hand, aspect);
+  if (state.ar) {
+    // Passthrough: put the wrist on its own camera ray at its real distance,
+    // so the 3D hand lands on top of the real one in the video.
+    const ray = (p) => new THREE.Vector3((p.x - 0.5) / FOCAL, -((p.y - 0.5) / aspect) / FOCAL, -1);
+    const anchor = ray(a).multiplyScalar(z);
+    const elbow = elbowFromPoseAR(hand, z, ray);
+    // Facing the camera, the body (and so the shoulders) is behind the hands.
+    const sgn = hand.side === 'right' ? 1 : -1;
+    const shoulder = facingUser() ? new THREE.Vector3(-0.18 * sgn, anchor.y - 0.12, Math.min(anchor.z - 0.3, -0.5)) : null;
+    return { side: hand.side, world, anchor, vision, elbow, shoulder };
+  }
   // Lay hands out on a work plane at WORK_DEPTH so they stay in frame; real
   // depth changes still move the hand, at half strength.
   const k = WORK_DEPTH / FOCAL;
@@ -388,7 +436,6 @@ function fromMediaPipe(hand) {
     anchor.set(-anchor.x, anchor.y, -2 * WORK_DEPTH - anchor.z);
     if (elbow) elbow.set(-elbow.x, elbow.y, -2 * WORK_DEPTH - elbow.z);
   }
-  const vision = objectForHand(state.detections, hand, aspect);
   return { side: hand.side, world, anchor, vision, elbow };
 }
 
@@ -412,6 +459,18 @@ function elbowFromPose(hand, anchor, aspect, k) {
   );
 }
 
+function elbowFromPoseAR(hand, wristDist, ray) {
+  const pose = state.pose;
+  if (!pose || !pose.landmarks) return null;
+  const ids = POSE_ARM[hand.side];
+  const e = pose.landmarks[ids.elbow];
+  const w = pose.landmarks[ids.wrist];
+  const hw = hand.landmarks[0];
+  if ((e.visibility ?? 0) < 0.6 || Math.hypot(w.x - hw.x, w.y - hw.y) > 0.15) return null;
+  const dz = pose.world[ids.elbow].z - pose.world[ids.wrist].z; // + = elbow further from the camera
+  return ray(e).multiplyScalar(Math.max(0.1, wristDist + dz));
+}
+
 function feed(inputs, t) {
   const seen = new Set();
   for (const input of inputs) {
@@ -432,6 +491,7 @@ function feed(inputs, t) {
     rig.group.position.set(anc[0], anc[1], anc[2]);
     state.lastSolve[side] = solvers[side].solve(smooth, { limits: state.limits });
     if ($('object-mode').value !== 'off') grasps[side].update(graspOptions(input));
+    arms[side].shoulder.copy(input.shoulder || arms[side].homeShoulder);
     armResults[side] = arms[side].update(rig.group.position, rig.wrist.quaternion, input.elbow || null);
     updateRaw(side, input.world, rig.group.position);
   }
@@ -503,11 +563,84 @@ function drawOverlay(hands) {
   }
 }
 
+// --- passthrough (AR): the camera picture behind semi-transparent hands --------------------
+
+const videoTex = new THREE.VideoTexture(video);
+videoTex.colorSpace = THREE.SRGBColorSpace;
+let arFit = '';
+// The 3D camera becomes the phone camera: at the origin, same field of view,
+// cropped like the video is (cover) so the hands line up with the picture.
+function fitArCamera() {
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+  const cw = canvas.clientWidth;
+  const ch = canvas.clientHeight;
+  if (!vw || !vh || !cw || !ch) return;
+  const key = `${vw}x${vh}/${cw}x${ch}`;
+  if (key === arFit) return;
+  arFit = key;
+  const va = vw / vh;
+  const ca = cw / ch;
+  const f = focalW(va);
+  const tx = 0.5 / f;
+  const ty = 0.5 / va / f;
+  const tyVis = ca > va ? tx / ca : ty;
+  camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(tyVis));
+  camera.aspect = ca;
+  camera.updateProjectionMatrix();
+  // Same crop on the background picture.
+  videoTex.repeat.set(ca > va ? 1 : ca / va, ca > va ? va / ca : 1);
+  videoTex.offset.set((1 - videoTex.repeat.x) / 2, (1 - videoTex.repeat.y) / 2);
+}
+const arWanted = () => $('ar').checked && (state.source === 'camera' || state.source === 'video') && !state.frozen && video.readyState >= 2;
+function syncAr() {
+  $('ar-btn').hidden = state.source === 'demo';
+  const on = arWanted();
+  if (on) fitArCamera();
+  if (on === state.ar) return;
+  state.ar = on;
+  arFit = '';
+  document.querySelector('.app').classList.toggle('ar', on);
+  scene.background = on ? videoTex : null;
+  grid.visible = !on;
+  controls.enabled = !on;
+  $('view-reset').hidden = on;
+  if (on) {
+    camera.position.set(0, 0, 0);
+    camera.quaternion.identity();
+    fitArCamera();
+  } else {
+    resize();
+    resetView();
+  }
+  applyOpacity();
+  resetTracking(); // hand positions change meaning between the two views
+}
+// Overlaid on the real hands the skin is see-through.
+function applyOpacity() {
+  for (const s of SIDES) {
+    const m = realHands[s] ? realHands[s].mesh.material : rigs[s].mesh.material;
+    if (!m) continue;
+    m.userData.baseOpacity ??= m.opacity;
+    m.transparent = true;
+    m.opacity = state.ar ? Math.min(0.5, m.userData.baseOpacity) : m.userData.baseOpacity;
+  }
+}
+$('ar').onchange = () => {
+  $('ar-btn').setAttribute('aria-pressed', $('ar').checked);
+  syncAr();
+};
+$('ar-btn').onclick = () => {
+  $('ar').checked = !$('ar').checked;
+  $('ar').onchange();
+};
+
 let frames = 0;
 let fpsT = performance.now();
 let tableT = 0;
 
 function tick(now) {
+  syncAr();
   // Recording a video file steps through it frame by frame on video time.
   const offline = rec.on && rec.offline;
   const t = offline ? video.currentTime : now / 1000;
@@ -539,7 +672,14 @@ function tick(now) {
           state.poseAt = now;
         }
       }
-      const hands = tracker.detect(video, now, { swapHandedness: state.swap, rightOnImageRight: !facingUser() });
+      let hands = null;
+      try {
+        hands = tracker.detect(video, now, { swapHandedness: state.swap, rightOnImageRight: !facingUser() });
+      } catch (err) {
+        console.error(err);
+        fallbackToCPU('추적 오류');
+      }
+      if (hands) watchGpu(hands.length, now);
       if (hands) {
         drawOverlay(hands);
         feed(hands.map(fromMediaPipe), t);
@@ -563,12 +703,12 @@ function tick(now) {
     if (!offline) sampleRecording(now);
     else if (rec.frameReady) stepOffline();
   }
-  controls.update();
+  if (!state.ar) controls.update();
   renderer.render(scene, camera);
 
   frames++;
   if (now - fpsT > 500) {
-    $('fps').textContent = `${Math.round((frames * 1000) / (now - fpsT))} fps`;
+    $('fps').textContent = `${Math.round((frames * 1000) / (now - fpsT))} fps${tracker && state.source !== 'demo' ? ` · ${tracker.delegate}` : ''}`;
     frames = 0;
     fpsT = now;
     for (const side of SIDES) {
@@ -1125,4 +1265,4 @@ async function saveBinary(buffer, filename) {
 renderLibrary();
 renderTable();
 requestAnimationFrame(tick);
-window.__hms = { camera, controls, realHands, arms, rec, startRecording, stopRecording, trimFrames, exportSkins, exportGlb, savePoseGlb, armResults: () => armResults, tracker: () => ensureTracker(), handFeatures, grasps, scene, rigs, solvers, state, capture, viewPose };
+window.__hms = { fallbackToCPU, camera, controls, realHands, arms, rec, startRecording, stopRecording, trimFrames, exportSkins, exportGlb, savePoseGlb, armResults: () => armResults, tracker: () => ensureTracker(), handFeatures, grasps, scene, rigs, solvers, state, capture, viewPose };

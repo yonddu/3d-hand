@@ -81,6 +81,7 @@ export class ArmRig {
     const s = sideSign(side);
     // Shoulder relative to the eyes: down, out to the side, a little behind.
     this.shoulder = new THREE.Vector3(0.18 * s, -0.24, 0.06);
+    this.homeShoulder = this.shoulder.clone(); // first person: phone at the eyes
     this.elbow = new THREE.Vector3(0.2 * s, -0.4, -0.15); // elbow hint (pose model or IK pole), smoothed
     this.wrist = new THREE.Vector3();
     this.source = 'ik';
