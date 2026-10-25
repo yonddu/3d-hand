@@ -239,6 +239,7 @@ export function liftToPicture(world, image, aspect, side = null, memory = null, 
       palmN = unit(side === 'right' ? cross(a, b) : cross(b, a));
     }
   }
+  out.cup = palmCup(world, side, memory);
   out.occluded = occlusion(out);
   if (memory) {
     // Overlaps come and go with tracker noise; settle them over a few frames.
@@ -246,6 +247,44 @@ export function liftToPicture(world, image, aspect, side = null, memory = null, 
     memory.occ = out.occluded;
   }
   return out;
+}
+
+// Palm cupping, in degrees of little-finger metacarpal fold (the ring
+// finger's follows at about half). The ring and little finger metacarpals are
+// not fixed to the palm: at their base (CMC) they fold toward the palm and
+// turn, hollowing it, which is what lets the thumb meet the ring and little
+// fingertips. The palm above is placed as one flat piece, so the fold is read
+// separately: how far the little finger's knuckle sits out of the plane of
+// the wrist, index and middle knuckles toward the palm (MediaPipe's 3D
+// reading models the hollow), and, as a floor, how close the thumb tip is to
+// the ring or little fingertip (they cannot touch on a flat palm).
+const CUP_MAX = 30;
+const CUP_FLAT = 11;
+function palmCup(world, side, memory) {
+  if (side !== 'right' && side !== 'left') return 0;
+  const v = (i) => [world[i].x - world[0].x, world[i].y - world[0].y, world[i].z - world[0].z];
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const norm = (a) => Math.hypot(a[0], a[1], a[2]) || 1e-9;
+  const n0 = side === 'right' ? cross(v(5), v(9)) : cross(v(9), v(5));
+  const n = n0.map((x) => x / norm(n0));
+  const y = v(9).map((x) => x / norm(v(9)));
+  const p = v(17);
+  const h = dot(p, n);
+  const lat = norm(p.map((x, c) => x - dot(p, y) * y[c] - h * n[c]));
+  // An open, flat hand already reads ~11 degrees (median over recorded open
+  // hands): that is the reading's own bias, not a fold.
+  const fromWorld = Math.atan2(h, lat) / (Math.PI / 180) - CUP_FLAT;
+  const palm = norm(v(9));
+  const d = (a, b) => Math.hypot(world[a].x - world[b].x, world[a].y - world[b].y, world[a].z - world[b].z) / palm;
+  const near = (x) => 1 - Math.min(Math.max((x - 0.12) / 0.25, 0), 1);
+  const fromTouch = Math.max(CUP_MAX * near(d(4, 20)), 0.6 * CUP_MAX * near(d(4, 16)));
+  let cup = Math.min(Math.max(Math.max(fromWorld, fromTouch), 0), CUP_MAX);
+  if (memory) {
+    if (memory.cup !== undefined) cup = memory.cup + (cup - memory.cup) * 0.5;
+    memory.cup = cup;
+  }
+  return cup;
 }
 
 // Which joints the camera cannot see: a joint behind another finger or the

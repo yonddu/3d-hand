@@ -222,6 +222,7 @@ function cleanSide(hands, swapped) {
       }
     }
     for (const k of POS_KEYS) smoothV(k, SIGMA.pos);
+    smoothV('cup', SIGMA.bone);
     for (const n of names) smoothQ((h) => h.fingers[n] || null, (h, q) => (h.fingers[n] = q), SIGMA.bone);
   }
   return hands;

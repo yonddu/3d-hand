@@ -42,6 +42,7 @@ export function frameFromLive(side, rig, arm, grasp) {
     foreQ: m.forearmQuat,
     handQ: rig.wrist.quaternion.toArray(),
     fingers: rig.getPose().bones,
+    cup: [rig.cup || 0],
     object: grasp ? grasp.toJSON() : null,
     armOpts: arm.opts,
   };

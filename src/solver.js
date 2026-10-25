@@ -7,7 +7,7 @@
 // joint data a game character can use directly, instead of raw points.
 import * as THREE from 'three';
 import { FINGERS, limitsFor, sideSign } from './skeleton.js';
-import { handFrameQuat } from './handRig.js';
+import { handFrameQuat, cupQuat } from './handRig.js';
 import { fitFinger } from './fit.js';
 
 const D2R = Math.PI / 180;
@@ -39,7 +39,7 @@ export class HandSolver {
 
   // P: 21 THREE.Vector3 in rig orientation (any origin, meters).
   // Returns per-bone angles and confidences and writes rotations to the rig.
-  solve(P, { limits = true, smoothing = true, synergy = true, fit = false, occluded = null } = {}) {
+  solve(P, { limits = true, smoothing = true, synergy = true, fit = false, occluded = null, cup = 0 } = {}) {
     const rig = this.rig;
     const side = rig.side;
     const wristQ = handFrameQuat(P, side);
@@ -119,6 +119,7 @@ export class HandSolver {
         confidence[finger.key].push(c);
       });
     }
+    rig.cup = fit ? cup : 0;
     if (fit) this.fitHand(P, wristQ, angles, confidence, { limits, smoothing, occluded });
     return { angles, confidence };
   }
@@ -135,7 +136,10 @@ export class HandSolver {
         : [a[0].flex, a[0].abd, 0, a[1].flex, a[2].flex];
       const prev = this.fitPrev[finger.key] || null;
       const chain = rig.chains[finger.key];
-      const res = fitFinger({ finger, chain, side: rig.side, P, wristQ, conf: confidence[finger.key], palm, prev, start, useLimits: limits, occluded });
+      // Ring and little finger hang from metacarpals folded by the cupping.
+      const cupQ = cupQuat(rig.side, finger.key, rig.cup);
+      const res = fitFinger({ finger, chain, side: rig.side, P, wristQ: wristQ.clone().multiply(cupQ), conf: confidence[finger.key], palm, prev, start, useLimits: limits, occluded });
+      res.locals[0].premultiply(cupQ);
       this.fitPrev[finger.key] = res.theta;
       chain.forEach((link, k) => this.apply(link.bone, res.locals[k], smoothing ? 0.85 : 1));
       angles[finger.key] = res.ang.map(({ flex, abd }) => ({ flex, abd }));

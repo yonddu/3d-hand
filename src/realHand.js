@@ -19,7 +19,7 @@ import { addDepthPrepass } from './prepass.js';
 // arm skin's bend (armMesh WRIST_BEND) straddles the joint as real skin does
 // instead of all lying below it on the forearm.
 const WRIST_CUT = -0.015;
-import { basisQuat, handFrameQuat } from './handRig.js';
+import { basisQuat, handFrameQuat, cupQuat } from './handRig.js';
 
 // WebXR joint names per finger: [metacarpal, proximal, intermediate/distal, distal/tip, tip].
 const XR = {
@@ -225,6 +225,16 @@ export class RealHand {
     };
     placeRigid('wrist');
     for (const key of ['index', 'middle', 'ring', 'pinky']) placeRigid(XR[key][0]);
+    // Cupping folds the ring and little finger metacarpals toward the palm,
+    // swinging about the hand's long axis through the middle metacarpal.
+    for (const key of ['ring', 'pinky']) {
+      const fold = this.cupWorld(key);
+      if (!fold) continue;
+      const j = this.joints[XR[key][0]];
+      const pivot = this.cupPivot(palm);
+      j.position.sub(pivot).applyQuaternion(fold).add(pivot);
+      j.quaternion.premultiply(fold);
+    }
 
     // The contact passes below adjust the rig's finger bones. update() runs
     // every rendered frame but the solver only on new camera frames, so start
@@ -266,12 +276,29 @@ export class RealHand {
   // Joint positions (wrist at the origin, rig orientation) and bone frames of
   // one driven chain for the rig's current pose, with this hand's segment
   // lengths (the model's, scaled to the tracked person's proportions).
+  cupPivot(palm) {
+    return this.restPos[XR.middle[0]].clone().sub(this.restPos.wrist).applyQuaternion(palm);
+  }
+
+  // Cupping fold of a finger's metacarpal in the hand's space, or null.
+  cupWorld(key) {
+    if (!this.rig.cup || (key !== 'ring' && key !== 'pinky')) return null;
+    const w = this.rig.wrist.quaternion;
+    return w.clone().multiply(cupQuat(this.side, key, this.rig.cup)).multiply(w.clone().invert());
+  }
+
   chainPose(key) {
     const rig = this.rig;
     const chain = drivenChain(key);
     const links = rig.chains[key];
     const palm = rig.wrist.quaternion.clone().multiply(this.restFrameInv);
     const start = this.restPos[chain[0]].clone().sub(this.restPos.wrist).applyQuaternion(palm);
+    const fold = this.cupWorld(key);
+    if (fold) {
+      // The knuckle swings with its metacarpal (the bones' turn is in the rig).
+      const pivot = this.cupPivot(palm);
+      start.sub(pivot).applyQuaternion(fold).add(pivot);
+    }
     const pos = [start];
     const boneQ = [];
     const q = rig.wrist.quaternion.clone();

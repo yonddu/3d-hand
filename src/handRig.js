@@ -42,9 +42,20 @@ function flexHint(side, fingerKey, dir, k) {
   return new THREE.Vector3().crossVectors(dir.clone().normalize(), across);
 }
 
+// Palm cupping (see lift.js palmCup): the ring and little finger metacarpals
+// fold toward the palm about the hand's long axis. Returns that fold for a
+// finger as a rotation in the wrist's frame (identity for the others).
+export const CUP_SHARE = { ring: 0.45, pinky: 1 };
+export function cupQuat(side, key, cup) {
+  const share = CUP_SHARE[key] || 0;
+  // The little finger side is -X on a right hand: it folds toward +Z.
+  return new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), (sideSign(side) * share * cup * Math.PI) / 180);
+}
+
 export class HandRig {
   constructor(side, { material } = {}) {
     this.side = side;
+    this.cup = 0; // degrees, see cupQuat
     this.rest = restLandmarks(side).map(v);
     this.group = new THREE.Group();
     this.group.name = `${wristName(side)}Rig`;
@@ -243,6 +254,7 @@ export class HandRig {
   // --- pose I/O --------------------------------------------------------------
 
   resetPose() {
+    this.cup = 0;
     this.wrist.quaternion.copy(this.wristRest);
     for (const chain of Object.values(this.chains)) {
       for (const link of chain) link.bone.quaternion.copy(link.restLocal);
@@ -259,6 +271,7 @@ export class HandRig {
       position: this.group.position.toArray(),
       wrist: this.wrist.quaternion.toArray(),
       bones,
+      cup: this.cup,
     };
   }
 
@@ -278,6 +291,7 @@ export class HandRig {
   setPose(pose) {
     if (pose.position) this.group.position.fromArray(pose.position);
     if (pose.wrist) this.wrist.quaternion.fromArray(pose.wrist);
+    this.cup = pose.cup || 0;
     for (const chain of Object.values(this.chains)) {
       for (const link of chain) {
         const q = pose.bones && pose.bones[link.bone.name];

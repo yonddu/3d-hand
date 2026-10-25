@@ -39,7 +39,22 @@ const T = {
   flat: [0, -35, 0, 0, 0, 0, 0], // flat against the side of the hand
   big: [30, 30, 0, 5, 0, 0, 5], // wide and opposed, around a big object
   bent: [10, 10, 0, 50, 0, 0, 70], // hooked at both thumb joints
+  // Kapandji opposition test, the thumb's reach across the palm: 1-2 the
+  // index's side, 3-6 the fingertips (touchI..touchP), 7-10 down the little
+  // finger to the palm crease.
+  k1: [10, -25, 0, 10, 0, 0, 10],
+  k2: [18, -20, 0, 20, -5, 0, 15],
+  k7: [58, -34, 0, 45, -10, 0, 35],
+  k8: [60, -38, 0, 50, -10, 0, 40],
+  k9: [60, -42, 0, 55, -10, 0, 45],
+  k10: [55, -45, 0, 50, -10, 0, 40],
 };
+
+// Palm cupping (degrees, see handRig.js cupQuat) a thumb position needs: the
+// thumb meets the ring and little fingers only on a hollowed palm.
+const THUMB_CUP = { touchM: 6, touchR: 16, touchP: 26, k7: 28, k8: 30, k9: 30, k10: 26 };
+// The fingertip a touching thumb rests on.
+const THUMB_TOUCH = { touchI: 'index', touchM: 'middle', touchR: 'ring', touchP: 'pinky' };
 
 const SPREAD = { index: 10, middle: 0, ring: -8, pinky: -16 };
 
@@ -270,6 +285,34 @@ const RAW = [
   ['mu-dhyana', '디야나 (선정, 한 손)', 'mudra', 'C', 'KKKK', { note: '두 손을 포개고 엄지끼리 닿음' }],
   ['mu-hakini', '하키니 (한 손)', 'mudra', 'C', 'SSSS', { s: 1, note: '두 손 손끝을 맞댐' }],
   ['mu-anjali', '안잘리 (합장, 한 손)', 'mudra', { ref: 'g-pray' }],
+
+  // --- 엄지 맞서기 (opposition): thumb tip to each finger, palm hollowed ---
+  ['op-k1', '캐펀지 1: 검지 첫마디 옆', 'opposition', 'k1', 'EEEE'],
+  ['op-k2', '캐펀지 2: 검지 둘째마디 옆', 'opposition', 'k2', 'EEEE'],
+  ['op-k3', '캐펀지 3: 검지 끝', 'opposition', 'touchI', 'OEEE'],
+  ['op-k4', '캐펀지 4: 중지 끝', 'opposition', 'touchM', 'EOEE'],
+  ['op-k5', '캐펀지 5: 약지 끝', 'opposition', 'touchR', 'EEOE'],
+  ['op-k6', '캐펀지 6: 소지 끝', 'opposition', 'touchP', 'EEEO'],
+  ['op-k7', '캐펀지 7: 소지 끝마디 주름', 'opposition', 'k7', 'EEEE'],
+  ['op-k8', '캐펀지 8: 소지 가운데마디 주름', 'opposition', 'k8', 'EEEE'],
+  ['op-k9', '캐펀지 9: 소지 뿌리 주름', 'opposition', 'k9', 'EEEE'],
+  ['op-k10', '캐펀지 10: 손바닥 먼쪽 주름', 'opposition', 'k10', 'EEEE'],
+  ['op-iCurl', '엄지–검지 끝 (나머지 말기)', 'opposition', 'touchI', 'OCCC'],
+  ['op-mCurl', '엄지–중지 끝 (나머지 말기)', 'opposition', 'touchM', 'COCC'],
+  ['op-rCurl', '엄지–약지 끝 (나머지 말기)', 'opposition', 'touchR', 'CCOC'],
+  ['op-pCurl', '엄지–소지 끝 (나머지 말기)', 'opposition', 'touchP', 'CCCO'],
+  ['op-iSpread', '엄지–검지 끝 (나머지 벌림)', 'opposition', 'touchI', 'OEEE', { s: 1 }],
+  ['op-mSpread', '엄지–중지 끝 (나머지 벌림)', 'opposition', 'touchM', 'EOEE', { s: 1 }],
+  ['op-rSpread', '엄지–약지 끝 (나머지 벌림)', 'opposition', 'touchR', 'EEOE', { s: 1 }],
+  ['op-pSpread', '엄지–소지 끝 (나머지 벌림)', 'opposition', 'touchP', 'EEEO', { s: 1 }],
+  ['op-iRelax', '엄지–검지 끝 (나머지 힘 뺌)', 'opposition', 'touchI', 'OSSS'],
+  ['op-mRelax', '엄지–중지 끝 (나머지 힘 뺌)', 'opposition', 'touchM', 'SOSS'],
+  ['op-rRelax', '엄지–약지 끝 (나머지 힘 뺌)', 'opposition', 'touchR', 'SSOS'],
+  ['op-pRelax', '엄지–소지 끝 (나머지 힘 뺌)', 'opposition', 'touchP', 'SSSO'],
+  ['op-rp', '엄지–약지·소지 끝 함께', 'opposition', 'touchR', 'EEOO'],
+  ['op-mr', '엄지–중지·약지 끝 함께', 'opposition', 'touchM', 'EOOE'],
+  ['op-cupWater', '손바닥 오므려 물 담기', 'opposition', 'out', 'UUUU', { cup: 22 }],
+  ['op-cupHollow', '손바닥 깊게 오므림 (공기 담기)', 'opposition', 'big', 'SSSS', { cup: 30 }],
 
   // --- 다이빙 수신호 (물속) ---
   ['dv-ok', '괜찮다 (OK)', 'dive', { ref: 'g-ok' }],
@@ -536,6 +579,7 @@ export const CATEGORIES = {
   steps: '오므리기·펴기 단계',
   combo: '손가락 조합 (펴기/접기)',
   mudra: '무드라',
+  opposition: '엄지 맞서기·손바닥 오므림',
   dive: '다이빙 수신호',
   signal: '작전 수신호',
   play: '악기·놀이',
@@ -564,6 +608,12 @@ function build() {
     }
     const entry = { id, name, category: cat, h };
     for (const k of ['region', 'note', 'verify']) if (opts[k]) entry[k] = opts[k];
+    const base = thumb && (thumb.ref || (thumb.mix && thumb.mix[0]));
+    const cup = opts.cup ?? (typeof thumb === 'string' ? THUMB_CUP[thumb] : base && byId[base].cup);
+    if (cup) entry.cup = cup;
+    const touch = typeof thumb === 'string' ? THUMB_TOUCH[thumb] : base && byId[base].touch;
+    // Only when that finger curls to meet it (code O), not for a loose O shape.
+    if (touch && (typeof thumb !== 'string' || fingers[KEYS.indexOf(touch)] === 'O')) entry.touch = touch;
     if (thumb && thumb.ref && byId[thumb.ref].verify) entry.verify = true;
     if (thumb && thumb.mix && (byId[thumb.mix[0]].verify || byId[thumb.mix[1]].verify)) entry.verify = true;
     byId[id] = entry;
@@ -577,6 +627,7 @@ export const GESTURES = build();
 // Pose a rig (bones relative to its rest frame) into a dictionary shape.
 export function applyGesture(rig, entry) {
   rig.resetPose();
+  rig.cup = entry.cup || 0;
   for (const [key, a] of Object.entries(entry.h)) {
     const J = key === 'thumb'
       ? [[a[0], a[1], a[2]], [a[3], a[4], a[5]], [a[6], 0, 0]]

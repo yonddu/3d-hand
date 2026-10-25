@@ -446,6 +446,7 @@ function fromMediaPipe(hand) {
   const raw = state.lift ? liftToPicture(hand.world, hand.landmarks, aspect, hand.side, liftMemory[hand.side], (state.source === 'camera' && !facingUser()) || (state.source === 'video' && $('video-fp').checked)) : hand.world;
   const world = raw.map((p) => new THREE.Vector3(p.x, -p.y, -p.z));
   const occluded = raw.occluded || null;
+  const cup = raw.cup || 0;
   const a = hand.landmarks[0];
   const FOCAL = focalW(aspect);
   // Distance at which the 3D hand model (not the person's hand, whose size we
@@ -469,7 +470,7 @@ function fromMediaPipe(hand) {
     // Facing the camera, the body (and so the shoulders) is behind the hands.
     const sgn = hand.side === 'right' ? 1 : -1;
     const shoulder = facingUser() ? new THREE.Vector3(-0.18 * sgn, anchor.y - 0.12, Math.min(anchor.z - 0.3, -0.5)) : null;
-    return { side: hand.side, world, occluded, anchor, vision, elbow, shoulder, ray, image: { x: a.x, y: a.y }, depth: z };
+    return { side: hand.side, world, occluded, cup, anchor, vision, elbow, shoulder, ray, image: { x: a.x, y: a.y }, depth: z };
   }
   // Lay hands out on a work plane at WORK_DEPTH so they stay in frame; real
   // depth changes still move the hand, at half strength.
@@ -483,7 +484,7 @@ function fromMediaPipe(hand) {
     anchor.set(-anchor.x, anchor.y, -2 * WORK_DEPTH - anchor.z);
     if (elbow) elbow.set(-elbow.x, elbow.y, -2 * WORK_DEPTH - elbow.z);
   }
-  return { side: hand.side, world, occluded, anchor, vision, elbow };
+  return { side: hand.side, world, occluded, cup, anchor, vision, elbow };
 }
 
 // Elbow seen by the pose model, placed relative to this hand's wrist.
@@ -604,7 +605,7 @@ function feed(inputs, t) {
     const rig = rigs[side];
     rig.group.visible = true;
     rig.group.position.set(anc[0], anc[1], anc[2]);
-    state.lastSolve[side] = solvers[side].solve(smooth, { limits: state.limits, fit: state.fit, occluded: input.occluded, smoothing: !rec.offline });
+    state.lastSolve[side] = solvers[side].solve(smooth, { limits: state.limits, fit: state.fit, occluded: input.occluded, cup: input.cup || 0, smoothing: !rec.offline });
     if (realHands[side]) {
       realHands[side].setProportions(smooth);
       realHands[side].setPinches(smooth);
@@ -1157,6 +1158,8 @@ function showGesture(g) {
   rigs.left.group.visible = false;
   applyGesture(rig, g);
   clearContacts();
+  // A thumb that rests on a fingertip is brought onto it (realHand.js).
+  if (g.touch && realHands.right) realHands.right.pinches = [{ key: g.touch, weight: 1 }];
   $('pose-banner').hidden = false;
   $('pose-banner-text').textContent = `"${g.name}" 보는 중${g.note ? ` · ${g.note}` : ''}`;
 }
@@ -1454,7 +1457,7 @@ function applyFrame(frame) {
     const rig = rigs[side];
     rig.group.visible = !!f;
     if (!f) continue;
-    rig.setPose({ position: f.wrist, wrist: f.handQ, bones: f.fingers });
+    rig.setPose({ position: f.wrist, wrist: f.handQ, bones: f.fingers, cup: f.cup ? f.cup[0] : 0 });
     grasps[side].fromJSON(f.object);
     arms[side].setFromSaved({ shoulder: f.shoulder, elbow: f.elbow, wrist: f.wrist });
     arms[side].opts = { side, ...f.armOpts };
