@@ -14,6 +14,7 @@ import { exportGlb, frameFromLive, frameFromPoseHand, zipFiles } from './exportG
 import { capturePose, validatePose, applyPose, loadLibrary, saveLibrary } from './pose.js';
 import { GESTURES, CATEGORIES, applyGesture, gestureData } from './gestures.js';
 import { liftToPicture } from './lift.js';
+import { cleanTake, lerpHand } from './cleanTake.js';
 import { initRomPanel } from './romPanel.js';
 import { ForearmFinder } from './forearm.js';
 
@@ -222,8 +223,12 @@ function stopStream() {
   octx.clearRect(0, 0, overlay.width, overlay.height);
 }
 
+// What the picture lift remembers of each hand between frames (see lift.js).
+const liftMemory = { left: {}, right: {} };
+
 function resetTracking() {
   for (const side of SIDES) {
+    liftMemory[side] = {};
     filters[side].reset();
     anchorFilters[side].reset();
     solvers[side].reset();
@@ -437,7 +442,7 @@ function fromMediaPipe(hand) {
   const aspect = (video.videoWidth || 4) / (video.videoHeight || 3);
   // Rebuild the 3D points from the picture (see lift.js): MediaPipe's own 3D
   // guess is often turned against what the camera shows.
-  const raw = state.lift ? liftToPicture(hand.world, hand.landmarks, aspect, hand.side) : hand.world;
+  const raw = state.lift ? liftToPicture(hand.world, hand.landmarks, aspect, hand.side, liftMemory[hand.side]) : hand.world;
   const world = raw.map((p) => new THREE.Vector3(p.x, -p.y, -p.z));
   const a = hand.landmarks[0];
   const FOCAL = focalW(aspect);
@@ -610,6 +615,7 @@ function relaxLost(t) {
     const hide = state.ar ? LOST_HIDE_AR : LOST_HIDE;
     if (state.source !== 'demo' && (state.lastSeen[side] < 0 || t - state.lastSeen[side] > hide)) rig.group.visible = false;
     if (state.lastSeen[side] >= 0 && t - state.lastSeen[side] < LIVE_WINDOW) continue;
+    liftMemory[side] = {};
     if (grasps[side].current) grasps[side].reset();
     if (realHands[side]) { realHands[side].pinches = []; realHands[side].thumbWrap = 0; }
     rig.wrist.quaternion.slerp(LOST_REACH.clone().multiply(rig.wristRest), 0.06);
@@ -1218,7 +1224,9 @@ function stopRecording() {
     resetTracking();
     video.play().catch(() => {});
   }
-  const frames = trimFrames(rec.frames);
+  // The whole clip is known now: misread frames are fixed from their
+  // neighbours and the motion smoothed both ways (see cleanTake.js).
+  const frames = cleanTake(trimFrames(rec.frames));
   const filmed = camRec.processing;
   camRec.processing = false;
   if (frames.length) {
@@ -1383,7 +1391,15 @@ function seekReview(t) {
     if (take.frames[mid].t < target) lo = mid + 1;
     else hi = mid;
   }
-  applyFrame(take.frames[lo]);
+  // Between two recorded frames: blend them, so playback is as smooth as the screen.
+  const b = take.frames[lo];
+  const a = take.frames[Math.max(lo - 1, 0)];
+  if (a !== b && b.t > a.t && target < b.t) {
+    const u = (target - a.t) / (b.t - a.t);
+    const hands = {};
+    for (const side of SIDES) hands[side] = a.hands[side] && b.hands[side] ? lerpHand(a.hands[side], b.hands[side], u) : (u < 0.5 ? a : b).hands[side];
+    applyFrame({ t: target, hands });
+  } else applyFrame(b);
   if (take.videoUrl && !review.playing && Math.abs(video.currentTime - target) > 0.04) video.currentTime = target;
   $('rv-seek').value = dur ? review.t / dur : 0;
   $('rv-time').textContent = `${review.t.toFixed(1)} / ${dur.toFixed(1)}초`;
@@ -1418,6 +1434,7 @@ function openReview(take = takes[0]) {
   state.frozen = true;
   $('pose-banner').hidden = true;
   review.take = take;
+  for (const side of SIDES) if (realHands[side]) realHands[side].contacts = false;
   renderTakes();
   $('review').hidden = false;
   $('dock').hidden = true;
@@ -1430,6 +1447,7 @@ function closeReview() {
   const filmed = review.take.videoUrl;
   setPlaying(false);
   review.take = null;
+  for (const side of SIDES) if (realHands[side]) realHands[side].contacts = true;
   $('review').hidden = true;
   $('dock').hidden = false;
   exitFrozen();
@@ -1565,4 +1583,4 @@ async function saveBinary(buffer, filename) {
 renderLibrary();
 renderTable();
 requestAnimationFrame(tick);
-window.__hms = { forearmFinder, fallbackToCPU, camera, controls, realHands, arms, rec, startRecording, stopRecording, trimFrames, exportSkins, exportGlb, savePoseGlb, armResults: () => armResults, tracker: () => ensureTracker(), handFeatures, grasps, scene, rigs, solvers, state, capture, viewPose };
+window.__hms = { takes, forearmFinder, fallbackToCPU, camera, controls, realHands, arms, rec, startRecording, stopRecording, trimFrames, exportSkins, exportGlb, savePoseGlb, armResults: () => armResults, tracker: () => ensureTracker(), handFeatures, grasps, scene, rigs, solvers, state, capture, viewPose };

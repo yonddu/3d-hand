@@ -108,6 +108,8 @@ export class RealHand {
     this.propSamples = 0;
     this.pinches = [];
     this.thumbWrap = 0;
+    // Off while a recording plays back: its frames already carry the contacts.
+    this.contacts = true;
   }
 
   setMaterial(material) {
@@ -188,9 +190,11 @@ export class RealHand {
       if (l.bone.quaternion.equals(this.writtenQ[i])) l.bone.quaternion.copy(this.solvedQ[i]);
       else this.solvedQ[i].copy(l.bone.quaternion); // new pose from the solver
     });
-    this.closeFist();
-    if (this.thumbWrap > 0) this.wrapThumb();
-    if (this.pinches.length) this.solvePinches();
+    if (this.contacts) {
+      this.closeFist();
+      if (this.thumbWrap > 0) this.wrapThumb();
+      if (this.pinches.length) this.solvePinches();
+    }
     links.forEach((l, i) => this.writtenQ[i].copy(l.bone.quaternion));
     for (const finger of FINGERS) {
       const chain = drivenChain(finger.key);
