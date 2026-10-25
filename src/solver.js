@@ -36,7 +36,7 @@ export class HandSolver {
 
   // P: 21 THREE.Vector3 in rig orientation (any origin, meters).
   // Returns per-bone angles and confidences and writes rotations to the rig.
-  solve(P, { limits = true, smoothing = true } = {}) {
+  solve(P, { limits = true, smoothing = true, synergy = true } = {}) {
     const rig = this.rig;
     const side = rig.side;
     const wristQ = handFrameQuat(P, side);
@@ -44,6 +44,7 @@ export class HandSolver {
 
     const angles = {};
     const confidence = {};
+    const knuckle = synergy ? knuckleFlex(P, wristQ) : null;
     for (const finger of FINGERS) {
       const chain = rig.chains[finger.key];
       let parentG = wristQ.clone();
@@ -73,11 +74,6 @@ export class HandSolver {
           // band; inside it the bone follows the tracked direction exactly.
           const [fMin, fMax, aMin, aMax] = limitsFor(finger.key, k);
           flex = clamp(flex, fMin - TOL_EXT, fMax + TOL_FLEX);
-          // A finger bent at the knuckle cannot spread: the side ligaments
-          // tighten, so a fist keeps its fingers together. Tracking guesses
-          // the hidden fingers of a fist and spreads them, so the tolerance
-          // shrinks with the bend too.
-          const room = k === 0 && finger.key !== 'thumb' && flex > 0 ? Math.max(0, Math.cos(flex * D2R)) : 1;
           // Hinge joints (PIP, DIP, thumb IP) do not bend sideways at all: a
           // sideways reading there is noise, and following it reads as a
           // broken finger. Only the knuckles get a small band, and the index
@@ -85,7 +81,11 @@ export class HandSolver {
           const hinge = aMin === 0 && aMax === 0;
           const tolLo = hinge ? 0 : TOL_ABD;
           const tolHi = hinge || finger.key === 'index' ? 0 : TOL_ABD;
-          abdThumb = clamp(abdThumb, (aMin - tolLo) * room, (aMax + tolHi) * room);
+          abdThumb = clamp(abdThumb, aMin - tolLo, aMax + tolHi);
+          abd = -abdThumb * sideSign(side);
+        }
+        if (synergy) {
+          [flex, abdThumb] = coupled(finger.key, k, flex, abdThumb, angles[finger.key], knuckle);
           abd = -abdThumb * sideSign(side);
         }
         _e.set(flex * D2R, 0, abd * D2R, 'XZY');
@@ -156,4 +156,64 @@ export function anglesFromRig(rig) {
     });
   }
   return angles;
+}
+
+// --- motion model -------------------------------------------------------------
+//
+// Joint limits say what a hand can be pushed to; they do not say how it moves.
+// Tendons and ligaments couple the joints, so real fingers follow nearly the
+// same paths every time. These couplings are applied to the tracked angles,
+// strongest where tracking is weakest (deep flexion, hidden fingertips):
+//  - DIP follows PIP (one tendon flexes both; DIP ~ 2/3 of PIP),
+//  - the thumb's IP follows its MCP,
+//  - a bending finger stops spreading and turns toward the base of the thumb
+//    (bent fingertips converge on the scaphoid, which closes a fist inward),
+//  - ring and little finger, and to a lesser degree the middle finger, are
+//    pulled along by their neighbours (shared muscle bellies).
+
+const DIP_PER_PIP = 0.67;
+const DIP_COUPLING = 0.75;
+const IP_PER_MCP = 0.9;
+const IP_COUPLING = 0.35;
+// Side bend toward the thumb (degrees) each finger ends up at when fully bent.
+const CONVERGE = { index: 0, middle: 3, ring: 6, pinky: 10 };
+// How much a knuckle is pulled toward its neighbours' mean bend.
+const ENSLAVE = { index: 0, middle: 0.15, ring: 0.35, pinky: 0.2 };
+const NEIGHBOURS = { middle: ['index', 'ring'], ring: ['middle', 'pinky'], pinky: ['ring', 'ring'] };
+
+// Knuckle (MCP) bend of each finger straight from the points, for coupling.
+function knuckleFlex(P, wristQ) {
+  const Y = new THREE.Vector3(0, 1, 0).applyQuaternion(wristQ);
+  const Z = new THREE.Vector3(0, 0, 1).applyQuaternion(wristQ);
+  const out = {};
+  for (const f of FINGERS) {
+    if (f.key === 'thumb') continue;
+    const d = P[f.joints[1]].clone().sub(P[f.joints[0]]);
+    out[f.key] = Math.atan2(d.dot(Z), d.dot(Y)) * R2D;
+  }
+  return out;
+}
+
+// done: this finger's already solved joints ({ flex, abd } per joint).
+function coupled(key, k, flex, abd, done, knuckle) {
+  const ease = (x, a, b) => THREE.MathUtils.smoothstep(x, a, b);
+  if (key === 'thumb') {
+    if (k === 2 && done[1]) flex += (IP_PER_MCP * done[1].flex - flex) * IP_COUPLING;
+    return [flex, abd];
+  }
+  if (k === 0) {
+    const n = NEIGHBOURS[key];
+    if (n && knuckle) {
+      const mean = (knuckle[n[0]] + knuckle[n[1]]) / 2;
+      flex += (mean - knuckle[key]) * ENSLAVE[key];
+    }
+    // Spread fades into the convergence direction as the knuckle bends.
+    const t = ease(flex, 15, 75);
+    abd += (CONVERGE[key] * t - abd) * t;
+  } else if (k === 2 && done[1]) {
+    // DIP rides on PIP; more so once the finger is clearly bending.
+    const w = DIP_COUPLING * (0.5 + 0.5 * ease(done[1].flex, 10, 60));
+    flex += (DIP_PER_PIP * done[1].flex - flex) * w;
+  }
+  return [flex, abd];
 }
