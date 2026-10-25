@@ -12,6 +12,8 @@ import { sideSign } from './skeleton.js';
 import { UPPER, FORE, buildArm } from './armMesh.js';
 
 export { UPPER, FORE };
+const WRIST_SOFT = (40 * Math.PI) / 180; // wrist bend allowed before the forearm turns
+const SHRUG = 0.12; // how far the shoulder may move to keep the wrist natural (m)
 const Y = new THREE.Vector3(0, 1, 0);
 
 // Bind pose shared with the GLB export: arm straight forward (-Z), palm down.
@@ -27,7 +29,38 @@ export function armLocals(S0, E0, W, handQ) {
   const S = S0.clone();
   const reach = (UPPER + FORE) * 0.999;
   if (S.distanceTo(W) > reach) S.sub(W).setLength(reach).add(W);
-  const E = solveElbow(S, W, E0);
+  let E = solveElbow(S, W, E0);
+  // A wrist bent past ~40 degrees reads as broken in first person (and pinches
+  // the skin), so turn the forearm toward the hand's own line and let the
+  // shoulder follow by up to SHRUG. Beyond that the wrist keeps the rest.
+  const back = Y.clone().applyQuaternion(handQ).negate(); // wrist -> elbow if the wrist were straight
+  const ik = E.clone().sub(W).normalize();
+  const bend = ik.angleTo(back);
+  if (bend > WRIST_SOFT) {
+    const axis = new THREE.Vector3().crossVectors(ik, back);
+    if (axis.lengthSq() > 1e-10) {
+      axis.normalize();
+      const tryTurn = (f) => {
+        const dir = ik.clone().applyAxisAngle(axis, (bend - WRIST_SOFT) * f);
+        const e = W.clone().addScaledVector(dir, FORE);
+        const s = e.clone().add(S.clone().sub(e).setLength(UPPER));
+        return { e, s, shift: s.distanceTo(S) };
+      };
+      let best = tryTurn(1);
+      if (best.shift > SHRUG) {
+        let lo = 0;
+        let hi = 1;
+        for (let i = 0; i < 12; i++) {
+          const mid = (lo + hi) / 2;
+          if (tryTurn(mid).shift > SHRUG) hi = mid;
+          else lo = mid;
+        }
+        best = tryTurn(lo);
+      }
+      E = best.e;
+      S.copy(best.s);
+    }
+  }
   const fore = segmentQuat(E, W, handQ);
   // The upper arm rolls with the forearm so the elbow bends without twisting the skin.
   const upper = segmentQuat(S, E, fore);

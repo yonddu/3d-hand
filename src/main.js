@@ -132,7 +132,16 @@ function setStatus(text, isError = false) {
   el.textContent = text;
   el.classList.toggle('err', isError);
   el.parentElement.classList.toggle('status', true);
+  // Also on the stage: on a phone the panel is usually scrolled out of view.
+  const st = $('stage-status');
+  st.textContent = state.source === 'demo' ? '' : text;
+  st.style.color = isError ? 'var(--warn)' : '';
 }
+
+// Phones run the object and body models on a slow CPU; give the hands the time.
+const MOBILE = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
+const OBJECT_EVERY = MOBILE ? 600 : 150; // ms
+const POSE_EVERY = MOBILE ? 300 : 100; // ms
 
 async function ensureTracker() {
   if (tracker) return tracker;
@@ -435,14 +444,18 @@ function updateRaw(side, P, origin) {
   attr.needsUpdate = true;
 }
 
-// Ease a lost hand back to its rest pose instead of freezing mid-gesture.
+// Lost hands ease into a natural reach (back of the hand to the camera, like
+// the player's own resting hands), then disappear the way Quest hands do.
+const LOST_REACH = new THREE.Quaternion().setFromEuler(new THREE.Euler((40 * Math.PI) / 180, Math.PI, 0, 'YXZ'));
+const LOST_HIDE = 1.5; // seconds
 function relaxLost(t) {
   for (const side of SIDES) {
     const rig = rigs[side];
     if (state.lastSeen[side] >= 0 && t - state.lastSeen[side] < LIVE_WINDOW) continue;
     if (grasps[side].current) grasps[side].reset();
-    rig.wrist.quaternion.slerp(rig.wristRest, 0.06);
+    rig.wrist.quaternion.slerp(LOST_REACH.clone().multiply(rig.wristRest), 0.06);
     for (const chain of Object.values(rig.chains)) for (const l of chain) l.bone.quaternion.slerp(l.restLocal, 0.06);
+    if (state.source !== 'demo' && (state.lastSeen[side] < 0 || t - state.lastSeen[side] > LOST_HIDE)) rig.group.visible = false;
   }
 }
 
@@ -508,15 +521,15 @@ function tick(now) {
         state.detAt = rec.frames.length % 4 === 0 ? -1e9 : now;
         state.poseAt = rec.frames.length % 2 === 0 ? -1e9 : now;
       }
-      if (tracker.objects && now - state.detAt > 150) {
+      if (tracker.objects && now - state.detAt > OBJECT_EVERY) {
         const found = tracker.detectObjects(video, now);
         if (found) {
           state.detections = found;
           state.detAt = now;
         }
       }
-      if (!offline && now - state.detAt > 800) state.detections = [];
-      if (tracker.pose && now - state.poseAt > 100) {
+      if (!offline && now - state.detAt > OBJECT_EVERY + 650) state.detections = [];
+      if (tracker.pose && now - state.poseAt > POSE_EVERY) {
         const p = tracker.detectPose(video, now);
         if (p) {
           state.pose = p;
