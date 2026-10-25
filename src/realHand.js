@@ -10,6 +10,10 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { FINGERS, sideSign, wristName, boneName } from './skeleton.js';
 import { bakeSkin } from './exportGlb.js';
+import { fromGeometry, clipPlane, subdivide, toGeometry } from './meshOps.js';
+
+// Where the wrist is cut open for the arm, along the hand's -Y from the wrist joint (m).
+const WRIST_CUT = 0.002;
 import { basisQuat, handFrameQuat } from './handRig.js';
 
 // WebXR joint names per finger: [metacarpal, proximal, intermediate/distal, distal/tip, tip].
@@ -75,6 +79,7 @@ export class RealHand {
     frameLandmarks[17] = P('pinky-finger-phalanx-proximal');
     this.restFrame = handFrameQuat(frameLandmarks, this.side);
     this.restFrameInv = this.restFrame.clone().invert();
+    this.refineMesh();
     this.addWristFade();
 
     // Calibration per driven joint: model rest rotation expressed in the
@@ -104,6 +109,35 @@ export class RealHand {
     if (this.mesh) this.mesh.material = withWristFade(material);
   }
 
+  // Open the capped wrist with a clean planar cut (the arm skin continues from
+  // that border) and subdivide once for a smoother, higher-poly hand.
+  refineMesh() {
+    const old = this.mesh.geometry;
+    const handY = new THREE.Vector3(0, 1, 0).applyQuaternion(this.restFrame);
+    const k = handY.dot(this.restPos.wrist) - WRIST_CUT;
+    const m = subdivide(clipPlane(fromGeometry(old), handY, k));
+    this.mesh.geometry = toGeometry(m);
+    old.dispose();
+  }
+
+  // Seam normals from the arm (hand-bone space) so hand and arm shade as one surface.
+  setSeamNormals(seam) {
+    const nrm = this.mesh.geometry.attributes.normal;
+    const n = new THREE.Vector3();
+    for (const { id, normal } of seam) {
+      n.copy(normal).applyQuaternion(this.restFrame);
+      nrm.setXYZ(id, n.x, n.y, n.z);
+    }
+    nrm.needsUpdate = true;
+  }
+
+  // Fade the wrist out only while no arm is attached to it.
+  setWristFade(on) {
+    const attr = this.mesh.geometry.attributes.wristFade;
+    attr.array.set(on ? this.fade : this.fade.map(() => 1));
+    attr.needsUpdate = true;
+  }
+
   // Per-vertex 0..1 fade toward the cut at the wrist, like Quest hands.
   addWristFade() {
     const pos = this.mesh.geometry.attributes.position;
@@ -116,8 +150,8 @@ export class RealHand {
       along[i] = p.fromBufferAttribute(pos, i).sub(wrist).dot(back);
       max = Math.max(max, along[i]);
     }
-    const fade = along.map((t) => 1 - THREE.MathUtils.smoothstep(t, max - 0.03, max));
-    this.mesh.geometry.setAttribute('wristFade', new THREE.BufferAttribute(fade, 1));
+    this.fade = along.map((t) => 1 - THREE.MathUtils.smoothstep(t, max - 0.03, max));
+    this.mesh.geometry.setAttribute('wristFade', new THREE.BufferAttribute(this.fade.slice(), 1));
   }
 
   // Copy the solver rig's pose onto the model. Call after the rig is posed.
@@ -197,7 +231,7 @@ export class RealHand {
   }
 }
 
-function withWristFade(material) {
+export function withWristFade(material) {
   const prev = material.onBeforeCompile;
   material.transparent = true;
   material.customProgramCacheKey = () => `wrist-fade|${prev ? prev.toString() : ''}`;

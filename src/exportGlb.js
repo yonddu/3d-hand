@@ -14,11 +14,14 @@
 //               LeftHeld_cylinder   held object (scaled to 0 while not held)
 //
 // Bind pose: arms straight forward, palms down, fingers relaxed (rig rest).
+// The arm skin starts on the hand's wrist border (armMesh.js), so hand and arm
+// are one continuous surface.
 // Units are meters, +Y up, the same space as the app's scene.
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { FINGERS, wristName, boneName } from './skeleton.js';
-import { ArmRig, UPPER, FORE, solveElbow, segmentQuat } from './arm.js';
+import { ArmRig, UPPER, FORE, ARM_BIND, armLocals } from './arm.js';
+import { wristLoop, buildArm } from './armMesh.js';
 
 const SIDES = ['left', 'right'];
 const prefix = (side) => (side === 'left' ? 'Left' : 'Right');
@@ -114,17 +117,13 @@ function bone(name, parent, pos = [0, 0, 0], quat = [0, 0, 0, 1]) {
   return b;
 }
 
-// Bind rotations: +Y forward (-Z); the hand additionally turned palm-down.
-const ARM_BIND = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
-const HAND_BIND_LOCAL = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
-
 function buildSide(side, head, skin, shoulder) {
   const P = prefix(side);
   const B = {};
   B.shoulder = bone(`${P}Shoulder`, head, shoulder);
   B.arm = bone(`${P}Arm`, B.shoulder, [0, 0, 0], ARM_BIND.toArray());
   B.fore = bone(`${P}ForeArm`, B.arm, [0, UPPER, 0]);
-  B.hand = bone(wristName(side), B.fore, [0, FORE, 0], HAND_BIND_LOCAL.toArray());
+  B.hand = bone(wristName(side), B.fore, [0, FORE, 0]);
   B.fingers = {};
   for (const finger of FINGERS) {
     let parent = B.hand;
@@ -148,51 +147,28 @@ function buildGeometry(sides, bonesBySide, skins, boneIndex) {
     const skin = skins[side];
     parts.push({
       position: skin.position,
-      normal: skin.normal,
+      normal: new Float32Array(skin.normal),
       index: skin.index,
       skinIndex: Uint16Array.from(skin.names, (n) => boneIndex[n] ?? boneIndex[B.hand.name]),
       skinWeight: skin.weights,
       matrix: B.hand.matrixWorld.clone(),
     });
+    // Arm skin grown from the hand's wrist border (same as the app shows).
     const P = prefix(side);
-    const limb = (rTop, rBottom, len, boneName, blendTo) => {
-      const g = new THREE.CylinderGeometry(rTop, rBottom, len, 24, 8, true);
-      g.translate(0, len / 2, 0);
-      const p = g.attributes.position;
-      const idx = new Uint16Array(p.count * 4);
-      const w = new Float32Array(p.count * 4);
-      for (let i = 0; i < p.count; i++) {
-        // Last 20% of the segment blends into the next bone for a soft joint.
-        const t = blendTo ? THREE.MathUtils.smoothstep(p.getY(i) / len, 0.8, 1) * 0.5 : 0;
-        idx[i * 4] = boneIndex[boneName];
-        w[i * 4] = 1 - t;
-        idx[i * 4 + 1] = blendTo ? boneIndex[blendTo] : 0;
-        w[i * 4 + 1] = t;
+    const arm = buildArm(wristLoop(skin));
+    for (const { id, normal } of arm.seam) normal.toArray(parts[parts.length - 1].normal, id * 3);
+    const n = arm.position.length / 3;
+    const idx = new Uint16Array(n * 4);
+    const ids = [boneIndex[`${P}Arm`], boneIndex[`${P}ForeArm`], boneIndex[wristName(side)]];
+    const w = new Float32Array(n * 4);
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < 3; j++) {
+        idx[i * 4 + j] = ids[j];
+        w[i * 4 + j] = arm.weights[i * 3 + j];
       }
-      const b = bonesBySide[side][boneName === `${P}Arm` ? 'arm' : 'fore'];
-      b.updateWorldMatrix(true, false);
-      parts.push({
-        position: new Float32Array(p.array),
-        normal: new Float32Array(g.attributes.normal.array),
-        index: new Uint32Array(g.index.array),
-        skinIndex: idx,
-        skinWeight: w,
-        matrix: b.matrixWorld.clone(),
-      });
-    };
-    limb(0.021, 0.034, FORE, `${P}ForeArm`, wristName(side));
-    limb(0.037, 0.045, UPPER, `${P}Arm`, `${P}ForeArm`);
-    // Elbow cap so the two open cylinders never show a gap when the arm bends.
-    const cap = new THREE.SphereGeometry(0.036, 20, 14);
-    const fore = bonesBySide[side].fore;
-    parts.push({
-      position: new Float32Array(cap.attributes.position.array),
-      normal: new Float32Array(cap.attributes.normal.array),
-      index: new Uint32Array(cap.index.array),
-      skinIndex: new Uint16Array(cap.attributes.position.count * 4).map((_, i) => (i % 4 ? 0 : boneIndex[`${P}ForeArm`])),
-      skinWeight: new Float32Array(cap.attributes.position.count * 4).map((_, i) => (i % 4 ? 0 : 1)),
-      matrix: fore.matrixWorld.clone(),
-    });
+    }
+    B.arm.updateWorldMatrix(true, false);
+    parts.push({ position: arm.position, normal: arm.normal, index: arm.index, skinIndex: idx, skinWeight: w, matrix: B.arm.matrixWorld.clone() });
   }
 
   const total = parts.reduce((s, p) => s + p.position.length / 3, 0);
@@ -272,24 +248,10 @@ function objectTransform(o, type) {
 // --- per-frame local transforms ---------------------------------------------------------
 
 // Game rigs keep bone lengths fixed, so each frame is re-solved with the fixed
-// upper arm / forearm lengths: the tracked elbow only says which way the elbow
-// points. A wrist beyond reach pulls the shoulder after it (a shoulder shrug)
-// instead of stretching the arm.
+// upper arm / forearm lengths (arm.js armLocals, the same solve the app shows).
 function sideLocals(f) {
-  const W = new THREE.Vector3().fromArray(f.wrist);
-  const S = new THREE.Vector3().fromArray(f.shoulder);
-  const reach = (UPPER + FORE) * 0.999;
-  if (S.distanceTo(W) > reach) S.sub(W).setLength(reach).add(W);
-  const E = solveElbow(S, W, new THREE.Vector3().fromArray(f.elbow));
-  const hand = new THREE.Quaternion().fromArray(f.handQ);
-  const upper = segmentQuat(S, E);
-  const fore = segmentQuat(E, W, hand);
-  return {
-    shoulderPos: S.toArray(),
-    arm: upper.toArray(),
-    fore: upper.clone().invert().multiply(fore).toArray(),
-    hand: fore.clone().invert().multiply(hand).toArray(),
-  };
+  const L = armLocals(new THREE.Vector3().fromArray(f.shoulder), new THREE.Vector3().fromArray(f.elbow), new THREE.Vector3().fromArray(f.wrist), new THREE.Quaternion().fromArray(f.handQ));
+  return { shoulderPos: L.S.toArray(), arm: L.arm.toArray(), fore: L.fore.toArray(), hand: L.hand.toArray() };
 }
 
 // Fill missing arm data (old captures) with the app's own IK.

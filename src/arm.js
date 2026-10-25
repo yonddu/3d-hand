@@ -9,43 +9,133 @@
 // Scene space: camera (eyes) at the origin looking down -Z, +Y up, meters.
 import * as THREE from 'three';
 import { sideSign } from './skeleton.js';
+import { UPPER, FORE, buildArm } from './armMesh.js';
 
-export const UPPER = 0.29; // shoulder -> elbow
-export const FORE = 0.26; // elbow -> wrist
+export { UPPER, FORE };
 const Y = new THREE.Vector3(0, 1, 0);
 
+// Bind pose shared with the GLB export: arm straight forward (-Z), palm down.
+export const ARM_BIND = new THREE.Quaternion()
+  .setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2)
+  .multiply(new THREE.Quaternion().setFromAxisAngle(Y, Math.PI));
+
+// Fixed-length arm for shoulder S, wrist W (scene space) and hand rotation:
+// the elbow hint E only says which way the elbow points. A wrist beyond reach
+// pulls the shoulder after it (a shrug) instead of stretching the arm.
+// Returns bone-local rotations for Arm (under an unrotated Shoulder), ForeArm, Hand.
+export function armLocals(S0, E0, W, handQ) {
+  const S = S0.clone();
+  const reach = (UPPER + FORE) * 0.999;
+  if (S.distanceTo(W) > reach) S.sub(W).setLength(reach).add(W);
+  const E = solveElbow(S, W, E0);
+  const fore = segmentQuat(E, W, handQ);
+  // The upper arm rolls with the forearm so the elbow bends without twisting the skin.
+  const upper = segmentQuat(S, E, fore);
+  return {
+    S,
+    E,
+    upperQ: upper,
+    foreQ: fore,
+    arm: upper.clone(),
+    fore: upper.clone().invert().multiply(fore),
+    hand: fore.clone().invert().multiply(handQ),
+  };
+}
+
 export class ArmRig {
-  constructor(side, material) {
+  constructor(side) {
     this.side = side;
     const s = sideSign(side);
     // Shoulder relative to the eyes: down, out to the side, a little behind.
     this.shoulder = new THREE.Vector3(0.18 * s, -0.24, 0.06);
-    this.elbow = new THREE.Vector3(0.2 * s, -0.4, -0.15);
+    this.elbow = new THREE.Vector3(0.2 * s, -0.4, -0.15); // elbow hint (pose model or IK pole), smoothed
     this.wrist = new THREE.Vector3();
     this.source = 'ik';
     this.result = null;
+    this.solved = null;
+    this.mesh = null;
+    this.showUpper = false;
 
     this.group = new THREE.Group();
     this.group.name = `${side}Arm`;
-    // Forearm: narrow at the wrist, wider toward the elbow; faded like the hand.
-    const fore = new THREE.CylinderGeometry(0.021, 0.034, 1, 24, 8, true);
-    fore.translate(0, 0.5, 0); // base at the elbow, top at the wrist
-    this.forearm = new THREE.Mesh(fore, material);
-    const upper = new THREE.CylinderGeometry(0.037, 0.045, 1, 24, 1, true);
-    upper.translate(0, 0.5, 0);
-    this.upperArm = new THREE.Mesh(upper, material);
-    this.upperArm.visible = false; // right next to the camera; shown only on request
+    const P = side === 'left' ? 'Left' : 'Right';
+    const bone = (name, parent, y = 0) => {
+      const b = new THREE.Bone();
+      b.name = name;
+      b.position.y = y;
+      parent.add(b);
+      return b;
+    };
+    this.bones = {};
+    this.bones.shoulder = bone(`${P}Shoulder`, this.group);
+    this.bones.arm = bone(`${P}Arm`, this.bones.shoulder);
+    this.bones.fore = bone(`${P}ForeArm`, this.bones.arm, UPPER);
+    this.bones.hand = bone(`${P}Hand`, this.bones.fore, FORE);
+
     const jointGeo = new THREE.SphereGeometry(0.008, 12, 8);
     const jointMat = new THREE.MeshBasicMaterial({ color: 0x3fd0c9, depthTest: false, transparent: true });
     this.elbowDot = new THREE.Mesh(jointGeo, jointMat);
     this.elbowDot.renderOrder = 10;
-    this.group.add(this.forearm, this.upperArm, this.elbowDot);
+    this.group.add(this.elbowDot);
+  }
+
+  // Build the arm skin from the hand's wrist border (armMesh.wristLoop()).
+  setSkin(loop, material) {
+    const arm = buildArm(loop);
+    this.skinData = arm;
+    const n = arm.position.length / 3;
+    const g = new THREE.BufferGeometry();
+    const pos = new Float32Array(arm.position);
+    const nor = new Float32Array(arm.normal);
+    const v = new THREE.Vector3();
+    for (let i = 0; i < n; i++) {
+      v.fromArray(pos, i * 3).applyQuaternion(ARM_BIND).toArray(pos, i * 3);
+      v.fromArray(nor, i * 3).applyQuaternion(ARM_BIND).toArray(nor, i * 3);
+    }
+    const skinIndex = new Uint16Array(n * 4);
+    const skinWeight = new Float32Array(n * 4);
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < 3; j++) {
+        skinIndex[i * 4 + j] = j + 1; // bones: 0 shoulder, 1 arm, 2 forearm, 3 hand
+        skinWeight[i * 4 + j] = arm.weights[i * 3 + j];
+      }
+    }
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+    g.setAttribute('skinIndex', new THREE.BufferAttribute(skinIndex, 4));
+    g.setAttribute('skinWeight', new THREE.BufferAttribute(skinWeight, 4));
+    g.setAttribute('wristFade', new THREE.BufferAttribute(new Float32Array(arm.fadeElbow), 1));
+    g.setIndex(new THREE.BufferAttribute(arm.index, 1));
+
+    if (this.mesh) {
+      this.group.remove(this.mesh);
+      this.mesh.geometry.dispose();
+    }
+    // Bind with the bones in the bind pose, then go back to the current pose.
+    const B = this.bones;
+    B.shoulder.position.set(0, 0, 0);
+    B.shoulder.quaternion.identity();
+    B.arm.quaternion.copy(ARM_BIND);
+    B.fore.quaternion.identity();
+    B.hand.quaternion.identity();
+    this.group.updateMatrixWorld(true);
+    const skeleton = new THREE.Skeleton([B.shoulder, B.arm, B.fore, B.hand]);
+    this.mesh = new THREE.SkinnedMesh(g, material);
+    this.mesh.name = `${this.side}ArmMesh`;
+    this.mesh.frustumCulled = false;
+    this.group.add(this.mesh);
+    this.mesh.bind(skeleton, new THREE.Matrix4());
+    this.setVisible(this.visible ?? true, this.showUpper, this.elbowDot.visible);
+    if (this.solved) this.pose(this.wrist, this.lastHandQ);
+  }
+
+  setMaterial(material) {
+    if (this.mesh) this.mesh.material = material;
   }
 
   // wrist: scene position of the wrist joint; handQuat: wrist bone rotation in
   // scene space; elbowHint: elbow seen by the pose model (scene space) or null.
   update(wrist, handQuat, elbowHint = null) {
-    this.wrist.copy(wrist);
     const handY = Y.clone().applyQuaternion(handQuat);
     let target;
     if (elbowHint) {
@@ -56,44 +146,47 @@ export class ArmRig {
       this.source = 'ik';
     }
     this.elbow.lerp(target, 0.35);
-    this.place(this.forearm, this.elbow, wrist, handQuat);
-    this.place(this.upperArm, this.shoulder, this.elbow, null);
-    this.elbowDot.position.copy(this.elbow);
+    return this.pose(wrist, handQuat);
+  }
+
+  // Pose the bones for this wrist, using the current elbow hint (no smoothing).
+  pose(wrist, handQuat) {
+    this.wrist.copy(wrist);
+    this.lastHandQ = handQuat.clone();
+    const L = armLocals(this.shoulder, this.elbow, wrist, handQuat);
+    this.solved = L;
+    const B = this.bones;
+    B.shoulder.position.copy(L.S);
+    B.arm.quaternion.copy(L.arm);
+    B.fore.quaternion.copy(L.fore);
+    B.hand.quaternion.copy(L.hand);
+    this.elbowDot.position.copy(L.E);
     this.result = this.measure(handQuat);
     return this.result;
   }
 
-  // Stretch a unit cylinder from a to b. Twist follows the hand when given.
-  place(mesh, a, b, twistQuat) {
-    const len = b.distanceTo(a);
-    const q = segmentQuat(a, b, twistQuat);
-    mesh.position.copy(a);
-    mesh.quaternion.copy(q);
-    mesh.scale.set(1, len, 1);
-    mesh.userData.quat = q;
-  }
-
   // Joint angles a game rig needs, in degrees.
   measure(handQuat) {
-    const upperDir = this.elbow.clone().sub(this.shoulder).normalize();
-    const foreDir = this.wrist.clone().sub(this.elbow).normalize();
+    if (!this.solved) this.pose(this.wrist, handQuat);
+    const L = this.solved;
+    const upperDir = L.E.clone().sub(L.S).normalize();
+    const foreDir = this.wrist.clone().sub(L.E).normalize();
     const elbowFlex = THREE.MathUtils.radToDeg(Math.acos(THREE.MathUtils.clamp(upperDir.dot(foreDir), -1, 1)));
     // Wrist relative to the forearm frame.
-    const foreQ = this.forearm.userData.quat || new THREE.Quaternion();
-    const rel = foreQ.clone().invert().multiply(handQuat);
+    const rel = L.foreQ.clone().invert().multiply(handQuat);
     const handYInFore = Y.clone().applyQuaternion(rel);
     const wristFlex = THREE.MathUtils.radToDeg(Math.atan2(handYInFore.z, handYInFore.y));
     const wristDeviation = THREE.MathUtils.radToDeg(Math.asin(THREE.MathUtils.clamp(-handYInFore.x, -1, 1))) * sideSign(this.side);
     return {
       source: this.source,
-      shoulder: this.shoulder.toArray(),
-      elbow: this.elbow.toArray(),
+      shoulder: L.S.toArray(),
+      elbow: L.E.toArray(),
       wrist: this.wrist.toArray(),
       elbowFlex,
       wristFlex,
       wristDeviation,
-      upperArmQuat: (this.upperArm.userData.quat || new THREE.Quaternion()).toArray(),
-      forearmQuat: foreQ.toArray(),
+      upperArmQuat: L.upperQ.toArray(),
+      forearmQuat: L.foreQ.toArray(),
     };
   }
 
@@ -103,10 +196,17 @@ export class ArmRig {
     this.wrist.fromArray(arm.wrist);
   }
 
-  setVisible(fore, upper, joints) {
-    this.forearm.visible = fore;
-    this.upperArm.visible = upper;
+  // arm: show the arm skin; upper: show it up to the shoulder (else it fades
+  // out above the elbow); joints: elbow marker.
+  setVisible(arm, upper, joints) {
+    this.visible = arm;
+    this.showUpper = upper;
     this.elbowDot.visible = joints;
+    if (!this.mesh) return;
+    this.mesh.visible = arm;
+    const fade = this.mesh.geometry.attributes.wristFade;
+    fade.array.set(upper ? this.skinData.fadeUpper : this.skinData.fadeElbow);
+    fade.needsUpdate = true;
   }
 }
 

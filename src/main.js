@@ -9,6 +9,7 @@ import { loadHandGLB, RealHand, questMaterial } from './realHand.js';
 import { GraspEstimator, OBJECT_LABEL, handFeatures } from './grasp.js';
 import { objectForHand, manualObject } from './objects.js';
 import { ArmRig } from './arm.js';
+import { wristLoop } from './armMesh.js';
 import { exportGlb, frameFromLive, frameFromPoseHand, zipFiles } from './exportGlb.js';
 import { capturePose, validatePose, applyPose, loadLibrary, saveLibrary } from './pose.js';
 
@@ -273,10 +274,8 @@ function applyLook() {
     const mat = make();
     if (realHands[s]) realHands[s].setMaterial(mat);
     else rigs[s].mesh.material = mat;
-    const armMat = make();
-    armMat.transparent = true;
-    armMat.opacity = Math.min(armMat.opacity, 0.55);
-    arms[s].forearm.material = arms[s].upperArm.material = armMat;
+    // The arm is one surface with the hand, so it wears the same material.
+    arms[s].setMaterial(realHands[s] ? realHands[s].mesh.material : mat);
   }
 }
 $('look').onchange = applyLook;
@@ -294,13 +293,22 @@ $('object-mode').onchange = () => SIDES.forEach((s) => grasps[s].reset());
 const arms = {};
 const armResults = { left: null, right: null };
 for (const s of SIDES) {
-  const mat = questMaterial();
-  mat.opacity = 0.55;
-  arms[s] = new ArmRig(s, mat);
+  arms[s] = new ArmRig(s);
   scene.add(arms[s].group);
 }
 const syncArmVisibility = () =>
-  SIDES.forEach((s) => arms[s].setVisible($('show-arm').checked, $('show-upper').checked, $('show-arm').checked));
+  SIDES.forEach((s) => {
+    arms[s].setVisible($('show-arm').checked, $('show-upper').checked, $('show-arm').checked);
+    // Quest-style wrist fade only when the hand ends at the wrist.
+    if (realHands[s]) realHands[s].setWristFade(!$('show-arm').checked);
+  });
+
+// Arm skin grown from the hand's wrist border, with shared seam normals.
+function attachArm(side) {
+  const real = realHands[side];
+  arms[side].setSkin(wristLoop(real ? real.exportSkin() : null), real ? real.mesh.material : rigs[side].mesh.material);
+  if (real) real.setSeamNormals(arms[side].skinData.seam);
+}
 $('show-arm').onchange = syncArmVisibility;
 $('show-upper').onchange = syncArmVisibility;
 
@@ -323,10 +331,18 @@ Promise.all(
     realHands[side] = real;
   }),
 )
-  .then(applyLook)
   .catch((err) => {
     console.warn('Realistic hand model failed to load; using the procedural hand.', err);
-    SIDES.forEach((s) => (rigs[s].mesh.visible = true));
+    SIDES.forEach((s) => {
+      if (realHands[s]) scene.remove(realHands[s].root);
+      realHands[s] = null;
+      rigs[s].mesh.visible = true;
+    });
+  })
+  .then(() => {
+    SIDES.forEach(attachArm);
+    applyLook();
+    syncArmVisibility();
   });
 
 // --- per-frame pipeline --------------------------------------------------------------
@@ -520,10 +536,7 @@ function tick(now) {
     arms[side].group.visible = rigs[side].group.visible;
     // Saved poses and lost hands still need a forearm under the wrist.
     if (state.frozen) {
-      const a = arms[side];
-      a.place(a.forearm, a.elbow, rigs[side].group.position, rigs[side].wrist.quaternion);
-      a.place(a.upperArm, a.shoulder, a.elbow, null);
-      a.elbowDot.position.copy(a.elbow);
+      arms[side].pose(rigs[side].group.position, rigs[side].wrist.quaternion);
     } else if (state.lastSeen[side] < 0 || t - state.lastSeen[side] > 0.2) {
       arms[side].update(rigs[side].group.position, rigs[side].wrist.quaternion, null);
     }
@@ -957,4 +970,4 @@ async function saveBinary(buffer, filename) {
 renderLibrary();
 renderTable();
 requestAnimationFrame(tick);
-window.__hms = { realHands, arms, rec, startRecording, stopRecording, trimFrames, exportSkins, exportGlb, savePoseGlb, armResults: () => armResults, tracker: () => ensureTracker(), handFeatures, grasps, scene, rigs, solvers, state, capture, viewPose };
+window.__hms = { camera, controls, realHands, arms, rec, startRecording, stopRecording, trimFrames, exportSkins, exportGlb, savePoseGlb, armResults: () => armResults, tracker: () => ensureTracker(), handFeatures, grasps, scene, rigs, solvers, state, capture, viewPose };
