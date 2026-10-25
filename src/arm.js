@@ -26,6 +26,7 @@ const Y = new THREE.Vector3(0, 1, 0);
 const TWISTS = 5;
 // Forearm roll allowed either side of thumb up: pronation/supination ~80-90
 // degrees plus slack for shoulder rotation and the guessed elbow.
+const REST_EXT = (10 * Math.PI) / 180; // wrist extension held without thinking: median of the arm pose dictionary
 const ROLL_LIMIT = (110 * Math.PI) / 180;
 
 // Bind pose shared with the GLB export: arm straight forward (-Z), palm down.
@@ -292,17 +293,22 @@ export class ArmRig {
       target = elbowHint.clone();
       this.source = 'pose';
     } else if (this.follow) {
-      // First person with no elbow in view: the forearm runs back toward the
-      // shoulder (two-bone IK), bending the way the hand points; the wrist
-      // range then decides how far the hand may bend off that line.
-      target = solveElbow(this.shoulder, wrist, wrist.clone().addScaledVector(handY, -FORE));
+      // First person with no elbow in view: people hold the wrist nearly
+      // straight (a little extended), so the forearm continues the hand's
+      // line. Reaching back to a guessed shoulder instead bent the wrist
+      // sideways whenever the phone was not held the way the guess assumes
+      // (user: "nobody's wrist bends like that"). The shoulder gives way.
+      const palm = new THREE.Vector3(0, 0, 1).applyQuaternion(handQuat);
+      const back = handY.clone().multiplyScalar(-Math.cos(REST_EXT)).addScaledVector(palm, -Math.sin(REST_EXT));
+      target = wrist.clone().addScaledVector(back, FORE);
+      target.z = Math.min(target.z, -0.06); // never between the eye and the phone
       this.source = 'hand';
     } else {
       target = solveElbow(this.shoulder, wrist, wrist.clone().addScaledVector(handY, -FORE));
       this.source = 'ik';
     }
     // Live passthrough: the forearm lies on the seen line and the shoulder is free.
-    this.opts = !this.follow ? { side: this.side } : elbowHint ? { direct: true, comfort: 1, shrug: 2, side: this.side } : { comfort: 0.8, shrug: 0.2, side: this.side };
+    this.opts = !this.follow ? { side: this.side } : { direct: true, comfort: 1, shrug: 2, side: this.side };
     this.elbow.lerp(target, 0.35);
     return this.pose(wrist, handQuat);
   }
@@ -310,24 +316,9 @@ export class ArmRig {
   // Pose the bones for this wrist, using the current elbow hint (no smoothing).
   pose(wrist, handQuat) {
     this.wrist.copy(wrist);
-    let L = armLocals(this.shoulder, this.elbow, wrist, handQuat, this.opts);
-    // The forearm turns the palm at most ~90 degrees each way from thumb up
-    // (pronation/supination). A hand read further round than ROLL_LIMIT
-    // would need the forearm wrung past its range, which no arm can do: the
-    // reading is wrong (usually the hand seen turned the other way), so the
-    // hand is turned back about the forearm to the edge of the range. The
-    // caller applies fixedHandQ to the hand it shows.
-    const neutral = (-sideSign(this.side) * Math.PI) / 2; // thumb up, from palm up (roll 0)
-    const rollOf = (l) => neutral + THREE.MathUtils.euclideanModulo(2 * Math.atan2(l.fore.y, l.fore.w) - neutral + Math.PI, 2 * Math.PI) - Math.PI;
-    this.fixedHandQ = null;
-    const off = rollOf(L) - neutral;
-    if (Math.abs(off) > ROLL_LIMIT) {
-      const axis = wrist.clone().sub(L.E).normalize(); // elbow -> wrist
-      const back = new THREE.Quaternion().setFromAxisAngle(axis, -(off - Math.sign(off) * ROLL_LIMIT));
-      handQuat = back.multiply(handQuat);
-      L = armLocals(this.shoulder, this.elbow, wrist, handQuat, this.opts);
-      this.fixedHandQ = handQuat.clone();
-    }
+    const { L, fixedQ } = limitedArmLocals(this.shoulder, this.elbow, wrist, handQuat, this.opts);
+    this.fixedHandQ = fixedQ;
+    if (fixedQ) handQuat = fixedQ;
     this.lastHandQ = handQuat.clone();
     this.solved = L;
     const B = this.bones;
@@ -340,7 +331,7 @@ export class ArmRig {
     // the roll is taken within half a turn of neutral (thumb up). Palm down
     // and palm up are then reached through thumb up, never through thumb
     // down, and the twist never wraps inside the range of motion.
-    const roll = rollOf(L);
+    const roll = rollOf(L, (-sideSign(this.side) * Math.PI) / 2);
     const twist = (k) => new THREE.Quaternion().setFromAxisAngle(Y, roll * k);
     const swing = L.fore.clone().multiply(twist(1).invert());
     const step = 1 / (TWISTS + 2);
@@ -430,4 +421,26 @@ export function solveElbow(S, W, P) {
   if (bend.lengthSq() < 1e-8) bend.set(0, -1, 0).addScaledVector(dir, -dir.y);
   bend.normalize();
   return S.clone().addScaledVector(dir, a).addScaledVector(bend, h);
+}
+
+// armLocals with the forearm's turn kept in range.
+// The forearm turns the palm at most ~90 degrees each way from thumb up
+// (pronation/supination). A hand read further round than ROLL_LIMIT would
+// need the forearm wrung past its range, which no arm can do: the reading is
+// wrong (usually the hand seen turned the other way), so the hand is turned
+// back about the forearm to the edge of the range. fixedQ is that hand
+// rotation (null when the reading was in range); callers show it.
+export function limitedArmLocals(S, E, wrist, handQuat, opts) {
+  let L = armLocals(S, E, wrist, handQuat, opts);
+  const neutral = (-sideSign(opts.side) * Math.PI) / 2; // thumb up, from palm up (roll 0)
+  const off = rollOf(L, neutral) - neutral;
+  if (Math.abs(off) <= ROLL_LIMIT) return { L, fixedQ: null };
+  const axis = wrist.clone().sub(L.E).normalize(); // elbow -> wrist
+  const fixedQ = new THREE.Quaternion().setFromAxisAngle(axis, -(off - Math.sign(off) * ROLL_LIMIT)).multiply(handQuat);
+  return { L: armLocals(S, E, wrist, fixedQ, opts), fixedQ };
+}
+
+// Forearm roll taken within 180 degrees of neutral.
+function rollOf(L, neutral) {
+  return neutral + THREE.MathUtils.euclideanModulo(2 * Math.atan2(L.fore.y, L.fore.w) - neutral + Math.PI, 2 * Math.PI) - Math.PI;
 }

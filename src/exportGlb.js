@@ -20,7 +20,7 @@
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { FINGERS, wristName, boneName } from './skeleton.js';
-import { ArmRig, UPPER, FORE, ARM_BIND, armLocals } from './arm.js';
+import { ArmRig, UPPER, FORE, ARM_BIND, limitedArmLocals } from './arm.js';
 import { wristLoop, buildArm } from './armMesh.js';
 
 const SIDES = ['left', 'right'];
@@ -251,7 +251,8 @@ function objectTransform(o, type) {
 // Game rigs keep bone lengths fixed, so each frame is re-solved with the fixed
 // upper arm / forearm lengths (arm.js armLocals, the same solve the app shows).
 function sideLocals(f, side) {
-  const L = armLocals(new THREE.Vector3().fromArray(f.shoulder), new THREE.Vector3().fromArray(f.elbow), new THREE.Vector3().fromArray(f.wrist), new THREE.Quaternion().fromArray(f.handQ), { side, ...f.armOpts });
+  // Same forearm range limit as the app shows.
+  const { L } = limitedArmLocals(new THREE.Vector3().fromArray(f.shoulder), new THREE.Vector3().fromArray(f.elbow), new THREE.Vector3().fromArray(f.wrist), new THREE.Quaternion().fromArray(f.handQ), { side, ...f.armOpts });
   return { shoulderPos: L.S.toArray(), arm: L.arm.toArray(), fore: L.fore.toArray(), hand: L.hand.toArray() };
 }
 

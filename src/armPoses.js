@@ -19,6 +19,7 @@
 import * as THREE from 'three';
 import { UPPER, FORE } from './armMesh.js';
 import { sideSign } from './skeleton.js';
+import { MOTIONS, MOTION_CATEGORIES, expandMotion } from './armMotions.js';
 
 export const ARM_ROM = {
   sFlex: [0, 180], sAbd: [0, 150], hRot: [-70, 80], elbow: [0, 150], pron: [-80, 80],
@@ -131,11 +132,18 @@ for (let k = 0; k <= 6; k++) {
   RAW.push([`dart-${k}`, `다트 던지기 경로 ${k + 1}/7`, 'armRom', 'grip-power', 50, 10, 10, 90, 0, Math.round(-45 + 100 * u), Math.round(15 - 45 * u), '신전+요측 → 굴곡+척측']);
 }
 
+// Movements: every key posture and the steps between (armMotions.js).
+for (const [id, name, category, hand, keys, note] of MOTIONS) {
+  const steps = expandMotion(keys);
+  steps.forEach(({ angles }, i) => RAW.push([`${id}-${i + 1}`, `${name} ${i + 1}/${steps.length}`, category, hand, ...angles, note]));
+}
+
 export const ARM_CATEGORIES = {
   armDaily: '팔 자세: 생활 동작',
   armBody: '팔 자세: 물속·몸 쓰기',
   armSport: '팔 자세: 운동',
   armRom: '팔 자세: 관절 범위 격자',
+  ...MOTION_CATEGORIES,
 };
 
 const clamp = (v, [a, b]) => Math.min(b, Math.max(a, v));
