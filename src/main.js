@@ -117,6 +117,7 @@ const state = {
   source: 'demo',
   frozen: false, // viewing a saved pose
   limits: true,
+  fit: true,
   swap: false,
   lastSeen: { left: -1, right: -1 },
   lastSolve: { left: null, right: null },
@@ -302,6 +303,7 @@ $('swap').onchange = (e) => {
 // --- engine controls -------------------------------------------------------------
 
 $('limits').onchange = (e) => (state.limits = e.target.checked);
+$('fit').onchange = (e) => (state.fit = e.target.checked);
 const romPanel = initRomPanel($('rom-table'));
 $('rom-reset').onclick = () => romPanel.reset();
 const bindSlider = (id, obj, key) => {
@@ -559,7 +561,7 @@ function feed(inputs, t) {
     const rig = rigs[side];
     rig.group.visible = true;
     rig.group.position.set(anc[0], anc[1], anc[2]);
-    state.lastSolve[side] = solvers[side].solve(smooth, { limits: state.limits });
+    state.lastSolve[side] = solvers[side].solve(smooth, { limits: state.limits, fit: state.fit });
     if (realHands[side]) {
       realHands[side].setProportions(smooth);
       realHands[side].setPinches(smooth);

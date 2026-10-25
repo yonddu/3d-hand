@@ -8,6 +8,7 @@
 import * as THREE from 'three';
 import { FINGERS, limitsFor, sideSign } from './skeleton.js';
 import { handFrameQuat } from './handRig.js';
+import { fitFinger } from './fit.js';
 
 const D2R = Math.PI / 180;
 const R2D = 180 / Math.PI;
@@ -27,16 +28,18 @@ export class HandSolver {
     this.rig = rig;
     this.refLen = {}; // running reference length per bone, for confidence
     this.smoothed = new Map(); // bone -> last output quaternion
+    this.fitPrev = {}; // finger -> last fitted angles (model fitting)
   }
 
   reset() {
     this.refLen = {};
     this.smoothed.clear();
+    this.fitPrev = {};
   }
 
   // P: 21 THREE.Vector3 in rig orientation (any origin, meters).
   // Returns per-bone angles and confidences and writes rotations to the rig.
-  solve(P, { limits = true, smoothing = true, synergy = true } = {}) {
+  solve(P, { limits = true, smoothing = true, synergy = true, fit = false } = {}) {
     const rig = this.rig;
     const side = rig.side;
     const wristQ = handFrameQuat(P, side);
@@ -109,13 +112,34 @@ export class HandSolver {
         }
 
         // Low-confidence bones move slower (they are likely occluded or mis-detected).
-        const out = this.apply(link.bone, local, smoothing ? 0.35 + 0.65 * c : 1);
+        // Model fitting (below) poses the bones; this pass only seeds it.
+        const out = fit ? local : this.apply(link.bone, local, smoothing ? 0.35 + 0.65 * c : 1);
         parentG = parentG.multiply(out);
         angles[finger.key].push({ flex, abd: abdThumb });
         confidence[finger.key].push(c);
       });
     }
+    if (fit) this.fitHand(P, wristQ, angles, confidence, { limits, smoothing });
     return { angles, confidence };
+  }
+
+  // Fit each finger of the hand model to the points (see fit.js), seeded by
+  // the last frame or, the first time, by the per-bone reading.
+  fitHand(P, wristQ, angles, confidence, { limits, smoothing }) {
+    const rig = this.rig;
+    const palm = P[0].distanceTo(P[9]);
+    for (const finger of FINGERS) {
+      const a = angles[finger.key];
+      const start = finger.key === 'thumb'
+        ? [a[0].flex, a[0].abd, 0, a[1].flex, a[1].abd, 0, a[2].flex]
+        : [a[0].flex, a[0].abd, 0, a[1].flex, a[2].flex];
+      const prev = this.fitPrev[finger.key] || null;
+      const chain = rig.chains[finger.key];
+      const res = fitFinger({ finger, chain, side: rig.side, P, wristQ, conf: confidence[finger.key], palm, prev, start, useLimits: limits });
+      this.fitPrev[finger.key] = res.theta;
+      chain.forEach((link, k) => this.apply(link.bone, res.locals[k], smoothing ? 0.85 : 1));
+      angles[finger.key] = res.ang.map(({ flex, abd }) => ({ flex, abd }));
+    }
   }
 
   apply(bone, target, alpha) {
