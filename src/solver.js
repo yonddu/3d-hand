@@ -13,7 +13,9 @@ const D2R = Math.PI / 180;
 const R2D = 180 / Math.PI;
 const clamp = THREE.MathUtils.clamp;
 const TOL_FLEX = 10; // degrees past a flexion limit still followed
-const TOL_ABD = 10; // degrees past a side-bend limit still followed
+const TOL_EXT = 5; // degrees of bending backward past the limit still followed
+const MAX_ROLL = (20 * Math.PI) / 180; // knuckle axial rotation allowed
+const TOL_ABD = 4; // degrees past a knuckle's side-bend limit still followed
 
 const _q = new THREE.Quaternion();
 const _qi = new THREE.Quaternion();
@@ -70,17 +72,38 @@ export class HandSolver {
           // few degrees on top of real poses, so each range gets a tolerance
           // band; inside it the bone follows the tracked direction exactly.
           const [fMin, fMax, aMin, aMax] = limitsFor(finger.key, k);
-          flex = clamp(flex, fMin - TOL_FLEX, fMax + TOL_FLEX);
+          flex = clamp(flex, fMin - TOL_EXT, fMax + TOL_FLEX);
           // A finger bent at the knuckle cannot spread: the side ligaments
           // tighten, so a fist keeps its fingers together. Tracking guesses
           // the hidden fingers of a fist and spreads them, so the tolerance
           // shrinks with the bend too.
           const room = k === 0 && finger.key !== 'thumb' && flex > 0 ? Math.max(0, Math.cos(flex * D2R)) : 1;
-          abdThumb = clamp(abdThumb, (aMin - TOL_ABD) * room, (aMax + TOL_ABD) * room);
+          // Hinge joints (PIP, DIP, thumb IP) do not bend sideways at all: a
+          // sideways reading there is noise, and following it reads as a
+          // broken finger. Only the knuckles get a small band, and the index
+          // never past its real reach toward the thumb.
+          const hinge = aMin === 0 && aMax === 0;
+          const tolLo = hinge ? 0 : TOL_ABD;
+          const tolHi = hinge || finger.key === 'index' ? 0 : TOL_ABD;
+          abdThumb = clamp(abdThumb, (aMin - tolLo) * room, (aMax + tolHi) * room);
           abd = -abdThumb * sideSign(side);
         }
         _e.set(flex * D2R, 0, abd * D2R, 'XZY');
         const local = link.restLocal.clone().multiply(new THREE.Quaternion().setFromEuler(_e));
+        // Roll of a bone whose child is a hinge (finger MCP above the PIP,
+        // thumb MCP above the IP): turn it about its own length so the child
+        // bends in its own plane. Real knuckles rotate a little as they flex,
+        // and without this the hinge below would have to bend sideways.
+        const rollJoint = finger.key === 'thumb' ? k === 1 : k === 0;
+        if (rollJoint && k + 2 < finger.joints.length) {
+          const c = P[finger.joints[k + 2]].clone().sub(P[finger.joints[k + 1]]).normalize();
+          c.applyQuaternion(parentG.clone().multiply(local).invert());
+          const side = Math.hypot(c.x, c.z);
+          if (side > 0.25) {
+            const roll = clamp(Math.atan2(-c.x, c.z), -MAX_ROLL, MAX_ROLL) * THREE.MathUtils.smoothstep(side, 0.25, 0.5);
+            local.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), roll));
+          }
+        }
 
         // Low-confidence bones move slower (they are likely occluded or mis-detected).
         const out = this.apply(link.bone, local, smoothing ? 0.35 + 0.65 * c : 1);

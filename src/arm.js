@@ -88,8 +88,7 @@ export function armLocals(S0, E0, W, handQ, { comfort = COMFORT, shrug = SHRUG, 
     }
   }
   const fore = segmentQuat(E, W, handQ);
-  // The upper arm rolls with the forearm so the elbow bends without twisting the skin.
-  const upper = segmentQuat(S, E, fore);
+  const upper = upperQuat(S, E, W, fore);
   return {
     S,
     E,
@@ -99,6 +98,26 @@ export function armLocals(S0, E0, W, handQ, { comfort = COMFORT, shrug = SHRUG, 
     fore: upper.clone().invert().multiply(fore),
     hand: fore.clone().invert().multiply(handQ),
   };
+}
+
+// The elbow is a hinge: the upper arm's local X is the bend axis, oriented so
+// flexion is always a positive rotation about it and the forearm only adds
+// its pronation twist on top. Game rigs then get an elbow that never bends
+// backward, whichever way the palm faces. A nearly straight arm has no bend
+// plane, so there the upper arm takes its roll from the forearm instead.
+function upperQuat(S, E, W, fore) {
+  const y = E.clone().sub(S).normalize();
+  const f = W.clone().sub(E).normalize();
+  const perp = f.clone().addScaledVector(y, -f.dot(y));
+  const loose = segmentQuat(S, E, fore);
+  const bent = perp.length();
+  if (bent < 0.03) return loose;
+  const z = perp.normalize();
+  const x = new THREE.Vector3().crossVectors(y, z);
+  const hinge = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z));
+  const k = THREE.MathUtils.smoothstep(bent, 0.03, 0.12);
+  if (hinge.dot(loose) < 0) loose.set(-loose.x, -loose.y, -loose.z, -loose.w);
+  return loose.slerp(hinge, k);
 }
 
 // Wrist -> elbow direction pulled back inside the wrist's elliptical range of
