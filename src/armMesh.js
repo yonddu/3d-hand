@@ -178,7 +178,7 @@ export function buildArm(loop, { ringSize = 64 } = {}) {
   const aLoop = WRIST_A + cy;
   // The border is in the heel of the hand; the wrist joint below it is the
   // narrowest place, and the forearm widens again above it.
-  const profile = [...PROFILE, [aLoop - 0.055, lx * 0.98, lz * 1.04], [aLoop - 0.015, lx * 0.9, lz * 0.94], [aLoop, lx, lz], [aLoop + 0.03, lx, lz]];
+  const profile = [...PROFILE, [aLoop - 0.055, lx * 1.0, lz * 1.04], [aLoop - 0.015, lx * 0.95, lz * 0.99], [aLoop, lx, lz], [aLoop + 0.03, lx, lz]];
 
   // Ring stations, dense near the wrist and the elbow.
   const stations = [aLoop];
@@ -217,7 +217,7 @@ export function buildArm(loop, { ringSize = 64 } = {}) {
     }
     const u = aLoop - a; // distance up the arm from the wrist border
     const k = THREE.MathUtils.smoothstep(u, 0, 0.08); // border shape -> anatomical section
-    const h = THREE.MathUtils.smoothstep(u, 0, 0.012); // leave the border along the hand's own slope
+    const h = THREE.MathUtils.smoothstep(u, 0, 0.025); // leave the border along the hand's own slope
     const w = catmull(profile, a, 1);
     const t = catmull(profile, a, 2);
     for (let j = 0; j < R; j++) {

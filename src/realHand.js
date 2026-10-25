@@ -12,6 +12,7 @@ import { FINGERS, sideSign, wristName, boneName } from './skeleton.js';
 import { bakeSkin } from './exportGlb.js';
 import { fromGeometry, clipPlane, subdivide, toGeometry } from './meshOps.js';
 import { ThenarPad } from './thenar.js';
+import { addDepthPrepass } from './prepass.js';
 
 // Where the wrist is cut open for the arm, along the hand's -Y from the wrist
 // joint (m). Negative: above the joint, inside the heel of the hand, so the
@@ -85,6 +86,11 @@ export class RealHand {
     this.restFrameInv = this.restFrame.clone().invert();
     this.refineMesh();
     this.pinBorder();
+    // Linear skinning for the hand (the thenar pad is solved for it); the arm
+    // has 1 here. Set explicitly: a missing attribute reads whatever value its
+    // slot last held.
+    this.mesh.geometry.setAttribute('skinDQ', new THREE.BufferAttribute(new Float32Array(this.mesh.geometry.attributes.position.count), 1));
+    addDepthPrepass(this.mesh);
     this.pad = new ThenarPad(this.mesh, this.restPos);
     this.addWristFade();
 
@@ -119,7 +125,9 @@ export class RealHand {
   }
 
   setMaterial(material) {
-    if (this.mesh) this.mesh.material = withWristFade(material);
+    if (!this.mesh) return;
+    this.mesh.material = withWristFade(material);
+    addDepthPrepass(this.mesh);
   }
 
   // Open the capped wrist with a clean planar cut (the arm skin continues from

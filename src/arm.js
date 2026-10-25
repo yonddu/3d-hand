@@ -10,6 +10,7 @@
 import * as THREE from 'three';
 import { sideSign } from './skeleton.js';
 import { UPPER, FORE, buildArm } from './armMesh.js';
+import { addDepthPrepass } from './prepass.js';
 
 export { UPPER, FORE };
 // The wrist is an ellipsoid (radiocarpal) joint: it flexes/extends and tilts
@@ -268,12 +269,15 @@ export class ArmRig {
     this.mesh.frustumCulled = false;
     this.group.add(this.mesh);
     this.mesh.bind(skeleton, new THREE.Matrix4());
+    addDepthPrepass(this.mesh);
     this.setVisible(this.visible ?? true, this.showUpper, this.elbowDot.visible);
     if (this.solved) this.pose(this.wrist, this.lastHandQ);
   }
 
   setMaterial(material) {
-    if (this.mesh) this.mesh.material = material;
+    if (!this.mesh) return;
+    this.mesh.material = material;
+    addDepthPrepass(this.mesh);
   }
 
   // wrist: scene position of the wrist joint; handQuat: wrist bone rotation in
