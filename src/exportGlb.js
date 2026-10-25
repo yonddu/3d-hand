@@ -43,6 +43,7 @@ export function frameFromLive(side, rig, arm, grasp) {
     handQ: rig.wrist.quaternion.toArray(),
     fingers: rig.getPose().bones,
     object: grasp ? grasp.toJSON() : null,
+    armOpts: arm.opts,
   };
 }
 
@@ -249,8 +250,8 @@ function objectTransform(o, type) {
 
 // Game rigs keep bone lengths fixed, so each frame is re-solved with the fixed
 // upper arm / forearm lengths (arm.js armLocals, the same solve the app shows).
-function sideLocals(f) {
-  const L = armLocals(new THREE.Vector3().fromArray(f.shoulder), new THREE.Vector3().fromArray(f.elbow), new THREE.Vector3().fromArray(f.wrist), new THREE.Quaternion().fromArray(f.handQ));
+function sideLocals(f, side) {
+  const L = armLocals(new THREE.Vector3().fromArray(f.shoulder), new THREE.Vector3().fromArray(f.elbow), new THREE.Vector3().fromArray(f.wrist), new THREE.Quaternion().fromArray(f.handQ), { side, ...f.armOpts });
   return { shoulderPos: L.S.toArray(), arm: L.arm.toArray(), fore: L.fore.toArray(), hand: L.hand.toArray() };
 }
 
@@ -340,7 +341,7 @@ export async function exportGlb({ frames, skins, name = 'HMS_Motion', includeObj
 
   for (const side of sides) {
     const P = prefix(side);
-    const locals = filled[side].map(sideLocals);
+    const locals = filled[side].map((f) => sideLocals(f, side));
     vecTrack(`${P}Shoulder`, 'position', locals.flatMap((l) => l.shoulderPos));
     quatTrack(`${P}Arm`, locals.flatMap((l) => l.arm));
     quatTrack(`${P}ForeArm`, locals.flatMap((l) => l.fore));

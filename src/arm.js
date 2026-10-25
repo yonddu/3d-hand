@@ -12,7 +12,11 @@ import { sideSign } from './skeleton.js';
 import { UPPER, FORE, buildArm } from './armMesh.js';
 
 export { UPPER, FORE };
-const WRIST_SOFT = (40 * Math.PI) / 180; // wrist bend allowed before the forearm turns
+// The wrist is an ellipsoid (radiocarpal) joint: it flexes/extends and tilts
+// toward the thumb or the little finger, but does not twist. Pronation lives in
+// the forearm (segmentQuat rolls it with the hand). Range of motion in degrees.
+const WRIST_ROM = { flex: 75, ext: 65, radial: 20, ulnar: 35 };
+const COMFORT = 0.6; // share of the range the IK view uses before turning the forearm
 const SHRUG = 0.12; // how far the shoulder may move to keep the wrist natural (m)
 const Y = new THREE.Vector3(0, 1, 0);
 
@@ -25,34 +29,44 @@ export const ARM_BIND = new THREE.Quaternion()
 // the elbow hint E only says which way the elbow points. A wrist beyond reach
 // pulls the shoulder after it (a shrug) instead of stretching the arm.
 // Returns bone-local rotations for Arm (under an unrotated Shoulder), ForeArm, Hand.
-export function armLocals(S0, E0, W, handQ) {
+// opts: comfort (share of the wrist range before the forearm turns), shrug
+// (shoulder travel), direct (elbow hint is the real forearm line), side.
+export function armLocals(S0, E0, W, handQ, { comfort = COMFORT, shrug = SHRUG, direct = false, side = 'right' } = {}) {
   const S = S0.clone();
-  const reach = (UPPER + FORE) * 0.999;
-  if (S.distanceTo(W) > reach) S.sub(W).setLength(reach).add(W);
-  let E = solveElbow(S, W, E0);
-  // A wrist bent past ~40 degrees reads as broken in first person (and pinches
-  // the skin), so turn the forearm toward the hand's own line and let the
-  // shoulder follow by up to SHRUG. Beyond that the wrist keeps the rest.
-  const back = Y.clone().applyQuaternion(handQ).negate(); // wrist -> elbow if the wrist were straight
-  const ik = E.clone().sub(W).normalize();
-  const bend = ik.angleTo(back);
-  if (bend > WRIST_SOFT) {
-    const axis = new THREE.Vector3().crossVectors(ik, back);
-    if (axis.lengthSq() > 1e-10) {
+  let E;
+  if (direct) {
+    // The elbow hint is the real forearm line (pose model or hand direction):
+    // keep it and let the upper arm hang from it toward the shoulder.
+    E = W.clone().add(E0.clone().sub(W).setLength(FORE));
+    S.copy(E).add(S0.clone().sub(E).setLength(UPPER));
+  } else {
+    const reach = (UPPER + FORE) * 0.999;
+    if (S.distanceTo(W) > reach) S.sub(W).setLength(reach).add(W);
+    E = solveElbow(S, W, E0);
+  }
+  // Keep the hand inside the wrist's range relative to the forearm. The hand
+  // rotation is what the camera saw, so the forearm is the one that turns,
+  // with the shoulder following by up to `shrug`.
+  const ik = E.clone().sub(W).normalize(); // wrist -> elbow
+  const want = wristClamp(ik, handQ, side, comfort);
+  const bend = ik.angleTo(want);
+  if (bend > 1e-4) {
+    const axis = new THREE.Vector3().crossVectors(ik, want);
+    if (axis.lengthSq() > 1e-12) {
       axis.normalize();
       const tryTurn = (f) => {
-        const dir = ik.clone().applyAxisAngle(axis, (bend - WRIST_SOFT) * f);
+        const dir = ik.clone().applyAxisAngle(axis, bend * f);
         const e = W.clone().addScaledVector(dir, FORE);
         const s = e.clone().add(S.clone().sub(e).setLength(UPPER));
         return { e, s, shift: s.distanceTo(S) };
       };
       let best = tryTurn(1);
-      if (best.shift > SHRUG) {
+      if (best.shift > shrug) {
         let lo = 0;
         let hi = 1;
         for (let i = 0; i < 12; i++) {
           const mid = (lo + hi) / 2;
-          if (tryTurn(mid).shift > SHRUG) hi = mid;
+          if (tryTurn(mid).shift > shrug) hi = mid;
           else lo = mid;
         }
         best = tryTurn(lo);
@@ -75,6 +89,30 @@ export function armLocals(S0, E0, W, handQ) {
   };
 }
 
+// Wrist -> elbow direction pulled back inside the wrist's elliptical range of
+// motion. Hand frame: +Y toward the fingers, +Z out of the palm, thumb on
+// +X for the right hand (-X for the left).
+export function wristClamp(toElbow, handQ, side = 'right', scale = 1) {
+  const f = toElbow.clone().negate().applyQuaternion(handQ.clone().invert()); // forearm line in hand space
+  const s = sideSign(side);
+  // Swing of the forearm line away from the hand's +Y, as an angle plus a
+  // direction in the hand's X/Z plane (stable even past 90 degrees).
+  const theta = Math.acos(THREE.MathUtils.clamp(f.y, -1, 1));
+  const side2 = new THREE.Vector2(f.x, f.z);
+  if (theta < 1e-6 || side2.lengthSq() < 1e-12) return toElbow.clone().normalize();
+  side2.normalize();
+  const flex = -side2.y * theta; // + flexion (palm side), - extension
+  const dev = -side2.x * s * theta; // + radial (thumb side), - ulnar
+  const d2r = Math.PI / 180;
+  const lf = (flex > 0 ? WRIST_ROM.flex : WRIST_ROM.ext) * d2r * scale;
+  const ld = (dev > 0 ? WRIST_ROM.radial : WRIST_ROM.ulnar) * d2r * scale;
+  const r = Math.hypot(flex / lf, dev / ld);
+  if (r <= 1) return toElbow.clone().normalize();
+  const t = theta / r;
+  const v = new THREE.Vector3(side2.x * Math.sin(t), Math.cos(t), side2.y * Math.sin(t));
+  return v.applyQuaternion(handQ).negate();
+}
+
 export class ArmRig {
   constructor(side) {
     this.side = side;
@@ -89,6 +127,10 @@ export class ArmRig {
     this.solved = null;
     this.mesh = null;
     this.showUpper = false;
+    // Passthrough view: the graphic arm must lie on the real one, so the
+    // forearm follows the hand's line (or the seen elbow) and the shoulder is free.
+    this.follow = false;
+    this.opts = {};
 
     this.group = new THREE.Group();
     this.group.name = `${side}Arm`;
@@ -175,10 +217,15 @@ export class ArmRig {
     if (elbowHint) {
       target = elbowHint.clone();
       this.source = 'pose';
+    } else if (this.follow) {
+      target = wrist.clone().addScaledVector(handY, -FORE); // straight wrist
+      this.source = 'hand';
     } else {
       target = solveElbow(this.shoulder, wrist, wrist.clone().addScaledVector(handY, -FORE));
       this.source = 'ik';
     }
+    // Live passthrough: the forearm lies on the seen line and the shoulder is free.
+    this.opts = this.follow ? { direct: true, comfort: 1, shrug: 2, side: this.side } : { side: this.side };
     this.elbow.lerp(target, 0.35);
     return this.pose(wrist, handQuat);
   }
@@ -187,7 +234,7 @@ export class ArmRig {
   pose(wrist, handQuat) {
     this.wrist.copy(wrist);
     this.lastHandQ = handQuat.clone();
-    const L = armLocals(this.shoulder, this.elbow, wrist, handQuat);
+    const L = armLocals(this.shoulder, this.elbow, wrist, handQuat, this.opts);
     this.solved = L;
     const B = this.bones;
     B.shoulder.position.copy(L.S);

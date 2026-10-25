@@ -466,8 +466,10 @@ function elbowFromPoseAR(hand, wristDist, ray) {
   const e = pose.landmarks[ids.elbow];
   const w = pose.landmarks[ids.wrist];
   const hw = hand.landmarks[0];
-  if ((e.visibility ?? 0) < 0.6 || Math.hypot(w.x - hw.x, w.y - hw.y) > 0.15) return null;
-  const dz = pose.world[ids.elbow].z - pose.world[ids.wrist].z; // + = elbow further from the camera
+  if ((e.visibility ?? 0) < 0.5 || Math.hypot(w.x - hw.x, w.y - hw.y) > 0.2) return null;
+  // The elbow's place in the picture is reliable; its depth from a single
+  // camera is not, so keep it near the wrist's distance.
+  const dz = THREE.MathUtils.clamp(pose.world[ids.elbow].z - pose.world[ids.wrist].z, -0.08, 0.08);
   return ray(e).multiplyScalar(Math.max(0.1, wristDist + dz));
 }
 
@@ -613,6 +615,10 @@ function syncAr() {
     resize();
     resetView();
   }
+  SIDES.forEach((s) => {
+    arms[s].follow = on;
+    arms[s].opts = { side: s };
+  });
   applyOpacity();
   resetTracking(); // hand positions change meaning between the two views
 }
@@ -1113,6 +1119,7 @@ function applyFrame(frame) {
     rig.setPose({ position: f.wrist, wrist: f.handQ, bones: f.fingers });
     grasps[side].fromJSON(f.object);
     arms[side].setFromSaved({ shoulder: f.shoulder, elbow: f.elbow, wrist: f.wrist });
+    arms[side].opts = { side, ...f.armOpts };
   }
 }
 
