@@ -1067,7 +1067,15 @@ function handIsLive(side, t) {
 
 function liveFrame(t) {
   const hands = {};
-  for (const side of SIDES) hands[side] = handIsLive(side, t) ? frameFromLive(side, rigs[side], arms[side], grasps[side]) : null;
+  for (const side of SIDES) {
+    hands[side] = handIsLive(side, t) ? frameFromLive(side, rigs[side], arms[side], grasps[side]) : null;
+    // Raw tracked points and the recognised shape ride along in the take JSON,
+    // so a recorded motion can be replayed through the solver when tuning it.
+    if (hands[side] && state.rawLandmarks[side]) {
+      hands[side].landmarks = state.rawLandmarks[side].map((v) => [v.x, v.y, v.z].map((x) => Math.round(x * 1e4) / 1e4));
+      hands[side].shape = state.shape[side] ? state.shape[side].name : null;
+    }
+  }
   return hands;
 }
 

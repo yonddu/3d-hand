@@ -41,7 +41,9 @@ export function curls(P) {
   const out = {};
   for (const [k, [mcp, tip]] of Object.entries(TIPS)) {
     const r = dist(P[tip], P[0]) / Math.max(dist(P[mcp], P[0]), 1e-4);
-    out[k] = clamp01((1.75 - r) / (1.75 - 1.1));
+    // A fist seen from behind hides the fingertips and the model tends to
+    // guess them half curled, so full curl is reached early (ratio 1.25).
+    out[k] = clamp01((1.75 - r) / (1.75 - 1.25));
   }
   return out;
 }
@@ -90,8 +92,8 @@ export class ShapeTracker {
     for (const k of Object.keys(this.scores)) this.scores[k] += (s[k] - this.scores[k]) * 0.35;
     let best = null;
     for (const [k, v] of Object.entries(this.scores)) if (!best || v > best.v) best = { k, v };
-    // Start pulling at 0.45 and reach full strength at 0.8.
-    const weight = clamp01((best.v - 0.45) / 0.35);
+    // Start pulling at 0.4 and reach full strength at 0.7.
+    const weight = clamp01((best.v - 0.4) / 0.3);
     if (weight <= 0) return null;
     // The thumb follows a template only when it clearly is in that place;
     // otherwise it stays as tracked (point and V say nothing about it).
