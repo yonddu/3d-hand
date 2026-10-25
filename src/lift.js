@@ -118,10 +118,13 @@ const FP_LEAN = 0.6;
 // Palm normal (out of the palm) against the forearm: the forearm turns the
 // palm from facing the body's midline (thumb up) at most ~90 degrees either
 // way, to palm down or palm up. A palm facing away from the midline would
-// need the thumb turned down past that, which the arm cannot do; this much
-// slack past palm down/up is allowed for shoulder rotation and the guessed
-// forearm line.
-const LATERAL = 0.3;
+// need the thumb turned down past that, which the arm cannot do. When one of
+// the two poses faces away from the midline (past this) and the other faces
+// it clearly more (by MIDLINE_GAP), the one facing the midline is taken: a
+// hand turned to face the camera and back reads as turning back, not as
+// going on round through thumb-down.
+const LATERAL = 0.05;
+const MIDLINE_GAP = 0.3;
 
 export function liftToPicture(world, image, aspect, side = null, memory = null, firstPerson = false) {
   const len = (a, b) => Math.hypot(world[a].x - world[b].x, world[a].y - world[b].y, world[a].z - world[b].z);
@@ -154,7 +157,7 @@ export function liftToPicture(world, image, aspect, side = null, memory = null, 
     const reach = firstPerson && (side === 'right' || side === 'left') ? forearmReach(u, aspect, side) : null;
     const v0 = reach ? reach(p0.n) : 0;
     const v1 = reach ? reach(p1.n) : 0;
-    if (reach && apart > SAME_POSE && Math.min(v0, v1) < -LATERAL && Math.abs(v0 - v1) > 0.25) {
+    if (reach && apart > SAME_POSE && Math.min(v0, v1) < -LATERAL && Math.abs(v0 - v1) > MIDLINE_GAP) {
       pick = v0 > v1 ? 0 : 1;
       if (memory) memory.votes = 0;
     } else if (memory && memory.n && apart > SAME_POSE) {

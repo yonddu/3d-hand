@@ -613,6 +613,7 @@ function feed(inputs, t) {
     if ($('object-mode').value !== 'off') grasps[side].update(graspOptions(input));
     arms[side].shoulder.copy(input.shoulder || arms[side].homeShoulder);
     armResults[side] = arms[side].update(rig.group.position, rig.wrist.quaternion, input.elbow || null);
+    if (arms[side].fixedHandQ) rig.wrist.quaternion.copy(arms[side].fixedHandQ); // past the forearm's turn: not a real pose
     updateRaw(side, input.world, rig.group.position);
   }
 }
@@ -821,11 +822,13 @@ function tick(now) {
   for (const side of SIDES) {
     arms[side].group.visible = rigs[side].group.visible;
     // Saved poses and lost hands still need a forearm under the wrist.
+    let posed = true;
     if (state.frozen) {
       arms[side].pose(rigs[side].group.position, rigs[side].wrist.quaternion);
     } else if (state.lastSeen[side] < 0 || t - state.lastSeen[side] > 0.2) {
       arms[side].update(rigs[side].group.position, rigs[side].wrist.quaternion, null);
-    }
+    } else posed = false;
+    if (posed && arms[side].fixedHandQ) rigs[side].wrist.quaternion.copy(arms[side].fixedHandQ);
   }
   stepReview(now);
   if (rec.on) $('rec-time').textContent = `● ${(rec.frames.length > 1 ? rec.frames[rec.frames.length - 1].t - rec.frames[0].t : 0).toFixed(1)}초`;

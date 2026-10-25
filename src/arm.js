@@ -24,6 +24,9 @@ const Y = new THREE.Vector3(0, 1, 0);
 // Forearm twist helpers: the roll is shared evenly by the elbow, these and
 // the wrist, so neighbouring joints differ by at most 160/(n+2) degrees.
 const TWISTS = 5;
+// Forearm roll allowed either side of thumb up: pronation/supination ~80-90
+// degrees plus slack for shoulder rotation and the guessed elbow.
+const ROLL_LIMIT = (110 * Math.PI) / 180;
 
 // Bind pose shared with the GLB export: arm straight forward (-Z), palm down.
 export const ARM_BIND = new THREE.Quaternion()
@@ -307,8 +310,25 @@ export class ArmRig {
   // Pose the bones for this wrist, using the current elbow hint (no smoothing).
   pose(wrist, handQuat) {
     this.wrist.copy(wrist);
+    let L = armLocals(this.shoulder, this.elbow, wrist, handQuat, this.opts);
+    // The forearm turns the palm at most ~90 degrees each way from thumb up
+    // (pronation/supination). A hand read further round than ROLL_LIMIT
+    // would need the forearm wrung past its range, which no arm can do: the
+    // reading is wrong (usually the hand seen turned the other way), so the
+    // hand is turned back about the forearm to the edge of the range. The
+    // caller applies fixedHandQ to the hand it shows.
+    const neutral = (-sideSign(this.side) * Math.PI) / 2; // thumb up, from palm up (roll 0)
+    const rollOf = (l) => neutral + THREE.MathUtils.euclideanModulo(2 * Math.atan2(l.fore.y, l.fore.w) - neutral + Math.PI, 2 * Math.PI) - Math.PI;
+    this.fixedHandQ = null;
+    const off = rollOf(L) - neutral;
+    if (Math.abs(off) > ROLL_LIMIT) {
+      const axis = wrist.clone().sub(L.E).normalize(); // elbow -> wrist
+      const back = new THREE.Quaternion().setFromAxisAngle(axis, -(off - Math.sign(off) * ROLL_LIMIT));
+      handQuat = back.multiply(handQuat);
+      L = armLocals(this.shoulder, this.elbow, wrist, handQuat, this.opts);
+      this.fixedHandQ = handQuat.clone();
+    }
     this.lastHandQ = handQuat.clone();
-    const L = armLocals(this.shoulder, this.elbow, wrist, handQuat, this.opts);
     this.solved = L;
     const B = this.bones;
     B.shoulder.position.copy(L.S);
@@ -320,8 +340,7 @@ export class ArmRig {
     // the roll is taken within half a turn of neutral (thumb up). Palm down
     // and palm up are then reached through thumb up, never through thumb
     // down, and the twist never wraps inside the range of motion.
-    const neutral = (-sideSign(this.side) * Math.PI) / 2; // thumb up, from palm up (roll 0)
-    const roll = neutral + THREE.MathUtils.euclideanModulo(2 * Math.atan2(L.fore.y, L.fore.w) - neutral + Math.PI, 2 * Math.PI) - Math.PI;
+    const roll = rollOf(L);
     const twist = (k) => new THREE.Quaternion().setFromAxisAngle(Y, roll * k);
     const swing = L.fore.clone().multiply(twist(1).invert());
     const step = 1 / (TWISTS + 2);
