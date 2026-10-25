@@ -20,6 +20,9 @@ const ELBOW_MAX = (150 * Math.PI) / 180; // elbow flexion 150, extension 0
 const COMFORT = 0.6; // share of the range the IK view uses before turning the forearm
 const SHRUG = 0.12; // how far the shoulder may move to keep the wrist natural (m)
 const Y = new THREE.Vector3(0, 1, 0);
+// Forearm twist helpers: the roll is shared evenly by the elbow, these and
+// the wrist, so neighbouring joints differ by at most 160/(n+2) degrees.
+const TWISTS = 5;
 
 // Bind pose shared with the GLB export: arm straight forward (-Z), palm down.
 export const ARM_BIND = new THREE.Quaternion()
@@ -180,7 +183,17 @@ export class ArmRig {
     // A helper halfway through the wrist bend (screen only, not exported):
     // skin over the wrist follows it, so a bent wrist rounds over two half
     // turns instead of folding flat in one.
-    this.bones.mid = bone(`${P}WristMid`, this.bones.fore, FORE);
+    // Twist helpers along the forearm (screen only, not exported): turning the
+    // palm down rolls the radius around the ulna, so the skin twists a little
+    // at the elbow and most at the wrist. Spread over three joints, a full
+    // pronation never wrings the skin flat in one place.
+    this.bones.twists = [];
+    let parent = this.bones.fore;
+    for (let k = 0; k < TWISTS; k++) {
+      parent = bone(`${P}ForeArmTwist${k + 1}`, parent, FORE / (TWISTS + 1));
+      this.bones.twists.push(parent);
+    }
+    this.bones.mid = bone(`${P}WristMid`, parent, FORE / (TWISTS + 1));
     this.bones.hand = bone(`${P}Hand`, this.bones.mid, 0);
 
     const jointGeo = new THREE.SphereGeometry(0.008, 12, 8);
@@ -206,12 +219,26 @@ export class ArmRig {
     const skinIndex = new Uint16Array(n * 4);
     const skinWeight = new Float32Array(n * 4);
     for (let i = 0; i < n; i++) {
-      // bones: 0 shoulder, 1 arm, 2 forearm, 3 wrist helper, 4 hand. The hand's
-      // share is split: the forearm side of the bend goes to the helper.
+      // bones: 0 shoulder, 1 arm, 2 forearm, then the twist helpers, the
+      // wrist helper and the hand. The forearm's share is spread over the
+      // forearm chain by how far down the forearm the vertex is; the hand's
+      // share is split, the forearm side of the bend going to the wrist helper.
+      const MID = 3 + TWISTS;
       const h = arm.weights[i * 3 + 2];
       const toHand = THREE.MathUtils.smoothstep(h, 0.35, 1) * h;
-      skinIndex.set([1, 2, 3, 4], i * 4);
-      skinWeight.set([arm.weights[i * 3], arm.weights[i * 3 + 1], h - toHand, toHand], i * 4);
+      const f = arm.weights[i * 3 + 1];
+      const u = THREE.MathUtils.clamp(((arm.position[i * 3 + 1] - UPPER) / FORE) * (TWISTS + 1), 0, TWISTS + 1); // 0 elbow .. wrist
+      const k = Math.min(Math.floor(u), TWISTS);
+      const t = u - k;
+      const w = { 1: arm.weights[i * 3], [MID]: h - toHand, [MID + 1]: toHand };
+      w[2 + k] = (w[2 + k] || 0) + f * (1 - t);
+      w[3 + k] = (w[3 + k] || 0) + f * t;
+      const top = Object.entries(w).filter(([, x]) => x > 0).sort((a, b) => b[1] - a[1]).slice(0, 4);
+      const sum = top.reduce((a, [, x]) => a + x, 0) || 1;
+      for (let j = 0; j < 4; j++) {
+        skinIndex[i * 4 + j] = top[j] ? +top[j][0] : 0;
+        skinWeight[i * 4 + j] = top[j] ? top[j][1] / sum : 0;
+      }
     }
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
@@ -230,10 +257,11 @@ export class ArmRig {
     B.shoulder.quaternion.identity();
     B.arm.quaternion.copy(ARM_BIND);
     B.fore.quaternion.identity();
+    B.twists.forEach((b) => b.quaternion.identity());
     B.mid.quaternion.identity();
     B.hand.quaternion.identity();
     this.group.updateMatrixWorld(true);
-    const skeleton = new THREE.Skeleton([B.shoulder, B.arm, B.fore, B.mid, B.hand]);
+    const skeleton = new THREE.Skeleton([B.shoulder, B.arm, B.fore, ...B.twists, B.mid, B.hand]);
     this.mesh = new THREE.SkinnedMesh(g, material);
     this.mesh.name = `${this.side}ArmMesh`;
     this.mesh.frustumCulled = false;
@@ -280,9 +308,17 @@ export class ArmRig {
     const B = this.bones;
     B.shoulder.position.copy(L.S);
     B.arm.quaternion.copy(L.arm);
-    B.fore.quaternion.copy(L.fore);
-    B.mid.quaternion.identity().slerp(L.hand, 0.5);
-    B.hand.quaternion.copy(B.mid.quaternion).invert().multiply(L.hand);
+    // Forearm = bend (swing) then roll about its own axis (twist), the roll
+    // shared out along the forearm's helpers.
+    const roll = 2 * Math.atan2(L.fore.y, L.fore.w);
+    const twist = (k) => new THREE.Quaternion().setFromAxisAngle(Y, roll * k);
+    const swing = L.fore.clone().multiply(twist(1).invert());
+    const step = 1 / (TWISTS + 2);
+    B.fore.quaternion.copy(swing).multiply(twist(step));
+    B.twists.forEach((b) => b.quaternion.copy(twist(step)));
+    const half = new THREE.Quaternion().slerp(L.hand, 0.5);
+    B.mid.quaternion.copy(twist(step)).multiply(half);
+    B.hand.quaternion.copy(half).invert().multiply(L.hand);
     this.elbowDot.position.copy(L.E);
     this.result = this.measure(handQuat);
     return this.result;
@@ -299,7 +335,8 @@ export class ArmRig {
     const rel = L.foreQ.clone().invert().multiply(handQuat);
     const handYInFore = Y.clone().applyQuaternion(rel);
     const wristFlex = THREE.MathUtils.radToDeg(Math.atan2(handYInFore.z, handYInFore.y));
-    const wristDeviation = THREE.MathUtils.radToDeg(Math.asin(THREE.MathUtils.clamp(-handYInFore.x, -1, 1))) * sideSign(this.side);
+    // + radial (toward the thumb, +X on the right hand), - ulnar.
+    const wristDeviation = THREE.MathUtils.radToDeg(Math.asin(THREE.MathUtils.clamp(handYInFore.x, -1, 1))) * sideSign(this.side);
     return {
       source: this.source,
       shoulder: L.S.toArray(),

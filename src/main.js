@@ -13,6 +13,7 @@ import { wristLoop } from './armMesh.js';
 import { exportGlb, frameFromLive, frameFromPoseHand, zipFiles } from './exportGlb.js';
 import { capturePose, validatePose, applyPose, loadLibrary, saveLibrary } from './pose.js';
 import { GESTURES, CATEGORIES, applyGesture, gestureData } from './gestures.js';
+import { ARM_POSES, ARM_CATEGORIES, armPoseJoints, armPoseData } from './armPoses.js';
 import { liftToPicture } from './lift.js';
 import { cleanTake, lerpHand } from './cleanTake.js';
 import { initRomPanel } from './romPanel.js';
@@ -464,7 +465,7 @@ function fromMediaPipe(hand) {
     // so the 3D hand lands on top of the real one in the video.
     const ray = (p) => new THREE.Vector3((p.x - 0.5) / FOCAL, -((p.y - 0.5) / aspect) / FOCAL, -1);
     const anchor = ray(a).multiplyScalar(z);
-    const elbow = elbowFromPoseAR(hand, z, ray) || elbowFromPicture(hand, anchor, ray, aspect);
+    const elbow = elbowFromPoseAR(hand, z, ray) || elbowFromPicture(hand, world, anchor, ray, aspect);
     // Facing the camera, the body (and so the shoulders) is behind the hands.
     const sgn = hand.side === 'right' ? 1 : -1;
     const shoulder = facingUser() ? new THREE.Vector3(-0.18 * sgn, anchor.y - 0.12, Math.min(anchor.z - 0.3, -0.5)) : null;
@@ -509,7 +510,9 @@ function elbowFromPose(hand, anchor, aspect, k) {
 // forearm to a plane through the camera; within it, the depth slant is taken
 // from the usual reach back toward the shoulder.
 const forearmFinder = new ForearmFinder();
-function elbowFromPicture(hand, anchor, ray, aspect) {
+const WRIST_REST_EXT = 15; // degrees of wrist extension people hold without thinking
+const HAND_LINE = 0.75; // share of the forearm direction taken from the hand's line
+function elbowFromPicture(hand, world, anchor, ray, aspect) {
   if (!tracker || !forearmFinder.grab(video, tracker.lastDetectAt)) return null;
   const f = forearmFinder.find(hand.landmarks);
   forearmFinder.last = { side: hand.side, ...(f || {}) };
@@ -521,7 +524,22 @@ function elbowFromPicture(hand, anchor, ray, aspect) {
   const across = new THREE.Vector3().crossVectors(n, along).normalize(); // in the picture, toward the arm
   if (across.dot(next.clone().sub(along)) < 0) across.negate();
   const guess = arms[hand.side].homeShoulder.clone().sub(anchor).normalize();
-  const dir = along.multiplyScalar(guess.dot(along)).addScaledVector(across, Math.max(guess.dot(across), 0.35)).normalize();
+  const reach = along.clone().multiplyScalar(guess.dot(along)).addScaledVector(across, Math.max(guess.dot(across), 0.35)).normalize();
+  // The picture fixes the forearm's line but not how steeply it runs toward
+  // the camera. Pointing it at the shoulder lays the forearm nearly flat, and
+  // a hand held up then bends 60-70 degrees at the wrist, folding the skin
+  // into a dent. People keep the wrist near straight (a little extended), so
+  // within the picture's plane the forearm mostly continues the hand's line.
+  const q = handFrameQuat(world, hand.side);
+  const fingers = new THREE.Vector3(0, 1, 0).applyQuaternion(q);
+  const palm = new THREE.Vector3(0, 0, 1).applyQuaternion(q);
+  const ext = THREE.MathUtils.degToRad(WRIST_REST_EXT);
+  const pref = fingers.multiplyScalar(-Math.cos(ext)).addScaledVector(palm, -Math.sin(ext));
+  pref.addScaledVector(n, -pref.dot(n));
+  const a1 = Math.min(pref.dot(along), 0.2); // the elbow is not much farther away than the wrist
+  const c1 = Math.max(pref.dot(across), 0.35); // and runs toward the arm in the picture
+  const lineDir = along.clone().multiplyScalar(a1).addScaledVector(across, c1).normalize();
+  const dir = reach.lerp(lineDir, HAND_LINE).normalize();
   return anchor.clone().addScaledVector(dir, 0.26);
 }
 
@@ -1002,6 +1020,7 @@ function renderLibrary() {
 
 function viewPose(pose) {
   if (review.take) closeReview();
+  leaveArmView();
   state.frozen = true;
   applyPose(pose, rigs);
   for (const side of SIDES) {
@@ -1017,6 +1036,7 @@ function viewPose(pose) {
 
 function exitFrozen() {
   if (!state.frozen) return;
+  leaveArmView();
   state.frozen = false;
   $('pose-banner').hidden = true;
   SIDES.forEach((s) => (rigs[s].group.visible = true));
@@ -1094,25 +1114,38 @@ $('pose-file').onchange = async (e) => {
     toast(err.message || 'JSON을 읽지 못했습니다.');
   }
 };
-// Hand shape dictionary: tap a shape to see it on the right hand.
+// Hand shape dictionary: tap a shape to see it on the right hand. The arm
+// pose categories show the whole arm, shoulder to fingertips.
 function renderGestures() {
   const cat = $('gesture-cat').value;
   const list = $('gesture-list');
   list.textContent = '';
-  for (const g of GESTURES.filter((x) => x.category === cat)) {
+  const isArm = cat in ARM_CATEGORIES;
+  const items = isArm ? ARM_POSES.filter((x) => x.category === cat) : GESTURES.filter((x) => x.category === cat);
+  for (const g of items) {
     const b = document.createElement('button');
     b.textContent = g.name + (g.verify ? ' ✱' : '');
     b.title = [g.region, g.note].filter(Boolean).join(' · ');
     b.setAttribute('aria-pressed', 'false');
     b.onclick = () => {
       list.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
-      showGesture(g);
+      if (isArm) showArmPose(g);
+      else showGesture(g);
     };
     list.appendChild(b);
   }
 }
+function leaveArmView() {
+  if (!state.armView) return;
+  state.armView = false;
+  arms.right.opts = { side: 'right' };
+  arms.right.shoulder.copy(arms.right.homeShoulder);
+  syncArmVisibility();
+  resetView();
+}
 function showGesture(g) {
   if (review.take) closeReview();
+  leaveArmView();
   state.frozen = true;
   const rig = rigs.right;
   // In front of the eyes, a little left of centre so the options panel does not cover it.
@@ -1120,6 +1153,11 @@ function showGesture(g) {
   rig.group.visible = true;
   rigs.left.group.visible = false;
   applyGesture(rig, g);
+  clearContacts();
+  $('pose-banner').hidden = false;
+  $('pose-banner-text').textContent = `"${g.name}" 보는 중${g.note ? ` · ${g.note}` : ''}`;
+}
+function clearContacts() {
   if (realHands.right) {
     realHands.right.thumbWrap = 0;
     realHands.right.pinches = [];
@@ -1130,13 +1168,48 @@ function showGesture(g) {
     frozenArms[side] = null;
     frozenAngles[side] = null;
   }
-  $('pose-banner').hidden = false;
-  $('pose-banner-text').textContent = `"${g.name}" 보는 중${g.note ? ` · ${g.note}` : ''}`;
 }
-$('gesture-cat').innerHTML = Object.entries(CATEGORIES).map(([k, v]) => `<option value="${k}">${v} (${GESTURES.filter((g) => g.category === k).length})</option>`).join('');
+// Whole right arm in an arm pose, seen from the side and a little in front.
+function showArmPose(p) {
+  if (review.take) closeReview();
+  state.frozen = true;
+  state.armView = true;
+  const rig = rigs.right;
+  const arm = arms.right;
+  const J = armPoseJoints(p.arm, 'right', arm.homeShoulder);
+  const hand = GESTURES.find((g) => g.id === p.hand);
+  if (hand) applyGesture(rig, hand);
+  else rig.resetPose();
+  rig.group.position.copy(J.W);
+  rig.wrist.quaternion.copy(J.handQ);
+  rig.group.visible = true;
+  rigs.left.group.visible = false;
+  arms.left.group.visible = false;
+  arm.shoulder.copy(J.S);
+  arm.elbow.copy(J.E);
+  arm.opts = { side: 'right', comfort: 1, shrug: 0 };
+  arm.setVisible(true, true, $('show-joints').checked);
+  clearContacts();
+  // Frame shoulder to fingertips: centre of the box around them, backed off
+  // far enough for its size.
+  const tip = J.W.clone().add(new THREE.Vector3(0, 0.12, 0).applyQuaternion(J.handQ));
+  const box = new THREE.Box3().setFromPoints([J.S, J.E, J.W, tip]);
+  const mid = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3()).length();
+  controls.target.copy(mid);
+  camera.position.copy(mid).add(new THREE.Vector3(0.7, 0.15, 0.35).setLength(Math.max(0.6, size * 1.7)));
+  controls.update();
+  const a = p.arm;
+  $('pose-banner').hidden = false;
+  $('pose-banner-text').textContent = `"${p.name}" · 어깨 ${a.sFlex}°/${a.sAbd}° · 팔꿈치 ${a.elbow}° · 아래팔 ${a.pron}° · 손목 ${a.wFlex}°/${a.wDev}°`;
+}
+$('gesture-cat').innerHTML = [
+  ...Object.entries(CATEGORIES).map(([k, v]) => `<option value="${k}">${v} (${GESTURES.filter((g) => g.category === k).length})</option>`),
+  ...Object.entries(ARM_CATEGORIES).map(([k, v]) => `<option value="${k}">${v} (${ARM_POSES.filter((g) => g.category === k).length})</option>`),
+].join('');
 $('gesture-cat').onchange = renderGestures;
-$('gesture-count').textContent = `${GESTURES.length}개`;
-$('gesture-export').onclick = () => saveJson(gestureData(), 'hand-gestures.json');
+$('gesture-count').textContent = `손모양 ${GESTURES.length}개 · 팔 자세 ${ARM_POSES.length}개`;
+$('gesture-export').onclick = () => saveJson({ ...gestureData(), armPoses: armPoseData() }, 'hand-gestures.json');
 renderGestures();
 
 $('export-all').onclick = () => {
@@ -1590,4 +1663,4 @@ async function saveBinary(buffer, filename) {
 renderLibrary();
 renderTable();
 requestAnimationFrame(tick);
-window.__hms = { takes, forearmFinder, fallbackToCPU, camera, controls, realHands, arms, rec, startRecording, stopRecording, trimFrames, exportSkins, exportGlb, savePoseGlb, armResults: () => armResults, tracker: () => ensureTracker(), handFeatures, grasps, scene, rigs, solvers, state, capture, viewPose };
+window.__hms = { GESTURES, applyGesture, ARM_POSES, showArmPose, takes, forearmFinder, fallbackToCPU, camera, controls, realHands, arms, rec, startRecording, stopRecording, trimFrames, exportSkins, exportGlb, savePoseGlb, armResults: () => armResults, tracker: () => ensureTracker(), handFeatures, grasps, scene, rigs, solvers, state, capture, viewPose };

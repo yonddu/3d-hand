@@ -11,6 +11,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { FINGERS, sideSign, wristName, boneName } from './skeleton.js';
 import { bakeSkin } from './exportGlb.js';
 import { fromGeometry, clipPlane, subdivide, toGeometry } from './meshOps.js';
+import { ThenarPad } from './thenar.js';
 
 // Where the wrist is cut open for the arm, along the hand's -Y from the wrist joint (m).
 const WRIST_CUT = 0.002;
@@ -80,6 +81,7 @@ export class RealHand {
     this.restFrame = handFrameQuat(frameLandmarks, this.side);
     this.restFrameInv = this.restFrame.clone().invert();
     this.refineMesh();
+    this.pad = new ThenarPad(this.mesh, this.restPos);
     this.addWristFade();
 
     // Calibration per driven joint: model rest rotation expressed in the
@@ -204,6 +206,14 @@ export class RealHand {
         j.position.copy(pos[k]);
         j.quaternion.copy(boneQ[Math.min(k, 2)]).multiply(this.calib[chain[k]]);
       }
+    }
+    // The pad only needs solving when the thumb or palm moved (the solver runs
+    // per camera frame, rendering more often).
+    const key = ['wrist', 'thumb-metacarpal', 'thumb-phalanx-proximal'].flatMap((n) => [...this.joints[n].quaternion.toArray(), ...this.joints[n].position.toArray()]);
+    if (this.root.visible && (!this.padKey || key.some((x, i) => x !== this.padKey[i]))) {
+      this.padKey = key;
+      this.root.updateMatrixWorld(true);
+      this.pad.update();
     }
   }
 
