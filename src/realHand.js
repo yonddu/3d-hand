@@ -103,6 +103,10 @@ export class RealHand {
         if (k === 2) this.calib[b] = inv.clone().multiply(this.restQuat[b]); // tip follows the last bone
       }
     }
+    this.modelPalm = P('middle-finger-phalanx-proximal').distanceTo(P('wrist'));
+    this.lenScale = Object.fromEntries(FINGERS.map((f) => [f.key, [1, 1, 1]]));
+    this.propSamples = 0;
+    this.pinches = [];
   }
 
   setMaterial(material) {
@@ -171,27 +175,109 @@ export class RealHand {
     placeRigid('wrist');
     for (const key of ['index', 'middle', 'ring', 'pinky']) placeRigid(XR[key][0]);
 
-    const parentQ = new THREE.Quaternion();
-    const boneQ = new THREE.Quaternion();
+    if (this.pinches.length) this.solvePinches();
     for (const finger of FINGERS) {
       const chain = drivenChain(finger.key);
-      const links = rig.chains[finger.key];
-      // Start of the driven chain sits on the rigid palm.
-      placeRigid(chain[0]);
-      const pos = this.joints[chain[0]].position.clone();
-      parentQ.copy(rig.wrist.quaternion);
-      for (let k = 0; k < 3; k++) {
-        boneQ.copy(parentQ).multiply(links[k].bone.quaternion); // solved bone frame (rig space)
-        parentQ.copy(boneQ);
+      const { pos, boneQ } = this.chainPose(finger.key);
+      for (let k = 0; k < 4; k++) {
         const j = this.joints[chain[k]];
-        j.position.copy(pos);
-        j.quaternion.copy(boneQ).multiply(this.calib[chain[k]]);
-        pos.add(this.offset[chain[k]].clone().applyQuaternion(boneQ));
-        if (k === 2) {
-          const tip = this.joints[chain[3]];
-          tip.position.copy(pos);
-          tip.quaternion.copy(boneQ).multiply(this.calib[chain[3]]);
-        }
+        j.position.copy(pos[k]);
+        j.quaternion.copy(boneQ[Math.min(k, 2)]).multiply(this.calib[chain[k]]);
+      }
+    }
+  }
+
+  // Joint positions (wrist at the origin, rig orientation) and bone frames of
+  // one driven chain for the rig's current pose, with this hand's segment
+  // lengths (the model's, scaled to the tracked person's proportions).
+  chainPose(key) {
+    const rig = this.rig;
+    const chain = drivenChain(key);
+    const links = rig.chains[key];
+    const palm = rig.wrist.quaternion.clone().multiply(this.restFrameInv);
+    const start = this.restPos[chain[0]].clone().sub(this.restPos.wrist).applyQuaternion(palm);
+    const pos = [start];
+    const boneQ = [];
+    const q = rig.wrist.quaternion.clone();
+    for (let k = 0; k < 3; k++) {
+      q.multiply(links[k].bone.quaternion);
+      boneQ.push(q.clone());
+      pos.push(pos[k].clone().add(this.offset[chain[k]].clone().multiplyScalar(this.lenScale[key][k]).applyQuaternion(q)));
+    }
+    return { pos, boneQ };
+  }
+
+  // Segment lengths follow the tracked hand, so the graphic fingers bend at
+  // the same places as the real ones. Ratios are relative to the palm length
+  // (overall size stays the model's) and averaged slowly.
+  setProportions(P) {
+    const d = (a, b) => P[a].distanceTo(P[b]);
+    const palm = d(0, 9);
+    if (palm < 1e-4) return;
+    const segs = { thumb: [1, 2, 3, 4], index: [5, 6, 7, 8], middle: [9, 10, 11, 12], ring: [13, 14, 15, 16], pinky: [17, 18, 19, 20] };
+    for (const [key, J] of Object.entries(segs)) {
+      const chain = drivenChain(key);
+      for (let k = 0; k < 3; k++) {
+        const want = d(J[k], J[k + 1]) / palm / (this.offset[chain[k]].length() / this.modelPalm);
+        if (!Number.isFinite(want)) continue;
+        const cur = this.lenScale[key][k];
+        const target = THREE.MathUtils.clamp(want, 0.8, 1.25);
+        this.lenScale[key][k] = cur + (target - cur) * (this.propSamples < 30 ? 0.15 : 0.02);
+      }
+    }
+    this.propSamples++;
+  }
+
+  // Fingertip contact. When the tracked thumb tip and a fingertip (nearly)
+  // touch, the graphic tips are brought together too: tiny depth errors and
+  // the model's own proportions otherwise leave a gap in an OK sign or pinch.
+  setPinches(P) {
+    const palm = P[0].distanceTo(P[9]);
+    this.pinches = [];
+    if (palm < 1e-4) return;
+    for (const [key, tip] of [['index', 8], ['middle', 12], ['ring', 16], ['pinky', 20]]) {
+      const r = P[4].distanceTo(P[tip]) / palm;
+      const weight = THREE.MathUtils.clamp((0.42 - r) / 0.17, 0, 1);
+      if (weight > 0) this.pinches.push({ key, weight });
+    }
+  }
+
+  solvePinches() {
+    const rig = this.rig;
+    const tipOf = (key) => {
+      const { pos } = this.chainPose(key);
+      return pos[3];
+    };
+    const ccd = (key, target, maxStep) => {
+      const links = rig.chains[key];
+      for (let k = 2; k >= 0; k--) {
+        const { pos, boneQ } = this.chainPose(key);
+        const toTip = pos[3].clone().sub(pos[k]);
+        const toGoal = target.clone().sub(pos[k]);
+        if (toTip.lengthSq() < 1e-10 || toGoal.lengthSq() < 1e-10) continue;
+        const R = new THREE.Quaternion().setFromUnitVectors(toTip.normalize(), toGoal.normalize());
+        const angle = 2 * Math.acos(Math.min(1, Math.abs(R.w)));
+        if (angle > maxStep) R.slerp(new THREE.Quaternion(), 1 - maxStep / angle);
+        const parent = k === 0 ? rig.wrist.quaternion : boneQ[k - 1];
+        // World rotation R applied to bone k: local' = parent^-1 * R * parent * local.
+        const pinv = parent.clone().invert();
+        links[k].bone.quaternion.premultiply(pinv.clone().multiply(R).multiply(parent));
+      }
+    };
+    const GAP = 0.009; // tip joints sit inside the pads; this leaves the pads touching
+    for (const { key, weight } of this.pinches) {
+      for (let it = 0; it < 4; it++) {
+        const a = tipOf('thumb');
+        const b = tipOf(key);
+        const between = a.distanceTo(b);
+        if (between <= GAP * 1.05) break;
+        const dir = a.clone().sub(b).normalize();
+        const mid = a.clone().add(b).multiplyScalar(0.5);
+        const pull = ((between - GAP) / between) * weight;
+        const goalA = a.clone().lerp(mid.clone().addScaledVector(dir, GAP / 2), pull);
+        const goalB = b.clone().lerp(mid.clone().addScaledVector(dir, -GAP / 2), pull);
+        ccd('thumb', goalA, 0.12);
+        ccd(key, goalB, 0.12);
       }
     }
   }

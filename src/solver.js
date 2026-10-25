@@ -77,8 +77,9 @@ export class HandSolver {
         if (shape && shape.pose[finger.key]) {
           // Pull toward the recognised hand shape (handShape.js).
           const [tf, ta] = shape.pose[finger.key][k];
-          flex += (tf - flex) * shape.weight;
-          abdThumb += (ta - abdThumb) * shape.weight;
+          const w = shape.weight * (finger.key === 'thumb' ? shape.thumbWeight ?? 1 : 1);
+          flex += (tf - flex) * w;
+          abdThumb += (ta - abdThumb) * w;
           abd = -abdThumb * sideSign(side);
         }
         _e.set(flex * D2R, 0, abd * D2R, 'XZY');

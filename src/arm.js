@@ -230,14 +230,17 @@ export class ArmRig {
       target = elbowHint.clone();
       this.source = 'pose';
     } else if (this.follow) {
-      target = wrist.clone().addScaledVector(handY, -FORE); // straight wrist
+      // First person with no elbow in view: the forearm runs back toward the
+      // shoulder (two-bone IK), bending the way the hand points; the wrist
+      // range then decides how far the hand may bend off that line.
+      target = solveElbow(this.shoulder, wrist, wrist.clone().addScaledVector(handY, -FORE));
       this.source = 'hand';
     } else {
       target = solveElbow(this.shoulder, wrist, wrist.clone().addScaledVector(handY, -FORE));
       this.source = 'ik';
     }
     // Live passthrough: the forearm lies on the seen line and the shoulder is free.
-    this.opts = this.follow ? { direct: true, comfort: 1, shrug: 2, side: this.side } : { side: this.side };
+    this.opts = !this.follow ? { side: this.side } : elbowHint ? { direct: true, comfort: 1, shrug: 2, side: this.side } : { comfort: 0.8, shrug: 0.2, side: this.side };
     this.elbow.lerp(target, 0.35);
     return this.pose(wrist, handQuat);
   }

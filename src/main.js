@@ -545,6 +545,10 @@ function feed(inputs, t) {
     const shape = $('shape-snap').checked ? shapeTrackers[side].update(smooth) : null;
     state.shape[side] = shape;
     state.lastSolve[side] = solvers[side].solve(smooth, { limits: state.limits, shape });
+    if (realHands[side]) {
+      realHands[side].setProportions(smooth);
+      realHands[side].setPinches(smooth);
+    }
     if ($('object-mode').value !== 'off') grasps[side].update(graspOptions(input));
     arms[side].shoulder.copy(input.shoulder || arms[side].homeShoulder);
     armResults[side] = arms[side].update(rig.group.position, rig.wrist.quaternion, input.elbow || null);
@@ -574,6 +578,7 @@ function relaxLost(t) {
     if (state.source !== 'demo' && (state.lastSeen[side] < 0 || t - state.lastSeen[side] > hide)) rig.group.visible = false;
     if (state.lastSeen[side] >= 0 && t - state.lastSeen[side] < LIVE_WINDOW) continue;
     if (grasps[side].current) grasps[side].reset();
+    if (realHands[side]) realHands[side].pinches = [];
     rig.wrist.quaternion.slerp(LOST_REACH.clone().multiply(rig.wristRest), 0.06);
     for (const chain of Object.values(rig.chains)) for (const l of chain) l.bone.quaternion.slerp(l.restLocal, 0.06);
   }
