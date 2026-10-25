@@ -86,6 +86,14 @@
   .app.options-open .rail { transform: none; }
   .rail-head { position: sticky; top: 0; z-index: 1; display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: var(--surface); border-bottom: 1px solid var(--line); font-weight: 600; }
 
+  /* Step-by-step guide above the dock. */
+  .guide {
+    position: absolute; left: 50%; bottom: calc(124px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
+    width: max-content; max-width: calc(100% - 32px); padding: 8px 14px; border-radius: var(--r); pointer-events: none;
+    background: rgb(20 24 28 / 0.78); color: #fff; font-size: 14px; line-height: 1.45; text-align: center;
+  }
+  .guide b { color: #ff8a80; font-weight: 600; }
+
   /* Bottom dock: record + review. */
   .dock {
     position: absolute; left: 0; right: 0; bottom: calc(36px + env(safe-area-inset-bottom, 0px)); display: flex; justify-content: center; align-items: center; gap: 20px;
@@ -215,6 +223,8 @@
     </div>
     <div class="countdown" id="countdown" hidden></div>
 
+    <div class="guide" id="guide" hidden></div>
+
     <div class="dock" id="dock">
       <button class="side" id="review-open" disabled>리뷰</button>
       <button class="rec-btn" id="rec" aria-label="녹화 시작"><i></i></button>
@@ -229,7 +239,8 @@
       </div>
       <div class="row">
         <select id="rv-take" aria-label="테이크 선택"></select>
-        <button class="primary" id="rv-glb">GLB 저장</button>
+        <button class="primary" id="rv-glb">저장 (GLB)</button>
+        <button id="rv-discard">버리기</button>
         <button id="rv-close">닫기</button>
       </div>
     </div>
@@ -237,7 +248,7 @@
     <div class="start" id="start">
       <div class="start-card">
         <h1>내 손으로 움직이기</h1>
-        <p>카메라가 양손과 팔꿈치를 따라가서 3D 손이 그대로 움직입니다. 폰은 눈높이에 두고 폰 뒤에서 손을 앞으로 뻗으세요.</p>
+        <p>폰을 눈높이에 두고 폰 뒤에서 손을 앞으로 뻗은 채 빨간 버튼으로 손 동작을 찍으세요. 녹화가 끝나면 한 프레임씩 분석해서 3D 손으로 보여주고, <b>저장</b>을 눌러야 GLB로 남습니다.</p>
         <select id="start-facing" aria-label="카메라 선택">
           <option value="environment">후면 카메라 (폰을 눈앞에 두고 손 뻗기)</option>
           <option value="user">전면 카메라 / 웹캠 (화면을 보면서)</option>
@@ -271,6 +282,7 @@
           <option value="user">전면 카메라 / 웹캠 (카메라와 마주 보기)</option>
         </select>
       </div>
+      <label class="check" id="live-row" hidden><input type="checkbox" id="live-track"> 실시간 추적 (녹화하지 않고 바로 손 겹쳐 보기)</label>
       <label class="btn file-btn" id="video-pick" hidden>동영상 선택…<input type="file" id="video-file" accept="video/*"></label>
       <label class="check" id="video-fp-row" hidden><input type="checkbox" id="video-fp" checked> 1인칭 영상 (눈앞에서 손등 쪽을 찍음)</label>
       <div class="preview" id="preview">

@@ -122,6 +122,7 @@ const state = {
   limits: true,
   fit: true,
   lift: true,
+  liveTrack: false, // camera: track while filming (off = record first, then process)
   swap: false,
   lastSeen: { left: -1, right: -1 },
   lastSolve: { left: null, right: null },
@@ -235,6 +236,7 @@ async function setSource(src) {
   state.source = src;
   for (const s of ['demo', 'camera', 'video']) $(`src-${s}`).setAttribute('aria-pressed', s === src);
   $('camera-opts').hidden = src !== 'camera';
+  $('live-row').hidden = src !== 'camera';
   $('video-pick').hidden = src !== 'video';
   $('video-fp-row').hidden = src !== 'video';
   $('preview').classList.remove('mirror');
@@ -685,7 +687,7 @@ function fitArCamera() {
   videoTex.repeat.set(ca > va ? 1 : ca / va, ca > va ? va / ca : 1);
   videoTex.offset.set((1 - videoTex.repeat.x) / 2, (1 - videoTex.repeat.y) / 2);
 }
-const arWanted = () => $('ar').checked && (state.source === 'camera' || state.source === 'video') && !state.frozen && video.readyState >= 2;
+const arWanted = () => $('ar').checked && (state.source === 'camera' || state.source === 'video') && (!state.frozen || !!(review.take && review.take.videoUrl)) && video.readyState >= 2;
 function syncAr() {
   $('ar-btn').hidden = state.source === 'demo';
   const on = arWanted();
@@ -748,7 +750,7 @@ function tick(now) {
       const inputs = demo.frame(t);
       feed(inputs, t);
       state.gesture = inputs[1].gesture;
-    } else if (tracker && video.readyState >= 2) {
+    } else if (tracker && video.readyState >= 2 && !(state.source === 'camera' && !state.liveTrack)) {
       if (offline) {
         // Every frame counts here: detect objects and the body on a fixed frame stride.
         state.detAt = rec.frames.length % 4 === 0 ? -1e9 : now;
@@ -812,7 +814,8 @@ function tick(now) {
       const live = state.frozen ? !!rigs[side].group.visible : state.lastSeen[side] >= 0 && t - state.lastSeen[side] < LIVE_WINDOW;
       $(`seen-${side}`).textContent = live ? '추적 중' : '없음';
     }
-    $('slow-hint').hidden = state.source === 'demo';
+    $('slow-hint').hidden = !(state.source === 'camera' && state.liveTrack);
+    updateGuide();
     $('gesture').textContent = state.source === 'demo' && !state.frozen ? `데모 동작: ${state.gesture}` : '';
     $('object-info').textContent = SIDES.map((s) => {
       const o = grasps[s].current;
@@ -1169,7 +1172,8 @@ function stepOffline() {
   if (rec.frames.length % 10 === 0) updateRecInfo();
   const next = t + 1 / REC_FPS;
   rec.frameReady = false;
-  if (next >= (video.duration || 0)) return stopRecording();
+  const end = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : rec.endTime || 0;
+  if (next >= end) return stopRecording();
   video.currentTime = next;
 }
 video.addEventListener('seeked', () => {
@@ -1215,14 +1219,113 @@ function stopRecording() {
     video.play().catch(() => {});
   }
   const frames = trimFrames(rec.frames);
+  const filmed = camRec.processing;
+  camRec.processing = false;
   if (frames.length) {
-    takes.unshift({ id: Date.now().toString(36), name: rec.name, frames, createdAt: new Date() });
+    const take = { id: Date.now().toString(36), name: rec.name, frames, createdAt: new Date(), videoUrl: filmed ? video.src : null };
+    takes.unshift(take);
+    if (filmed) {
+      video.pause();
+      updateRecInfo();
+      return openReview(take);
+    }
     toast(`테이크 저장: ${(frames[frames.length - 1].t - frames[0].t).toFixed(1)}초. "리뷰"에서 다시 보고 GLB로 저장하세요.`);
-  } else toast('녹화된 손이 없습니다.');
+  } else {
+    toast('녹화된 영상에서 손을 찾지 못했습니다. 손이 화면 안에 보이게 다시 찍어 주세요.');
+    if (filmed) backToCamera();
+  }
   updateRecInfo();
 }
 
-$('rec').onclick = () => (rec.on ? stopRecording() : startRecording());
+$('rec').onclick = () => {
+  if (state.source === 'camera' && !state.liveTrack) return camRec.on ? stopFilming() : startFilming();
+  return rec.on ? stopRecording() : startRecording();
+};
+
+// --- record first, then process ----------------------------------------------------------
+//
+// With the camera, the default is to film only: no tracking while filming, so
+// the phone records clean, full-rate video. Stopping hands the clip to the
+// same frame-by-frame pass a video file gets (every frame, no lag), then
+// opens the result in review. Nothing is kept unless "저장" is pressed.
+
+const camRec = { on: false, recorder: null, chunks: [], t0: 0, processing: false };
+
+function pickMime() {
+  const types = ['video/mp4;codecs=avc1', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4'];
+  return (window.MediaRecorder && types.find((t) => MediaRecorder.isTypeSupported(t))) || '';
+}
+
+function startFilming() {
+  if (!stream || !window.MediaRecorder) return toast('이 브라우저는 녹화를 지원하지 않습니다. "실시간 추적"을 켜고 쓰세요.');
+  const mimeType = pickMime();
+  camRec.chunks = [];
+  camRec.recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+  camRec.recorder.ondataavailable = (e) => e.data.size && camRec.chunks.push(e.data);
+  camRec.recorder.onstop = processFilm;
+  camRec.recorder.start(250);
+  camRec.t0 = performance.now();
+  camRec.on = true;
+  $('rec').classList.add('on');
+  $('rec').setAttribute('aria-label', '녹화 정지');
+  $('rec-time').classList.add('on');
+  updateGuide();
+}
+
+function stopFilming() {
+  if (!camRec.on) return;
+  camRec.on = false;
+  camRec.duration = (performance.now() - camRec.t0) / 1000;
+  $('rec').classList.remove('on');
+  $('rec').setAttribute('aria-label', '녹화 시작');
+  $('rec-time').classList.remove('on');
+  $('rec-time').textContent = '녹화';
+  camRec.recorder.stop();
+}
+
+async function processFilm() {
+  const blob = new Blob(camRec.chunks, { type: camRec.recorder.mimeType || 'video/webm' });
+  camRec.chunks = [];
+  if (camRec.duration < 0.5 || !blob.size) return toast('녹화가 너무 짧습니다.');
+  const facing = $('facing').value;
+  stopStream();
+  state.source = 'video';
+  $('video-fp').checked = facing !== 'user';
+  resetTracking();
+  camRec.processing = true;
+  updateGuide();
+  video.src = URL.createObjectURL(blob);
+  await new Promise((r) => (video.readyState >= 1 ? r() : video.addEventListener('loadedmetadata', r, { once: true })));
+  await ensureTracker().catch(() => {});
+  rec.endTime = camRec.duration;
+  startRecording();
+}
+
+function backToCamera() {
+  camRec.processing = false;
+  rec.endTime = 0;
+  setSource('camera');
+}
+
+function updateGuide() {
+  const g = $('guide');
+  let html = '';
+  if (review.take && review.take.videoUrl) {
+    html = '결과를 확인하세요. 마음에 들면 <b>저장</b>, 아니면 <b>버리기</b>. 저장하지 않으면 남지 않습니다.';
+  } else if (camRec.processing) {
+    const end = rec.endTime || video.duration || 1;
+    const pct = Math.min(99, Math.round((video.currentTime / end) * 100));
+    html = `녹화한 영상을 한 프레임씩 분석하는 중… ${pct}%`;
+  } else if (camRec.on) {
+    const sec = (performance.now() - camRec.t0) / 1000;
+    $('rec-time').textContent = `● ${sec.toFixed(1)}초`;
+    html = `<b>● 녹화 중</b> · 다시 누르면 끝나고 바로 분석합니다`;
+  } else if (state.source === 'camera' && !state.liveTrack && stream && !state.frozen) {
+    html = '빨간 버튼을 누르고 손 동작을 해 주세요.<br>손 전체가 화면 안에 보이게, 천천히 움직일수록 정확합니다.';
+  }
+  g.hidden = !html;
+  if (html && g.innerHTML !== html) g.innerHTML = html;
+}
 
 function exportSkins() {
   const skins = {};
@@ -1281,12 +1384,17 @@ function seekReview(t) {
     else hi = mid;
   }
   applyFrame(take.frames[lo]);
+  if (take.videoUrl && !review.playing && Math.abs(video.currentTime - target) > 0.04) video.currentTime = target;
   $('rv-seek').value = dur ? review.t / dur : 0;
   $('rv-time').textContent = `${review.t.toFixed(1)} / ${dur.toFixed(1)}초`;
 }
 
 function setPlaying(on) {
   review.playing = on;
+  if (review.take && review.take.videoUrl) {
+    if (on) video.play().catch(() => {});
+    else video.pause();
+  }
   review.lastNow = performance.now();
   $('rv-play').textContent = on ? '❚❚' : '▶';
   $('rv-play').setAttribute('aria-label', on ? '일시정지' : '재생');
@@ -1319,11 +1427,20 @@ function openReview(take = takes[0]) {
 
 function closeReview() {
   if (!review.take) return;
-  review.take = null;
+  const filmed = review.take.videoUrl;
   setPlaying(false);
+  review.take = null;
   $('review').hidden = true;
   $('dock').hidden = false;
   exitFrozen();
+  if (filmed) {
+    // A filmed take lives only until it is saved or closed.
+    const take = takes.find((x) => x.videoUrl === filmed);
+    if (take && !take.saved) takes.splice(takes.indexOf(take), 1);
+    URL.revokeObjectURL(filmed);
+    updateRecInfo();
+    backToCamera();
+  }
 }
 
 function stepReview(now) {
@@ -1331,6 +1448,17 @@ function stepReview(now) {
   const dt = (now - review.lastNow) / 1000;
   review.lastNow = now;
   const dur = takeDuration(review.take);
+  if (review.take.videoUrl) {
+    // The filmed clip plays underneath; the hands follow its clock.
+    let t = video.currentTime - review.take.frames[0].t;
+    if (t > dur || video.ended) {
+      video.currentTime = review.take.frames[0].t;
+      video.play().catch(() => {});
+      t = 0;
+    }
+    seekReview(t);
+    return;
+  }
   let t = review.t + dt;
   if (t > dur) t = 0; // loop
   seekReview(t);
@@ -1351,7 +1479,28 @@ $('rv-take').onchange = (e) => {
     setPlaying(true);
   }
 };
-$('rv-glb').onclick = () => review.take && saveGlb(review.take.frames, review.take.name);
+$('rv-glb').onclick = async () => {
+  const take = review.take;
+  if (!take) return;
+  const glb = await saveGlb(take.frames, take.name);
+  if (glb && take.videoUrl) {
+    take.saved = true;
+    toast('저장했습니다. 다음 동작을 녹화하세요.');
+    closeReview();
+  }
+};
+$('rv-discard').onclick = () => {
+  const take = review.take;
+  if (!take) return;
+  if (!take.videoUrl) takes.splice(takes.indexOf(take), 1);
+  toast('버렸습니다.');
+  closeReview();
+  updateRecInfo();
+};
+$('live-track').onchange = (e) => {
+  state.liveTrack = e.target.checked;
+  resetTracking();
+};
 
 // --- options drawer + start screen ---------------------------------------------------------
 
