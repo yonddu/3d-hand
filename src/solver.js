@@ -32,7 +32,7 @@ export class HandSolver {
 
   // P: 21 THREE.Vector3 in rig orientation (any origin, meters).
   // Returns per-bone angles and confidences and writes rotations to the rig.
-  solve(P, { limits = true, smoothing = true } = {}) {
+  solve(P, { limits = true, smoothing = true, shape = null } = {}) {
     const rig = this.rig;
     const side = rig.side;
     const wristQ = handFrameQuat(P, side);
@@ -66,6 +66,19 @@ export class HandSolver {
           const [fMin, fMax, aMin, aMax] = limitsFor(finger.key, k);
           flex = clamp(flex, fMin, fMax);
           abdThumb = clamp(abdThumb, aMin, aMax);
+          // A finger bent at the knuckle cannot spread: the side ligaments
+          // tighten, so a fist keeps its fingers together.
+          if (k === 0 && finger.key !== 'thumb' && flex > 0) {
+            const room = Math.max(0, Math.cos(flex * D2R));
+            abdThumb = clamp(abdThumb, aMin * room, aMax * room);
+          }
+          abd = -abdThumb * sideSign(side);
+        }
+        if (shape && shape.pose[finger.key]) {
+          // Pull toward the recognised hand shape (handShape.js).
+          const [tf, ta] = shape.pose[finger.key][k];
+          flex += (tf - flex) * shape.weight;
+          abdThumb += (ta - abdThumb) * shape.weight;
           abd = -abdThumb * sideSign(side);
         }
         _e.set(flex * D2R, 0, abd * D2R, 'XZY');

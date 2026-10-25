@@ -13,6 +13,7 @@ import { wristLoop } from './armMesh.js';
 import { exportGlb, frameFromLive, frameFromPoseHand, zipFiles } from './exportGlb.js';
 import { capturePose, validatePose, applyPose, loadLibrary, saveLibrary } from './pose.js';
 import { initRomPanel } from './romPanel.js';
+import { ShapeTracker } from './handShape.js';
 
 const CONFIG = window.HMS_CONFIG || {};
 const $ = (id) => document.getElementById(id);
@@ -59,6 +60,13 @@ const filters = {};
 const anchorFilters = {};
 const filterParams = { minCutoff: 1.2, beta: 12, dCutoff: 1.0 };
 const anchorParams = { minCutoff: 0.6, beta: 2, dCutoff: 1.0 };
+// Passthrough: where the wrist is in the picture is precise and must not lag
+// behind the video; its distance is noisy and gets the heavy smoothing.
+const imageParams = { minCutoff: 3.0, beta: 4, dCutoff: 1.0 };
+const depthParams = { minCutoff: 0.8, beta: 1, dCutoff: 1.0 };
+const shapeTrackers = { left: new ShapeTracker(), right: new ShapeTracker() };
+const imageFilters = {};
+const depthFilters = {};
 const rawDots = {};
 for (const side of SIDES) {
   rigs[side] = new HandRig(side, { material: skinMat() });
@@ -66,6 +74,8 @@ for (const side of SIDES) {
   solvers[side] = new HandSolver(rigs[side]);
   filters[side] = new PointSetFilter(21, filterParams);
   anchorFilters[side] = new PointSetFilter(1, anchorParams);
+  imageFilters[side] = new PointSetFilter(1, imageParams);
+  depthFilters[side] = new PointSetFilter(1, depthParams);
   rigs[side].group.position.set(side === 'right' ? 0.11 : -0.11, -0.11, -0.42);
 
   // Raw (unfiltered, unconstrained) landmarks for comparison.
@@ -111,6 +121,7 @@ const state = {
   swap: false,
   lastSeen: { left: -1, right: -1 },
   lastSolve: { left: null, right: null },
+  shape: { left: null, right: null },
   rawLandmarks: { left: null, right: null },
   tableSide: 'right',
   detections: [],
@@ -436,7 +447,7 @@ function fromMediaPipe(hand) {
     // Facing the camera, the body (and so the shoulders) is behind the hands.
     const sgn = hand.side === 'right' ? 1 : -1;
     const shoulder = facingUser() ? new THREE.Vector3(-0.18 * sgn, anchor.y - 0.12, Math.min(anchor.z - 0.3, -0.5)) : null;
-    return { side: hand.side, world, anchor, vision, elbow, shoulder };
+    return { side: hand.side, world, anchor, vision, elbow, shoulder, ray, image: { x: a.x, y: a.y }, depth: z };
   }
   // Lay hands out on a work plane at WORK_DEPTH so they stay in frame; real
   // depth changes still move the hand, at half strength.
@@ -514,16 +525,26 @@ function feed(inputs, t) {
     if (state.lastSeen[side] < 0 || t - state.lastSeen[side] > 0.6) {
       filters[side].reset();
       anchorFilters[side].reset();
+      imageFilters[side].reset();
+      depthFilters[side].reset();
+      shapeTrackers[side].reset();
       solvers[side].reset();
     }
     state.lastSeen[side] = t;
     state.rawLandmarks[side] = input.world;
     const smooth = filters[side].filter(input.world.map((p) => [p.x, p.y, p.z]), t).map((a) => new THREE.Vector3(...a));
-    const [anc] = anchorFilters[side].filter([[input.anchor.x, input.anchor.y, input.anchor.z]], t);
+    let anc;
+    if (input.ray) {
+      const [[ix, iy]] = imageFilters[side].filter([[input.image.x, input.image.y, 0]], t);
+      const [[d]] = depthFilters[side].filter([[input.depth, 0, 0]], t);
+      anc = input.ray({ x: ix, y: iy }).multiplyScalar(d).toArray();
+    } else [anc] = anchorFilters[side].filter([[input.anchor.x, input.anchor.y, input.anchor.z]], t);
     const rig = rigs[side];
     rig.group.visible = true;
     rig.group.position.set(anc[0], anc[1], anc[2]);
-    state.lastSolve[side] = solvers[side].solve(smooth, { limits: state.limits });
+    const shape = $('shape-snap').checked ? shapeTrackers[side].update(smooth) : null;
+    state.shape[side] = shape;
+    state.lastSolve[side] = solvers[side].solve(smooth, { limits: state.limits, shape });
     if ($('object-mode').value !== 'off') grasps[side].update(graspOptions(input));
     arms[side].shoulder.copy(input.shoulder || arms[side].homeShoulder);
     armResults[side] = arms[side].update(rig.group.position, rig.wrist.quaternion, input.elbow || null);
@@ -755,7 +776,8 @@ function tick(now) {
       const live = state.frozen ? !!rigs[side].group.visible : state.lastSeen[side] >= 0 && t - state.lastSeen[side] < LIVE_WINDOW;
       $(`seen-${side}`).textContent = live ? '추적 중' : '없음';
     }
-    $('gesture').textContent = state.source === 'demo' && !state.frozen ? `데모 동작: ${state.gesture}` : '';
+    const live = SIDES.map((s) => (state.shape[s] && state.lastSeen[s] >= 0 && t - state.lastSeen[s] < 0.5 ? `${s === 'left' ? '왼손' : '오른손'} ${state.shape[s].label}` : '')).filter(Boolean).join(' · ');
+    $('gesture').textContent = state.source === 'demo' && !state.frozen ? `데모 동작: ${state.gesture}` : live;
     $('object-info').textContent = SIDES.map((s) => {
       const o = grasps[s].current;
       return o ? `${s === 'left' ? '왼손' : '오른손'}: ${describeObject(o)}` : '';
