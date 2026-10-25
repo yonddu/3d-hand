@@ -13,6 +13,7 @@ import { wristLoop } from './armMesh.js';
 import { exportGlb, frameFromLive, frameFromPoseHand, zipFiles } from './exportGlb.js';
 import { capturePose, validatePose, applyPose, loadLibrary, saveLibrary } from './pose.js';
 import { initRomPanel } from './romPanel.js';
+import { ForearmFinder } from './forearm.js';
 
 const CONFIG = window.HMS_CONFIG || {};
 const $ = (id) => document.getElementById(id);
@@ -440,7 +441,7 @@ function fromMediaPipe(hand) {
     // so the 3D hand lands on top of the real one in the video.
     const ray = (p) => new THREE.Vector3((p.x - 0.5) / FOCAL, -((p.y - 0.5) / aspect) / FOCAL, -1);
     const anchor = ray(a).multiplyScalar(z);
-    const elbow = elbowFromPoseAR(hand, z, ray);
+    const elbow = elbowFromPoseAR(hand, z, ray) || elbowFromPicture(hand, anchor, ray, aspect);
     // Facing the camera, the body (and so the shoulders) is behind the hands.
     const sgn = hand.side === 'right' ? 1 : -1;
     const shoulder = facingUser() ? new THREE.Vector3(-0.18 * sgn, anchor.y - 0.12, Math.min(anchor.z - 0.3, -0.5)) : null;
@@ -479,6 +480,26 @@ function elbowFromPose(hand, anchor, aspect, k) {
     anchor.y - ((e.y - hw.y) / aspect) * k,
     anchor.z - (ew.z - ww.z),
   );
+}
+
+// First person: the forearm's line in the picture (forearm.js) fixes the
+// forearm to a plane through the camera; within it, the depth slant is taken
+// from the usual reach back toward the shoulder.
+const forearmFinder = new ForearmFinder();
+function elbowFromPicture(hand, anchor, ray, aspect) {
+  if (!tracker || !forearmFinder.grab(video, tracker.lastDetectAt)) return null;
+  const f = forearmFinder.find(hand.landmarks);
+  forearmFinder.last = { side: hand.side, ...(f || {}) };
+  if (!f || f.confidence < 0.45) return null;
+  const a = hand.landmarks[0];
+  const along = ray(a).normalize();
+  const next = ray({ x: a.x + f.dir[0] * 0.05, y: a.y + f.dir[1] * 0.05 * aspect }).normalize();
+  const n = new THREE.Vector3().crossVectors(along, next).normalize();
+  const across = new THREE.Vector3().crossVectors(n, along).normalize(); // in the picture, toward the arm
+  if (across.dot(next.clone().sub(along)) < 0) across.negate();
+  const guess = arms[hand.side].homeShoulder.clone().sub(anchor).normalize();
+  const dir = along.multiplyScalar(guess.dot(along)).addScaledVector(across, Math.max(guess.dot(across), 0.35)).normalize();
+  return anchor.clone().addScaledVector(dir, 0.26);
 }
 
 function elbowFromPoseAR(hand, wristDist, ray) {
@@ -1333,4 +1354,4 @@ async function saveBinary(buffer, filename) {
 renderLibrary();
 renderTable();
 requestAnimationFrame(tick);
-window.__hms = { fallbackToCPU, camera, controls, realHands, arms, rec, startRecording, stopRecording, trimFrames, exportSkins, exportGlb, savePoseGlb, armResults: () => armResults, tracker: () => ensureTracker(), handFeatures, grasps, scene, rigs, solvers, state, capture, viewPose };
+window.__hms = { forearmFinder, fallbackToCPU, camera, controls, realHands, arms, rec, startRecording, stopRecording, trimFrames, exportSkins, exportGlb, savePoseGlb, armResults: () => armResults, tracker: () => ensureTracker(), handFeatures, grasps, scene, rigs, solvers, state, capture, viewPose };

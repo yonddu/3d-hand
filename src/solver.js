@@ -14,7 +14,7 @@ const R2D = 180 / Math.PI;
 const clamp = THREE.MathUtils.clamp;
 const TOL_FLEX = 10; // degrees past a flexion limit still followed
 const TOL_EXT = 5; // degrees of bending backward past the limit still followed
-const MAX_ROLL = (20 * Math.PI) / 180; // knuckle axial rotation allowed
+const MAX_ROLL = (12 * Math.PI) / 180; // knuckle axial rotation allowed
 const TOL_ABD = 4; // degrees past a knuckle's side-bend limit still followed
 
 const _q = new THREE.Quaternion();
@@ -99,8 +99,11 @@ export class HandSolver {
           const c = P[finger.joints[k + 2]].clone().sub(P[finger.joints[k + 1]]).normalize();
           c.applyQuaternion(parentG.clone().multiply(local).invert());
           const side = Math.hypot(c.x, c.z);
-          if (side > 0.25) {
-            const roll = clamp(Math.atan2(-c.x, c.z), -MAX_ROLL, MAX_ROLL) * THREE.MathUtils.smoothstep(side, 0.25, 0.5);
+          // In a fist the fingertips are hidden and their points are guessed,
+          // so the roll read from them is noise: it fades out as the knuckle bends.
+          const trust = finger.key === 'thumb' ? 1 : 1 - THREE.MathUtils.smoothstep(flex, 30, 60);
+          if (side > 0.25 && trust > 0) {
+            const roll = clamp(Math.atan2(-c.x, c.z), -MAX_ROLL, MAX_ROLL) * THREE.MathUtils.smoothstep(side, 0.25, 0.5) * trust;
             local.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), roll));
           }
         }
@@ -166,8 +169,8 @@ export function anglesFromRig(rig) {
 // strongest where tracking is weakest (deep flexion, hidden fingertips):
 //  - DIP follows PIP (one tendon flexes both; DIP ~ 2/3 of PIP),
 //  - the thumb's IP follows its MCP,
-//  - a bending finger stops spreading and turns toward the base of the thumb
-//    (bent fingertips converge on the scaphoid, which closes a fist inward),
+//  - a bending finger stops spreading and leans toward the middle of the
+//    hand (bent fingertips converge, which closes a fist inward),
 //  - ring and little finger, and to a lesser degree the middle finger, are
 //    pulled along by their neighbours (shared muscle bellies).
 
@@ -175,8 +178,9 @@ const DIP_PER_PIP = 0.67;
 const DIP_COUPLING = 0.75;
 const IP_PER_MCP = 0.9;
 const IP_COUPLING = 0.35;
-// Side bend toward the thumb (degrees) each finger ends up at when fully bent.
-const CONVERGE = { index: 0, middle: 3, ring: 6, pinky: 10 };
+// Side bend toward the thumb (degrees) each finger ends up at when fully bent:
+// index and little finger lean in toward the middle finger.
+const CONVERGE = { index: -5, middle: 0, ring: 5, pinky: 10 };
 // How much a knuckle is pulled toward its neighbours' mean bend.
 const ENSLAVE = { index: 0, middle: 0.15, ring: 0.35, pinky: 0.2 };
 const NEIGHBOURS = { middle: ['index', 'ring'], ring: ['middle', 'pinky'], pinky: ['ring', 'ring'] };
