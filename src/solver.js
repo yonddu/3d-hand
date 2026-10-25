@@ -12,6 +12,8 @@ import { handFrameQuat } from './handRig.js';
 const D2R = Math.PI / 180;
 const R2D = 180 / Math.PI;
 const clamp = THREE.MathUtils.clamp;
+const TOL_FLEX = 10; // degrees past a flexion limit still followed
+const TOL_ABD = 10; // degrees past a side-bend limit still followed
 
 const _q = new THREE.Quaternion();
 const _qi = new THREE.Quaternion();
@@ -32,7 +34,7 @@ export class HandSolver {
 
   // P: 21 THREE.Vector3 in rig orientation (any origin, meters).
   // Returns per-bone angles and confidences and writes rotations to the rig.
-  solve(P, { limits = true, smoothing = true, shape = null } = {}) {
+  solve(P, { limits = true, smoothing = true } = {}) {
     const rig = this.rig;
     const side = rig.side;
     const wristQ = handFrameQuat(P, side);
@@ -63,23 +65,22 @@ export class HandSolver {
         // Positive abduction = toward the thumb side, for either hand.
         let abdThumb = -abd * sideSign(side);
         if (limits) {
+          // The limits only stop what a hand cannot do. Tracking noise and the
+          // difference between the model's joint axes and the person's put a
+          // few degrees on top of real poses, so each range gets a tolerance
+          // band; inside it the bone follows the tracked direction exactly.
           const [fMin, fMax, aMin, aMax] = limitsFor(finger.key, k);
-          flex = clamp(flex, fMin, fMax);
-          abdThumb = clamp(abdThumb, aMin, aMax);
-          // A finger bent at the knuckle cannot spread: the side ligaments
+          flex = clamp(flex, fMin - TOL_FLEX, fMax + TOL_FLEX);
+          let lo = aMin;
+          let hi = aMax;
+          // A finger bent at the knuckle cannot spread far: the side ligaments
           // tighten, so a fist keeps its fingers together.
           if (k === 0 && finger.key !== 'thumb' && flex > 0) {
             const room = Math.max(0, Math.cos(flex * D2R));
-            abdThumb = clamp(abdThumb, aMin * room, aMax * room);
+            lo *= room;
+            hi *= room;
           }
-          abd = -abdThumb * sideSign(side);
-        }
-        if (shape && shape.pose[finger.key]) {
-          // Pull toward the recognised hand shape (handShape.js).
-          const [tf, ta] = shape.pose[finger.key][k];
-          const w = shape.weight * (finger.key === 'thumb' ? shape.thumbWeight ?? 1 : 1);
-          flex += (tf - flex) * w;
-          abdThumb += (ta - abdThumb) * w;
+          abdThumb = clamp(abdThumb, lo - TOL_ABD, hi + TOL_ABD);
           abd = -abdThumb * sideSign(side);
         }
         _e.set(flex * D2R, 0, abd * D2R, 'XZY');

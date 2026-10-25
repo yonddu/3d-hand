@@ -13,7 +13,6 @@ import { wristLoop } from './armMesh.js';
 import { exportGlb, frameFromLive, frameFromPoseHand, zipFiles } from './exportGlb.js';
 import { capturePose, validatePose, applyPose, loadLibrary, saveLibrary } from './pose.js';
 import { initRomPanel } from './romPanel.js';
-import { ShapeTracker } from './handShape.js';
 
 const CONFIG = window.HMS_CONFIG || {};
 const $ = (id) => document.getElementById(id);
@@ -64,7 +63,6 @@ const anchorParams = { minCutoff: 0.6, beta: 2, dCutoff: 1.0 };
 // behind the video; its distance is noisy and gets the heavy smoothing.
 const imageParams = { minCutoff: 3.0, beta: 4, dCutoff: 1.0 };
 const depthParams = { minCutoff: 0.8, beta: 1, dCutoff: 1.0 };
-const shapeTrackers = { left: new ShapeTracker(), right: new ShapeTracker() };
 const imageFilters = {};
 const depthFilters = {};
 const rawDots = {};
@@ -121,7 +119,6 @@ const state = {
   swap: false,
   lastSeen: { left: -1, right: -1 },
   lastSolve: { left: null, right: null },
-  shape: { left: null, right: null },
   rawLandmarks: { left: null, right: null },
   tableSide: 'right',
   detections: [],
@@ -527,7 +524,6 @@ function feed(inputs, t) {
       anchorFilters[side].reset();
       imageFilters[side].reset();
       depthFilters[side].reset();
-      shapeTrackers[side].reset();
       solvers[side].reset();
     }
     state.lastSeen[side] = t;
@@ -542,9 +538,7 @@ function feed(inputs, t) {
     const rig = rigs[side];
     rig.group.visible = true;
     rig.group.position.set(anc[0], anc[1], anc[2]);
-    const shape = $('shape-snap').checked ? shapeTrackers[side].update(smooth) : null;
-    state.shape[side] = shape;
-    state.lastSolve[side] = solvers[side].solve(smooth, { limits: state.limits, shape });
+    state.lastSolve[side] = solvers[side].solve(smooth, { limits: state.limits });
     if (realHands[side]) {
       realHands[side].setProportions(smooth);
       realHands[side].setPinches(smooth);
@@ -781,8 +775,7 @@ function tick(now) {
       const live = state.frozen ? !!rigs[side].group.visible : state.lastSeen[side] >= 0 && t - state.lastSeen[side] < LIVE_WINDOW;
       $(`seen-${side}`).textContent = live ? '추적 중' : '없음';
     }
-    const live = SIDES.map((s) => (state.shape[s] && state.lastSeen[s] >= 0 && t - state.lastSeen[s] < 0.5 ? `${s === 'left' ? '왼손' : '오른손'} ${state.shape[s].label}` : '')).filter(Boolean).join(' · ');
-    $('gesture').textContent = state.source === 'demo' && !state.frozen ? `데모 동작: ${state.gesture}` : live;
+    $('gesture').textContent = state.source === 'demo' && !state.frozen ? `데모 동작: ${state.gesture}` : '';
     $('object-info').textContent = SIDES.map((s) => {
       const o = grasps[s].current;
       return o ? `${s === 'left' ? '왼손' : '오른손'}: ${describeObject(o)}` : '';
@@ -1069,11 +1062,10 @@ function liveFrame(t) {
   const hands = {};
   for (const side of SIDES) {
     hands[side] = handIsLive(side, t) ? frameFromLive(side, rigs[side], arms[side], grasps[side]) : null;
-    // Raw tracked points and the recognised shape ride along in the take JSON,
+    // The raw tracked points ride along in the take JSON,
     // so a recorded motion can be replayed through the solver when tuning it.
     if (hands[side] && state.rawLandmarks[side]) {
       hands[side].landmarks = state.rawLandmarks[side].map((v) => [v.x, v.y, v.z].map((x) => Math.round(x * 1e4) / 1e4));
-      hands[side].shape = state.shape[side] ? state.shape[side].name : null;
     }
   }
   return hands;
