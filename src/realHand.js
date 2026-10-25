@@ -107,6 +107,7 @@ export class RealHand {
     this.lenScale = Object.fromEntries(FINGERS.map((f) => [f.key, [1, 1, 1]]));
     this.propSamples = 0;
     this.pinches = [];
+    this.thumbWrap = 0;
   }
 
   setMaterial(material) {
@@ -176,6 +177,7 @@ export class RealHand {
     for (const key of ['index', 'middle', 'ring', 'pinky']) placeRigid(XR[key][0]);
 
     this.closeFist();
+    if (this.thumbWrap > 0) this.wrapThumb();
     if (this.pinches.length) this.solvePinches();
     for (const finger of FINGERS) {
       const chain = drivenChain(finger.key);
@@ -240,6 +242,81 @@ export class RealHand {
       const r = P[4].distanceTo(P[tip]) / palm;
       const weight = THREE.MathUtils.clamp((0.42 - r) / 0.17, 0, 1);
       if (weight > 0) this.pinches.push({ key, weight });
+    }
+  }
+
+  // Thumb over a fist. When the tracked fingers are curled and the tracked
+  // thumb tip lies on them (not raised, as in a thumbs-up), the thumb is
+  // wrapped over the backs of the index and middle middle phalanges. Seen from
+  // behind, the thumb in a fist is mostly hidden, so the tracked thumb usually
+  // hovers off the fingers or sinks into them; a real thumb rests on them.
+  setThumbWrap(P) {
+    const palm = P[0].distanceTo(P[9]);
+    this.thumbWrap = 0;
+    if (palm < 1e-4) return;
+    const curl = (m, p, d) => {
+      const a = P[p].clone().sub(P[m]).normalize();
+      const b = P[d].clone().sub(P[p]).normalize();
+      return Math.acos(THREE.MathUtils.clamp(a.dot(b), -1, 1));
+    };
+    // PIP bend of index and middle, ~45 to ~85 degrees.
+    const bent = THREE.MathUtils.smoothstep(Math.min(curl(5, 6, 7), curl(9, 10, 11)), 0.8, 1.5);
+    const toSeg = (q, a, b) => {
+      const ab = P[b].clone().sub(P[a]);
+      const t = THREE.MathUtils.clamp(q.clone().sub(P[a]).dot(ab) / ab.lengthSq(), 0, 1);
+      return q.distanceTo(P[a].clone().addScaledVector(ab, t));
+    };
+    const tip = P[4];
+    const near = Math.min(toSeg(tip, 6, 7), toSeg(tip, 10, 11), toSeg(tip, 5, 6), toSeg(tip, 9, 10)) / palm;
+    const onFingers = THREE.MathUtils.clamp((0.6 - near) / 0.3, 0, 1);
+    // A wrapping thumb points across the hand toward the little finger, or is
+    // bent at its MCP/IP; a raised one (thumbs-up) is straight and points
+    // along the hand.
+    const thumbDir = P[4].clone().sub(P[2]).normalize();
+    const ulnar = P[17].clone().sub(P[5]).normalize();
+    const thumbBend = curl(1, 2, 3) + curl(2, 3, 4);
+    const across = Math.max(THREE.MathUtils.smoothstep(thumbDir.dot(ulnar), 0.12, 0.35), THREE.MathUtils.smoothstep(thumbBend, 0.8, 1.2));
+    this.thumbWrap = bent * onFingers * across;
+  }
+
+  wrapThumb() {
+    const rig = this.rig;
+    const w = this.thumbWrap;
+    const hand = this.modelPalm / 0.094; // the model's size relative to a typical palm
+    const LIFT = 0.017 * hand; // finger radius + thumb radius: surfaces touching
+    // A point on the back (outside of the bend) of a finger's middle phalanx.
+    const backOf = (key, t) => {
+      const { pos } = this.chainPose(key);
+      const along = pos[2].clone().sub(pos[1]).normalize();
+      const prox = pos[1].clone().sub(pos[0]).normalize();
+      const back = prox.addScaledVector(along, -prox.dot(along));
+      if (back.lengthSq() < 1e-8) return null;
+      return pos[1].clone().lerp(pos[2], t).addScaledVector(back.normalize(), LIFT);
+    };
+    const ccd = (target, from, maxStep) => {
+      const links = rig.chains.thumb;
+      for (let k = from; k >= 0; k--) {
+        const { pos, boneQ } = this.chainPose('thumb');
+        const end = pos[from + 1];
+        const toEnd = end.clone().sub(pos[k]);
+        const toGoal = target.clone().sub(pos[k]);
+        if (toEnd.lengthSq() < 1e-10 || toGoal.lengthSq() < 1e-10) continue;
+        const R = new THREE.Quaternion().setFromUnitVectors(toEnd.normalize(), toGoal.normalize());
+        const angle = 2 * Math.acos(Math.min(1, Math.abs(R.w)));
+        if (angle > maxStep) R.slerp(new THREE.Quaternion(), 1 - maxStep / angle);
+        const parent = k === 0 ? rig.wrist.quaternion : boneQ[k - 1];
+        links[k].bone.quaternion.premultiply(parent.clone().invert().multiply(R).multiply(parent));
+      }
+    };
+    for (let it = 0; it < 4; it++) {
+      // The IP joint sits over the index, the tip reaches the middle finger.
+      const ipGoal = backOf('index', 0.35);
+      const tipGoal = backOf('middle', 0.45);
+      if (!ipGoal || !tipGoal) return;
+      const { pos } = this.chainPose('thumb');
+      ccd(pos[2].clone().lerp(ipGoal, w * 0.6), 1, 0.15);
+      const now = this.chainPose('thumb').pos[3];
+      ccd(now.clone().lerp(tipGoal, w * 0.6), 2, 0.15);
     }
   }
 

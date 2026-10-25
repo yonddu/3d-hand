@@ -563,6 +563,7 @@ function feed(inputs, t) {
     if (realHands[side]) {
       realHands[side].setProportions(smooth);
       realHands[side].setPinches(smooth);
+      realHands[side].setThumbWrap(smooth);
     }
     if ($('object-mode').value !== 'off') grasps[side].update(graspOptions(input));
     arms[side].shoulder.copy(input.shoulder || arms[side].homeShoulder);
@@ -593,7 +594,7 @@ function relaxLost(t) {
     if (state.source !== 'demo' && (state.lastSeen[side] < 0 || t - state.lastSeen[side] > hide)) rig.group.visible = false;
     if (state.lastSeen[side] >= 0 && t - state.lastSeen[side] < LIVE_WINDOW) continue;
     if (grasps[side].current) grasps[side].reset();
-    if (realHands[side]) realHands[side].pinches = [];
+    if (realHands[side]) { realHands[side].pinches = []; realHands[side].thumbWrap = 0; }
     rig.wrist.quaternion.slerp(LOST_REACH.clone().multiply(rig.wristRest), 0.06);
     for (const chain of Object.values(rig.chains)) for (const l of chain) l.bone.quaternion.slerp(l.restLocal, 0.06);
   }
