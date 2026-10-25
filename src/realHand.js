@@ -176,9 +176,22 @@ export class RealHand {
     placeRigid('wrist');
     for (const key of ['index', 'middle', 'ring', 'pinky']) placeRigid(XR[key][0]);
 
+    // The contact passes below adjust the rig's finger bones. update() runs
+    // every rendered frame but the solver only on new camera frames, so start
+    // each pass from the solved pose: re-adjusting an adjusted pose drifts.
+    const links = Object.values(rig.chains).flat();
+    if (!this.solvedQ) {
+      this.solvedQ = links.map((l) => l.bone.quaternion.clone());
+      this.writtenQ = links.map((l) => l.bone.quaternion.clone());
+    }
+    links.forEach((l, i) => {
+      if (l.bone.quaternion.equals(this.writtenQ[i])) l.bone.quaternion.copy(this.solvedQ[i]);
+      else this.solvedQ[i].copy(l.bone.quaternion); // new pose from the solver
+    });
     this.closeFist();
     if (this.thumbWrap > 0) this.wrapThumb();
     if (this.pinches.length) this.solvePinches();
+    links.forEach((l, i) => this.writtenQ[i].copy(l.bone.quaternion));
     for (const finger of FINGERS) {
       const chain = drivenChain(finger.key);
       const { pos, boneQ } = this.chainPose(finger.key);
@@ -219,6 +232,11 @@ export class RealHand {
     if (palm < 1e-4) return;
     const segs = { thumb: [1, 2, 3, 4], index: [5, 6, 7, 8], middle: [9, 10, 11, 12], ring: [13, 14, 15, 16], pinky: [17, 18, 19, 20] };
     for (const [key, J] of Object.entries(segs)) {
+      // Lengths are only read from a fairly straight finger: bent, its
+      // segments are foreshortened or hidden and their points are guesses.
+      const dir = (a, b) => P[b].clone().sub(P[a]).normalize();
+      const bend = dir(J[0], J[1]).angleTo(dir(J[1], J[2])) + dir(J[1], J[2]).angleTo(dir(J[2], J[3]));
+      if (!(bend < 0.6)) continue;
       const chain = drivenChain(key);
       for (let k = 0; k < 3; k++) {
         const want = d(J[k], J[k + 1]) / palm / (this.offset[chain[k]].length() / this.modelPalm);
