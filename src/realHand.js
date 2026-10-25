@@ -8,7 +8,8 @@
 // position follows the model's own bone lengths.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { FINGERS, sideSign } from './skeleton.js';
+import { FINGERS, sideSign, wristName, boneName } from './skeleton.js';
+import { bakeSkin } from './exportGlb.js';
 import { basisQuat, handFrameQuat } from './handRig.js';
 
 // WebXR joint names per finger: [metacarpal, proximal, intermediate/distal, distal/tip, tip].
@@ -159,6 +160,40 @@ export class RealHand {
         }
       }
     }
+  }
+
+  // Mesh + bone offsets for GLB export, in the solver rig's bone layout.
+  // Every model joint follows one rig bone rigidly (see update()), so the
+  // model skin can be rebound to the rig bones: bake the mesh with the rig at
+  // rest, then name each influence by the rig bone that carries its joint.
+  exportSkin() {
+    const rig = this.rig;
+    const side = this.side;
+    const jointBone = { wrist: wristName(side) };
+    const firstJoint = {};
+    const offsets = {};
+    const restLocal = {};
+    for (const finger of FINGERS) {
+      if (finger.key !== 'thumb') jointBone[XR[finger.key][0]] = wristName(side);
+      const chain = drivenChain(finger.key);
+      chain.forEach((n, k) => (jointBone[n] = boneName(side, finger, k)));
+      firstJoint[finger.key] = this.restPos[chain[0]].clone().sub(this.restPos.wrist).applyQuaternion(this.restFrameInv).toArray();
+      offsets[finger.key] = [0, 1, 2].map((k) => this.offset[chain[k]].toArray());
+      restLocal[finger.key] = rig.chains[finger.key].map((l) => l.restLocal.toArray());
+    }
+
+    const saved = rig.getPose();
+    rig.resetPose();
+    rig.group.position.set(0, 0, 0);
+    this.update();
+    this.root.updateMatrixWorld(true);
+    // World -> hand-bone space; the rig wrist sits at the origin with its rest rotation.
+    const toHand = new THREE.Matrix4().makeRotationFromQuaternion(rig.wristRest.clone().invert());
+    const baked = bakeSkin(this.mesh, toHand, (i) => jointBone[this.mesh.skeleton.bones[i].name] || wristName(side));
+    rig.setPose(saved);
+    this.update();
+    this.root.updateMatrixWorld(true);
+    return { firstJoint, offsets, restLocal, ...baked };
   }
 }
 

@@ -238,6 +238,19 @@
     </section>
 
     <section>
+      <h2>모션 녹화 <span id="rec-info">GLB · 팔 + 손 + 쥔 물체</span></h2>
+      <div class="row">
+        <button class="primary" id="rec">● 녹화 시작</button>
+        <button id="rec-glb" disabled>모션 GLB 저장</button>
+        <button id="rec-json" disabled>모션 JSON</button>
+      </div>
+      <div class="row">
+        <label class="check"><input type="checkbox" id="rec-object" checked> 쥔 물체도 GLB에 넣기</label>
+      </div>
+      <p class="hint">동영상 파일 입력이면 처음부터 끝까지 자동으로 녹화합니다. GLB에는 어깨·위팔·아래팔·손목·손가락 뼈대(믹사모 이름)와 스킨 메시, 애니메이션이 들어가서 블렌더·유니티·언리얼에 바로 넣을 수 있습니다.</p>
+    </section>
+
+    <section>
       <h2>포즈 <span id="pose-count">0개</span></h2>
       <div class="row">
         <input type="text" id="pose-name" class="grow" placeholder="포즈 이름 (예: 귀신 손 01)" maxlength="60">

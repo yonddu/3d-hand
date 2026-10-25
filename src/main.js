@@ -9,6 +9,7 @@ import { loadHandGLB, RealHand, questMaterial } from './realHand.js';
 import { GraspEstimator, OBJECT_LABEL, handFeatures } from './grasp.js';
 import { objectForHand, manualObject } from './objects.js';
 import { ArmRig } from './arm.js';
+import { exportGlb, frameFromLive, frameFromPoseHand, zipFiles } from './exportGlb.js';
 import { capturePose, validatePose, applyPose, loadLibrary, saveLibrary } from './pose.js';
 
 const CONFIG = window.HMS_CONFIG || {};
@@ -475,13 +476,22 @@ let fpsT = performance.now();
 let tableT = 0;
 
 function tick(now) {
-  const t = now / 1000;
-  if (!state.frozen) {
+  // Recording a video file steps through it frame by frame on video time.
+  const offline = rec.on && rec.offline;
+  const t = offline ? video.currentTime : now / 1000;
+  if (offline && !rec.frameReady) {
+    // waiting for the next frame to seek
+  } else if (!state.frozen) {
     if (state.source === 'demo') {
       const inputs = demo.frame(t);
       feed(inputs, t);
       state.gesture = inputs[1].gesture;
     } else if (tracker && video.readyState >= 2) {
+      if (offline) {
+        // Every frame counts here: detect objects and the body on a fixed frame stride.
+        state.detAt = rec.frames.length % 4 === 0 ? -1e9 : now;
+        state.poseAt = rec.frames.length % 2 === 0 ? -1e9 : now;
+      }
       if (tracker.objects && now - state.detAt > 150) {
         const found = tracker.detectObjects(video, now);
         if (found) {
@@ -489,7 +499,7 @@ function tick(now) {
           state.detAt = now;
         }
       }
-      if (now - state.detAt > 800) state.detections = [];
+      if (!offline && now - state.detAt > 800) state.detections = [];
       if (tracker.pose && now - state.poseAt > 100) {
         const p = tracker.detectPose(video, now);
         if (p) {
@@ -514,9 +524,13 @@ function tick(now) {
       a.place(a.forearm, a.elbow, rigs[side].group.position, rigs[side].wrist.quaternion);
       a.place(a.upperArm, a.shoulder, a.elbow, null);
       a.elbowDot.position.copy(a.elbow);
-    } else if (state.lastSeen[side] < 0 || now / 1000 - state.lastSeen[side] > 0.2) {
+    } else if (state.lastSeen[side] < 0 || t - state.lastSeen[side] > 0.2) {
       arms[side].update(rigs[side].group.position, rigs[side].wrist.quaternion, null);
     }
+  }
+  if (rec.on && !state.frozen) {
+    if (!offline) sampleRecording(now);
+    else if (rec.frameReady) stepOffline();
   }
   controls.update();
   renderer.render(scene, camera);
@@ -680,6 +694,7 @@ function renderLibrary() {
     };
     mk('보기', () => viewPose(pose));
     mk('JSON', () => saveJson(pose, `${slug(pose.name)}.pose.json`));
+    mk('GLB', () => savePoseGlb(pose));
     const del = mk(pendingDelete === item.id ? '삭제 확인' : '삭제', () => {
       if (pendingDelete !== item.id) {
         pendingDelete = item.id;
@@ -798,7 +813,148 @@ $('export-all').onclick = () => {
   saveJson({ format: 'hand-motion-studio.library', version: 1, poses: library.map((x) => x.pose) }, 'hand-poses.json');
 };
 
+// --- motion recording + GLB export ----------------------------------------------------
+
+const REC_FPS = 30;
+const rec = { on: false, offline: false, frameReady: false, frames: [], lastAt: -1e9, name: '' };
+
+function handIsLive(side, t) {
+  if (!rigs[side].group.visible) return false;
+  // Offline steps are 1/30 s apart, so "seen this step" means within one step.
+  const window = rec.offline ? 0.5 / REC_FPS : 0.25;
+  return state.source === 'demo' || (state.lastSeen[side] >= 0 && t - state.lastSeen[side] < window);
+}
+
+function liveFrame(t) {
+  const hands = {};
+  for (const side of SIDES) hands[side] = handIsLive(side, t) ? frameFromLive(side, rigs[side], arms[side], grasps[side]) : null;
+  return hands;
+}
+
+function sampleRecording(now) {
+  if (now - rec.lastAt < 1000 / REC_FPS - 2) return;
+  rec.lastAt = now;
+  const t = now / 1000;
+  rec.frames.push({ t, hands: liveFrame(t) });
+  if (rec.frames.length % 15 === 0) updateRecInfo();
+}
+
+// Video file: pause, then seek through it at REC_FPS, one tracked frame per step.
+function stepOffline() {
+  const t = video.currentTime;
+  rec.frames.push({ t, hands: liveFrame(t) });
+  if (rec.frames.length % 10 === 0) updateRecInfo();
+  const next = t + 1 / REC_FPS;
+  rec.frameReady = false;
+  if (next >= (video.duration || 0)) return stopRecording();
+  video.currentTime = next;
+}
+video.addEventListener('seeked', () => {
+  if (rec.on && rec.offline) rec.frameReady = true;
+});
+
+function updateRecInfo() {
+  const f = rec.frames;
+  const dur = f.length > 1 ? f[f.length - 1].t - f[0].t : 0;
+  const withHands = f.filter((x) => x.hands.left || x.hands.right).length;
+  $('rec-info').textContent = f.length ? `${rec.on ? '녹화 중 · ' : ''}${dur.toFixed(1)}초 · ${f.length}프레임 (손 ${withHands})` : 'GLB · 팔 + 손 + 쥔 물체';
+  $('rec').textContent = rec.on ? '■ 녹화 정지' : '● 녹화 시작';
+  $('rec-glb').disabled = $('rec-json').disabled = rec.on || !withHands;
+}
+
+function startRecording() {
+  exitFrozen();
+  rec.on = true;
+  rec.frames = [];
+  rec.lastAt = -1e9;
+  rec.name = $('pose-name').value.trim() || `motion_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}`;
+  rec.offline = state.source === 'video' && !!video.src;
+  rec.frameReady = false;
+  if (rec.offline) {
+    video.pause();
+    resetTracking();
+    if (video.currentTime === 0) rec.frameReady = true;
+    else video.currentTime = 0;
+  }
+  updateRecInfo();
+}
+
+function stopRecording() {
+  rec.on = false;
+  if (rec.offline) {
+    rec.offline = false;
+    resetTracking();
+    video.play().catch(() => {});
+  }
+  updateRecInfo();
+  const n = rec.frames.filter((x) => x.hands.left || x.hands.right).length;
+  toast(n ? `녹화 끝: ${rec.frames.length}프레임. "모션 GLB 저장"으로 내보내세요.` : '녹화된 손이 없습니다.');
+}
+
+$('rec').onclick = () => (rec.on ? stopRecording() : startRecording());
+
+function exportSkins() {
+  const skins = {};
+  for (const s of SIDES) skins[s] = realHands[s] ? realHands[s].exportSkin() : rigs[s].exportSkin();
+  return skins;
+}
+
+async function saveGlb(frames, name) {
+  try {
+    const glb = await exportGlb({ frames, skins: exportSkins(), name, includeObjects: $('rec-object').checked });
+    await saveBinary(glb, `${slug(name)}.glb`);
+    return glb;
+  } catch (err) {
+    console.error(err);
+    toast(err.message || 'GLB를 만들지 못했습니다.');
+  }
+}
+
+$('rec-glb').onclick = () => saveGlb(trimFrames(rec.frames), rec.name);
+$('rec-json').onclick = () =>
+  saveJson({ format: 'hand-motion-studio.motion', version: 1, name: rec.name, fps: REC_FPS, frames: trimFrames(rec.frames) }, `${slug(rec.name)}.motion.json`);
+
+// Drop empty frames at the start and end of a take.
+function trimFrames(frames) {
+  const has = (f) => f.hands.left || f.hands.right;
+  const a = frames.findIndex(has);
+  if (a < 0) return [];
+  let b = frames.length - 1;
+  while (!has(frames[b])) b--;
+  return frames.slice(a, b + 1);
+}
+
+function savePoseGlb(pose) {
+  const hands = {};
+  for (const s of SIDES) hands[s] = pose.hands[s] ? frameFromPoseHand(s, pose.hands[s]) : null;
+  return saveGlb([{ t: 0, hands }], pose.name);
+}
+
+// .glb is not on the artifact viewer's download list, so there it goes out zipped.
+async function saveBinary(buffer, filename) {
+  try {
+    if (window.claude && window.claude.use) {
+      const downloads = await window.claude.use('downloads');
+      if (downloads) {
+        const zip = zipFiles([{ name: filename, data: buffer }]);
+        await downloads.save({ filename: filename.replace(/\.glb$/, '.glb.zip'), data: zip });
+        return;
+      }
+    }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([buffer], { type: 'model/gltf-binary' }));
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  } catch (err) {
+    console.warn(err);
+    toast('파일 저장이 취소되었습니다.');
+  }
+}
+
 renderLibrary();
 renderTable();
 requestAnimationFrame(tick);
-window.__hms = { armResults: () => armResults, tracker: () => ensureTracker(), handFeatures, grasps, scene, rigs, solvers, state, capture, viewPose };
+window.__hms = { realHands, arms, rec, startRecording, stopRecording, trimFrames, exportSkins, exportGlb, savePoseGlb, armResults: () => armResults, tracker: () => ensureTracker(), handFeatures, grasps, scene, rigs, solvers, state, capture, viewPose };

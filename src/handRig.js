@@ -279,6 +279,32 @@ export class HandRig {
     }
   }
 
+  // Procedural mesh + bone offsets for GLB export (used when the realistic
+  // model is not loaded). Same layout as RealHand.exportSkin().
+  exportSkin() {
+    const firstJoint = {};
+    const offsets = {};
+    const restLocal = {};
+    for (const finger of FINGERS) {
+      const chain = this.chains[finger.key];
+      firstJoint[finger.key] = chain[0].bone.position.toArray();
+      offsets[finger.key] = [1, 2, 3].map((k) => this.boneByLandmark[finger.joints[k]].position.toArray());
+      restLocal[finger.key] = chain.map((l) => l.restLocal.toArray());
+    }
+    const g = this.mesh.geometry;
+    const inv = this.wristRest.clone().invert();
+    const position = new Float32Array(g.attributes.position.array);
+    const normal = new Float32Array(g.attributes.normal.array);
+    const p = new THREE.Vector3();
+    for (let i = 0; i < position.length; i += 3) {
+      p.fromArray(position, i).applyQuaternion(inv).toArray(position, i);
+      p.fromArray(normal, i).applyQuaternion(inv).toArray(normal, i);
+    }
+    const si = g.attributes.skinIndex.array;
+    const names = Array.from(si, (b) => this.bones[b].name);
+    return { firstJoint, offsets, restLocal, position, normal, index: null, names, weights: new Float32Array(g.attributes.skinWeight.array) };
+  }
+
   // World positions of the 21 landmark joints (used by the demo generator).
   landmarkPositions() {
     this.group.updateMatrixWorld(true);

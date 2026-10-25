@@ -24,7 +24,8 @@ python3 -m http.server 8080   # 또는 npm start
 - **관절 엔진**: 가동 범위 제한, 떨림 보정(One Euro min cutoff), 반응 속도(beta), 관절 점/원본 랜드마크 비교, 쥔 물건(자동 / 손 모양만 / 원기둥·공·상자·막대 고정 / 끄기), 손가락 접촉 보정, 아래팔·팔꿈치 / 위팔 표시, 손 재질(퀘스트 스타일 / 피부 / 귀신 손)
 - **카메라 미리보기**: 손 관절과 함께 인식된 물건 상자(점선, 이름과 확률)가 표시됩니다.
 - **관절 각도**: 손가락별 1~3관절 굽힘/벌림 각도(°)와 신뢰도
-- **포즈**: 캡처(즉시 / 3초 타이머 / Space), 보기, JSON 저장, JSON 불러오기, 전체 내보내기. 목록은 브라우저 localStorage에 저장됩니다.
+- **모션 녹화**: 녹화 시작/정지 → 모션 GLB 저장(애니메이션 포함) / 모션 JSON. 동영상 파일 입력이면 영상을 멈추고 처음부터 끝까지 1/30초씩 넘기며 한 프레임씩 처리하므로, 기기 속도와 상관없이 30fps 모션이 나옵니다.
+- **포즈**: 캡처(즉시 / 3초 타이머 / Space), 보기, JSON 저장, **GLB 저장**, JSON 불러오기, 전체 내보내기. 목록은 브라우저 localStorage에 저장됩니다.
 
 ## 구조
 
@@ -42,6 +43,7 @@ src/
   arm.js           아래팔·팔꿈치: 포즈 인식으로 보이면 그 위치, 안 보이면 어깨→손목 2관절 IK 추정
   demo.js          가상 손 동작 생성기 (편 손, 주먹, 가리키기, 브이, 귀신 손, 집기)
   pose.js          포즈 JSON 포맷, 로컬 라이브러리
+  exportGlb.js     팔+손 리그 GLB 내보내기 (스킨 메시, 애니메이션 클립, 쥔 물체)
   main.js          씬, UI, 프레임 루프
 vendor/            three 0.170.0, @mediapipe/tasks-vision 0.10.21, hand_landmarker.task (float16),
                    efficientdet_lite0.tflite (int8, COCO 물체 인식), pose_landmarker_lite.task (팔꿈치),
@@ -105,6 +107,30 @@ build.mjs          index.html(독립 실행) + dist/artifact/(claude.ai 데모�
 
 본 이름은 Mixamo 규칙(`LeftHandThumb1..4`, `RightHandIndex1..4` …)이라 Mixamo 계열 캐릭터로 옮기기 쉽습니다. 뼈는 로컬 +Y 방향, 굽힘은 로컬 +X 회전입니다.
 
+### GLB 내보내기 (exportGlb.js)
+
+포즈의 "GLB" 버튼과 "모션 GLB 저장"은 게임·애니메이션 툴에 바로 넣을 수 있는 glTF 바이너리를 만듭니다. (claude.ai 데모 안에서는 .glb 다운로드가 막혀 있어 같은 파일을 .glb.zip으로 묶어 줍니다.)
+
+```
+HMS_ArmsMesh                 스킨 메시: 양손 + 아래팔 + 위팔 (한 메시, 재질 Skin)
+Head                         눈 = 폰 위치, 원점. 애니메이션 없음
+  FirstPersonCamera          폰과 같은 방향(-Z)을 보는 1인칭 카메라
+  LeftShoulder               어깨 위치
+    LeftArm                  위팔, +Y가 팔꿈치 방향
+      LeftForeArm            아래팔, +Y가 손목 방향, X축이 손을 따라 비틀림(회내/회외)
+        LeftHand             손목, +Y 손가락 방향
+          LeftHandThumb1..4, LeftHandIndex1..4, ... LeftHandPinky1..4
+          LeftHeld_cylinder  쥔 물체 (안 쥐고 있을 때는 scale 0)
+  RightShoulder ...          (오른쪽 동일)
+```
+
+- 본 이름은 Mixamo 규칙이고 단위는 미터, +Y 위입니다.
+- 바인드 포즈는 "두 팔을 앞(-Z)으로 곧게, 손바닥 아래, 손가락 편 상태"입니다. 파일을 열면 첫 프레임 자세로 놓여 있습니다.
+- 애니메이션 트랙: 어깨 위치, 위팔·아래팔·손목·손가락 15개 회전(쿼터니언), 쥔 물체의 위치·회전·크기.
+- 뼈 길이는 고정입니다(위팔 29cm, 아래팔 26cm). 매 프레임 이 길이로 팔꿈치를 다시 풀고, 추적된 팔꿈치는 굽는 방향으로만 씁니다. 손이 팔 길이보다 멀리 있으면 팔을 늘리는 대신 어깨가 따라 나갑니다.
+- 한 번이라도 보인 손의 팔만 들어가고, 중간에 손을 놓친 구간은 마지막 자세를 유지합니다.
+- 손 메시는 화면의 실제 손 모델을 내보내기용 뼈대에 다시 붙인 것이라 앱 화면과 같은 모양으로 움직입니다(검증: 손끝·손목·팔꿈치 위치 오차 0.1mm 미만, Khronos glTF Validator 오류 0).
+
 ## 알려진 한계
 
 - 손가락 비틀림(twist)은 계산하지 않습니다. 엄지 회전은 근사치입니다.
@@ -118,4 +144,4 @@ build.mjs          index.html(독립 실행) + dist/artifact/(claude.ai 데모�
 
 ## 다음 단계 후보
 
-연속 모션 녹화 → 키프레임 편집 → GLB(AnimationClip) 내보내기 → 캐릭터 리타게팅.
+키프레임 편집(녹화 구간 자르기, 보간) → BVH/FBX 내보내기 → 캐릭터 리타게팅(사용자 캐릭터 뼈대에 맞춤) → 사용자 손·팔 길이 보정.

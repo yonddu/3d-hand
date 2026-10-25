@@ -10,8 +10,8 @@
 import * as THREE from 'three';
 import { sideSign } from './skeleton.js';
 
-const UPPER = 0.29; // shoulder -> elbow
-const FORE = 0.26; // elbow -> wrist
+export const UPPER = 0.29; // shoulder -> elbow
+export const FORE = 0.26; // elbow -> wrist
 const Y = new THREE.Vector3(0, 1, 0);
 
 export class ArmRig {
@@ -65,18 +65,8 @@ export class ArmRig {
 
   // Stretch a unit cylinder from a to b. Twist follows the hand when given.
   place(mesh, a, b, twistQuat) {
-    const dir = b.clone().sub(a);
-    const len = dir.length();
-    dir.normalize();
-    const q = new THREE.Quaternion().setFromUnitVectors(Y, dir);
-    if (twistQuat) {
-      // Roll the forearm so its X matches the hand's X (pronation/supination).
-      const handX = new THREE.Vector3(1, 0, 0).applyQuaternion(twistQuat);
-      const meshX = new THREE.Vector3(1, 0, 0).applyQuaternion(q);
-      const px = handX.addScaledVector(dir, -handX.dot(dir)).normalize();
-      const angle = Math.atan2(new THREE.Vector3().crossVectors(meshX, px).dot(dir), meshX.dot(px));
-      q.premultiply(new THREE.Quaternion().setFromAxisAngle(dir, angle));
-    }
+    const len = b.distanceTo(a);
+    const q = segmentQuat(a, b, twistQuat);
     mesh.position.copy(a);
     mesh.quaternion.copy(q);
     mesh.scale.set(1, len, 1);
@@ -120,9 +110,24 @@ export class ArmRig {
   }
 }
 
+// Rotation whose +Y runs from a to b. With twistQuat, rolled about that axis so
+// its X matches twistQuat's X (the forearm following the hand's pronation).
+export function segmentQuat(a, b, twistQuat = null) {
+  const dir = b.clone().sub(a).normalize();
+  const q = new THREE.Quaternion().setFromUnitVectors(Y, dir);
+  if (twistQuat) {
+    const handX = new THREE.Vector3(1, 0, 0).applyQuaternion(twistQuat);
+    const meshX = new THREE.Vector3(1, 0, 0).applyQuaternion(q);
+    const px = handX.addScaledVector(dir, -handX.dot(dir)).normalize();
+    const angle = Math.atan2(new THREE.Vector3().crossVectors(meshX, px).dot(dir), meshX.dot(px));
+    q.premultiply(new THREE.Quaternion().setFromAxisAngle(dir, angle));
+  }
+  return q;
+}
+
 // Two-bone IK: elbow position for shoulder S and wrist W, bending toward the
 // pole point P (here: where the hand says the forearm goes).
-function solveElbow(S, W, P) {
+export function solveElbow(S, W, P) {
   const sw = W.clone().sub(S);
   let d = sw.length();
   const dir = sw.clone().normalize();
