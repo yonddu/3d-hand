@@ -157,6 +157,7 @@ export class HandTracker {
       if (swapHandedness) side = side === 'left' ? 'right' : 'left';
       return { side, score: cat.score, landmarks: lm, world: res.worldLandmarks[i], chiral: chirality(res.worldLandmarks[i]) };
     });
+    dedupe(hands);
     this.lastHands = hands;
     return resolveSides(this.keepSides(hands, nowMs, swapHandedness, firstPerson ? video.videoWidth / video.videoHeight : 0), rightOnImageRight !== swapHandedness);
   }
@@ -198,12 +199,29 @@ export class HandTracker {
         if (flips < SIDE_FLIP_FRAMES) h.side = best.side;
         else flips = 0;
       }
-      if (aspect && Math.abs(h.chiral) > 0.1 && shapeSide(h.chiral) !== h.side) {
-        h.world = h.world.map((p) => ({ x: p.x, y: p.y, z: -p.z }));
-        h.chiral = -h.chiral;
-        h.mirrored = true;
+      // Mirror the depth when the shape belongs to the other hand. The shape's
+      // own handedness wobbles near zero while the palm turns edge-on, so a
+      // tracked hand only changes its mirroring on clear, repeated evidence;
+      // otherwise the fingers would curl the other way from one frame to the next.
+      let mirrored = false;
+      let mirrorVotes = 0;
+      if (aspect) {
+        const wants = Math.abs(h.chiral) > MIRROR_SURE ? shapeSide(h.chiral) !== h.side : null;
+        const was = best && best.side === h.side ? best.mirrored : null;
+        if (was === null) mirrored = wants === null ? false : wants;
+        else if (wants === null || wants === was) mirrored = was;
+        else {
+          mirrorVotes = best.mirrorVotes + 1;
+          mirrored = mirrorVotes >= MIRROR_FRAMES ? wants : was;
+          if (mirrored !== was) mirrorVotes = 0;
+        }
+        if (mirrored) {
+          h.world = h.world.map((p) => ({ x: p.x, y: p.y, z: -p.z }));
+          h.chiral = -h.chiral;
+          h.mirrored = true;
+        }
       }
-      return { side: h.side, x, y, t: nowMs, flips, chiral: best ? best.chiral * 0.4 + h.chiral * 0.6 : h.chiral };
+      return { side: h.side, x, y, t: nowMs, flips, mirrored, mirrorVotes, chiral: best ? best.chiral * 0.4 + h.chiral * 0.6 : h.chiral };
     });
     return hands;
   }
@@ -228,6 +246,43 @@ function armSide(L, aspect) {
 }
 
 const ARM_MARGIN = (30 * Math.PI) / 180;
+const MIRROR_SURE = 0.3;
+const MIRROR_FRAMES = 3;
+
+// The model sometimes returns one hand twice. Two detections whose palms sit
+// on top of each other are the same hand: keep the more confident one.
+function dedupe(hands) {
+  const box = (L) => {
+    let x0 = 1, y0 = 1, x1 = 0, y1 = 0;
+    for (const p of L) {
+      x0 = Math.min(x0, p.x);
+      y0 = Math.min(y0, p.y);
+      x1 = Math.max(x1, p.x);
+      y1 = Math.max(y1, p.y);
+    }
+    return [x0, y0, x1, y1];
+  };
+  for (let i = hands.length - 1; i > 0; i--) {
+    for (let j = 0; j < i; j++) {
+      const a = box(hands[i].landmarks);
+      const b = box(hands[j].landmarks);
+      const ix = Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0]));
+      const iy = Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
+      const inter = ix * iy;
+      const small = Math.min((a[2] - a[0]) * (a[3] - a[1]), (b[2] - b[0]) * (b[3] - b[1])) || 1e-6;
+      const L = hands[i].landmarks;
+      const M = hands[j].landmarks;
+      const wristGap = Math.hypot(L[0].x - M[0].x, L[0].y - M[0].y);
+      const palm = Math.hypot(L[0].x - L[9].x, L[0].y - L[9].y);
+      if (inter / small > 0.6 || wristGap < 0.5 * palm) {
+        if (hands[i].score > hands[j].score) hands[j] = hands[i];
+        hands.splice(i, 1);
+        break;
+      }
+    }
+  }
+  return hands;
+}
 const SIDE_FLIP_FRAMES = 8;
 const CHIRAL_SURE = 0.25;
 

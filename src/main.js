@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { FINGERS, HAND_CONNECTIONS, restLandmarks } from './skeleton.js';
-import { HandRig } from './handRig.js';
+import { HandRig, handFrameQuat } from './handRig.js';
 import { HandSolver } from './solver.js';
 import { PointSetFilter } from './filters.js';
 import { DemoSource } from './demo.js';
@@ -487,12 +487,30 @@ function elbowFromPoseAR(hand, wristDist, ray) {
   return ray(e).multiplyScalar(Math.max(0.1, wristDist + dz));
 }
 
+const JUMP_ANGLE = (75 * Math.PI) / 180;
+const JUMP_HOLD = 2;
+const jumps = { left: 0, right: 0 };
+const lastFrameQ = { left: null, right: null };
+
 function feed(inputs, t) {
   const seen = new Set();
   for (const input of inputs) {
     const side = input.side;
     if (seen.has(side)) continue;
     seen.add(side);
+    // A palm that turns 75+ degrees between two frames ~0.1 s apart is almost
+    // always a misread (palm and back confused, fingers swapped), not a real
+    // turn. Hold the last hand for up to two such frames; if the new reading
+    // persists, it is real and the hand follows.
+    const frameQ = handFrameQuat(input.world, side);
+    const recent = state.lastSeen[side] >= 0 && t - state.lastSeen[side] < 0.35;
+    if (recent && lastFrameQ[side] && frameQ.angleTo(lastFrameQ[side]) > JUMP_ANGLE && jumps[side] < JUMP_HOLD) {
+      jumps[side]++;
+      state.lastSeen[side] = t;
+      continue;
+    }
+    jumps[side] = 0;
+    lastFrameQ[side] = frameQ;
     if (state.lastSeen[side] < 0 || t - state.lastSeen[side] > 0.6) {
       filters[side].reset();
       anchorFilters[side].reset();
