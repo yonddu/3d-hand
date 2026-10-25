@@ -13,6 +13,7 @@ import { wristLoop } from './armMesh.js';
 import { exportGlb, frameFromLive, frameFromPoseHand, zipFiles } from './exportGlb.js';
 import { capturePose, validatePose, applyPose, loadLibrary, saveLibrary } from './pose.js';
 import { GESTURES, CATEGORIES, applyGesture, gestureData } from './gestures.js';
+import { liftToPicture } from './lift.js';
 import { initRomPanel } from './romPanel.js';
 import { ForearmFinder } from './forearm.js';
 
@@ -120,6 +121,7 @@ const state = {
   frozen: false, // viewing a saved pose
   limits: true,
   fit: true,
+  lift: true,
   swap: false,
   lastSeen: { left: -1, right: -1 },
   lastSolve: { left: null, right: null },
@@ -234,6 +236,7 @@ async function setSource(src) {
   for (const s of ['demo', 'camera', 'video']) $(`src-${s}`).setAttribute('aria-pressed', s === src);
   $('camera-opts').hidden = src !== 'camera';
   $('video-pick').hidden = src !== 'video';
+  $('video-fp-row').hidden = src !== 'video';
   $('preview').classList.remove('mirror');
   stopStream();
   resetTracking();
@@ -297,6 +300,7 @@ $('video-file').onchange = async (e) => {
   $('preview-empty').hidden = true;
   await ensureTracker().catch(() => {});
 };
+$('video-fp').onchange = () => resetTracking();
 $('swap').onchange = (e) => {
   state.swap = e.target.checked;
   resetTracking();
@@ -306,6 +310,10 @@ $('swap').onchange = (e) => {
 
 $('limits').onchange = (e) => (state.limits = e.target.checked);
 $('fit').onchange = (e) => (state.fit = e.target.checked);
+$('lift').onchange = (e) => {
+  state.lift = e.target.checked;
+  resetTracking();
+};
 const romPanel = initRomPanel($('rom-table'));
 $('rom-reset').onclick = () => romPanel.reset();
 const bindSlider = (id, obj, key) => {
@@ -424,8 +432,11 @@ const facingUser = () => state.source === 'camera' && $('facing').value === 'use
 // MediaPipe hand -> rig-oriented world points + scene anchor for the wrist.
 function fromMediaPipe(hand) {
   // Image axes (x right, y down, z away) -> scene axes (x right, y up, z toward camera).
-  const world = hand.world.map((p) => new THREE.Vector3(p.x, -p.y, -p.z));
   const aspect = (video.videoWidth || 4) / (video.videoHeight || 3);
+  // Rebuild the 3D points from the picture (see lift.js): MediaPipe's own 3D
+  // guess is often turned against what the camera shows.
+  const raw = state.lift ? liftToPicture(hand.world, hand.landmarks, aspect, hand.side) : hand.world;
+  const world = raw.map((p) => new THREE.Vector3(p.x, -p.y, -p.z));
   const a = hand.landmarks[0];
   const FOCAL = focalW(aspect);
   // Distance at which the 3D hand model (not the person's hand, whose size we
@@ -760,7 +771,7 @@ function tick(now) {
       }
       let hands = null;
       try {
-        hands = tracker.detect(video, now, { swapHandedness: state.swap, rightOnImageRight: !facingUser(), firstPerson: state.source === 'camera' && !facingUser() });
+        hands = tracker.detect(video, now, { swapHandedness: state.swap, rightOnImageRight: !facingUser(), firstPerson: (state.source === 'camera' && !facingUser()) || (state.source === 'video' && $('video-fp').checked) });
       } catch (err) {
         console.error(err);
         fallbackToCPU('추적 오류');

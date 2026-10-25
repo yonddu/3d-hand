@@ -28,10 +28,17 @@ export function handFrameQuat(P, side) {
 }
 
 // Axis a bone flexes about, given in rig space.
-function flexHint(side, fingerKey, dir) {
+function flexHint(side, fingerKey, dir, k) {
   if (fingerKey !== 'thumb') return new THREE.Vector3(1, 0, 0);
-  // The thumb curls toward the palm and across it, toward the pinky.
-  const across = new THREE.Vector3(-0.55 * sideSign(side), 0, 0.85);
+  // The thumb's base (CMC) bends out in front of the palm. Its MCP and IP
+  // hinges are turned with the thumb's pronation (the thumbnail faces sideways,
+  // not up), so they curl the thumb mostly across the palm toward the little
+  // finger and only partly toward the palm.
+  const across = [
+    new THREE.Vector3(-0.55 * sideSign(side), 0, 0.85),
+    new THREE.Vector3(-0.85 * sideSign(side), 0, 0.53),
+    new THREE.Vector3(-0.95 * sideSign(side), 0, 0.3),
+  ][k];
   return new THREE.Vector3().crossVectors(dir.clone().normalize(), across);
 }
 
@@ -65,7 +72,7 @@ export class HandRig {
         let global;
         if (k < 3) {
           const dir = new THREE.Vector3().subVectors(this.rest[finger.joints[k + 1]], pos);
-          global = basisQuat(dir, flexHint(side, finger.key, dir));
+          global = basisQuat(dir, flexHint(side, finger.key, dir, k));
         } else {
           global = parentGlobal.clone(); // tip end bone, never rotated
         }

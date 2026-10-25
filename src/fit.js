@@ -15,13 +15,14 @@ const D2R = Math.PI / 180;
 const Y = new THREE.Vector3(0, 1, 0);
 
 // Weights (residuals are in palm lengths for points, radians for angles).
-const W_DEPTH = 0.45; // depth counts less than the picture plane
+const W_DATA = 5; // a 1 cm miss weighs about as much as a 30 degree prior
+const W_DEPTH = 0.1; // depth counts far less than the picture plane (a camera cannot measure it)
 const W_LIMIT = 4; // past a joint limit: a hard wall, softened for the solver
 const W_DIP = 0.9; // DIP follows PIP (one tendon)
 const W_IP = 0.35; // thumb IP follows its MCP
 const W_CONVERGE = 0.5; // bent fingers lean toward the middle of the hand
 const W_ROLL = 1.2; // knuckles barely turn about their length
-const W_TIME = 0.12; // stay near the last frame; more when tracking is unsure
+const W_TIME = 0.03; // stay near the last frame, lightly (the point filters already smooth)
 const W_CLOSE = 0.8; // hidden joints follow the natural closing path
 const PIP_PER_MCP = 1.1; // closing a fist: PIP bends a little more than the knuckle
 const DIP_PER_PIP = 0.67;
@@ -76,7 +77,7 @@ function residuals(theta, ctx) {
   const r = [];
   // Data: each joint against its tracked point.
   for (let k = 0; k < 3; k++) {
-    const w = (ctx.conf[k] * (1 - 0.85 * ctx.hidden[k])) / ctx.palm;
+    const w = (W_DATA * ctx.conf[k] * (1 - 0.85 * ctx.hidden[k])) / ctx.palm;
     const d = pts[k].clone().sub(ctx.obs[k]);
     r.push(d.x * w, d.y * w, d.z * w * W_DEPTH);
   }
@@ -104,14 +105,14 @@ function residuals(theta, ctx) {
   // Time: unsure tracking leans on the last frame.
   if (ctx.prev) {
     const unsure = 1 - Math.min(...ctx.conf);
-    const w = W_TIME * (1 + 6 * unsure);
+    const w = W_TIME * (1 + unsure);
     theta.forEach((v, i) => r.push((v - ctx.prev[i]) * D2R * w));
   }
   return r;
 }
 
 // Damped Gauss-Newton with a numeric Jacobian; a finger has 5 to 7 angles.
-function minimise(theta, ctx, iterations = 8) {
+function minimise(theta, ctx, iterations = 12) {
   let x = theta.slice();
   let r = residuals(x, ctx);
   let cost = r.reduce((s, v) => s + v * v, 0);
