@@ -11,11 +11,10 @@ import { borderLoops } from './meshOps.js';
 export const UPPER = 0.29; // shoulder -> elbow
 export const FORE = 0.26; // elbow -> wrist
 const WRIST_A = UPPER + FORE;
-// The wrist bends over this much skin, ending at the hand's border (which is
-// cut 1.5 cm above the joint), so the bend straddles the joint. Real skin
-// creases within ~3 cm of the wrist; a longer blend moved the visible bend
-// down onto the forearm.
-const WRIST_BEND = 0.035;
+// The wrist bends over this much skin, ending at the hand's border, which
+// sits on the wrist pivot (the carpal bones). Real skin creases within ~3 cm
+// of the wrist; a longer blend moved the visible bend down onto the forearm.
+const WRIST_BEND = 0.025;
 
 // Cross-section [width across the hand (x), thickness (z)] by distance from the shoulder.
 const PROFILE = [
@@ -176,8 +175,8 @@ export function buildArm(loop, { ringSize = 64 } = {}) {
 
   const cy = ring0.reduce((s, p) => s + p.y, 0) / R;
   const aLoop = WRIST_A + cy;
-  // The border is in the heel of the hand; the wrist joint below it is the
-  // narrowest place, and the forearm widens again above it.
+  // The border sits at the wrist joint; the skin dips a little just past it
+  // and the forearm widens again above.
   const profile = [...PROFILE, [aLoop - 0.055, lx * 1.0, lz * 1.04], [aLoop - 0.015, lx * 0.95, lz * 0.99], [aLoop, lx, lz], [aLoop + 0.03, lx, lz]];
 
   // Ring stations, dense near the wrist and the elbow.
