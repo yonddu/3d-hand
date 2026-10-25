@@ -6,6 +6,7 @@ import { HandSolver } from './solver.js';
 import { PointSetFilter } from './filters.js';
 import { DemoSource } from './demo.js';
 import { loadHandGLB, RealHand, questMaterial } from './realHand.js';
+import { GraspEstimator, OBJECT_LABEL, handFeatures } from './grasp.js';
 import { capturePose, validatePose, applyPose, loadLibrary, saveLibrary } from './pose.js';
 
 const CONFIG = window.HMS_CONFIG || {};
@@ -159,6 +160,7 @@ function resetTracking() {
     filters[side].reset();
     anchorFilters[side].reset();
     solvers[side].reset();
+    if (typeof grasps !== 'undefined') grasps[side].reset();
     state.lastSeen[side] = -1;
   }
 }
@@ -262,6 +264,14 @@ $('look').onchange = applyLook;
 
 // Realistic hand meshes replace the procedural capsules once they load.
 const realHands = { left: null, right: null };
+
+// Held-object estimation per hand.
+const objectMat = new THREE.MeshStandardMaterial({ color: 0xd99a4e, roughness: 0.55, transparent: true, opacity: 0.5, depthWrite: false });
+const grasps = {};
+SIDES.forEach((s) => (grasps[s] = new GraspEstimator(rigs[s], objectMat)));
+$('grasp').onchange = (e) => {
+  if (!e.target.checked) SIDES.forEach((s) => grasps[s].reset());
+};
 Promise.all(
   SIDES.map(async (side) => {
     const src = CONFIG.handModels && CONFIG.handModels[side];
@@ -330,6 +340,7 @@ function feed(inputs, t) {
     rig.group.visible = true;
     rig.group.position.set(anc[0], anc[1], anc[2]);
     state.lastSolve[side] = solvers[side].solve(smooth, { limits: state.limits });
+    if ($('grasp').checked) grasps[side].update({ correct: $('contact').checked });
     updateRaw(side, input.world, rig.group.position);
   }
 }
@@ -349,6 +360,7 @@ function relaxLost(t) {
   for (const side of SIDES) {
     const rig = rigs[side];
     if (state.lastSeen[side] >= 0 && t - state.lastSeen[side] < LIVE_WINDOW) continue;
+    if (grasps[side].current) grasps[side].reset();
     rig.wrist.quaternion.slerp(rig.wristRest, 0.06);
     for (const chain of Object.values(rig.chains)) for (const l of chain) l.bone.quaternion.slerp(l.restLocal, 0.06);
   }
@@ -417,6 +429,12 @@ function tick(now) {
       $(`seen-${side}`).textContent = live ? '추적 중' : '없음';
     }
     $('gesture').textContent = state.source === 'demo' && !state.frozen ? `데모 동작: ${state.gesture}` : '';
+    $('object-info').textContent = SIDES.map((s) => {
+      const o = grasps[s].current;
+      if (!o) return '';
+      const size = o.type === 'cylinder' || o.type === 'sphere' ? ` Ø${(o.radius * 200).toFixed(1)}cm` : ` ${(o.radius * 200).toFixed(1)}cm`;
+      return `${s === 'left' ? '왼손' : '오른손'}: ${OBJECT_LABEL[o.type]}${size}`;
+    }).filter(Boolean).join(' · ');
   }
   if (now - tableT > 120) {
     tableT = now;
@@ -485,6 +503,7 @@ function capture() {
   }
   const pose = capturePose(nextPoseName(), rigs, state.rawLandmarks);
   SIDES.forEach((s) => (rigs[s].group.visible = visible[s]));
+  for (const s of SIDES) if (pose.hands[s]) pose.hands[s].object = grasps[s].toJSON();
   if (!pose.hands.left && !pose.hands.right) {
     toast('추적 중인 손이 없어 캡처하지 않았습니다.');
     return;
@@ -551,6 +570,7 @@ function viewPose(pose) {
   applyPose(pose, rigs);
   for (const side of SIDES) {
     const h = pose.hands[side];
+    grasps[side].fromJSON(h ? h.object : null);
     frozenAngles[side] = h && h.angles ? { angles: h.angles } : null;
   }
   $('pose-banner').hidden = false;
@@ -644,4 +664,4 @@ $('export-all').onclick = () => {
 renderLibrary();
 renderTable();
 requestAnimationFrame(tick);
-window.__hms = { scene, rigs, solvers, state, capture, viewPose };
+window.__hms = { handFeatures, grasps, scene, rigs, solvers, state, capture, viewPose };

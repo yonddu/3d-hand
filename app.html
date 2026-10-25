@@ -148,6 +148,7 @@
       <div class="legend"><span><i class="dot" style="background:var(--left)"></i>왼손 <b id="seen-left">–</b></span><span><i class="dot" style="background:var(--right)"></i>오른손 <b id="seen-right">–</b></span></div>
       <span id="fps">0 fps</span>
       <span id="gesture"></span>
+      <span id="object-info"></span>
     </div>
   </div>
 
@@ -182,6 +183,10 @@
       <div class="row">
         <label class="check"><input type="checkbox" id="show-joints"> 관절 점</label>
         <label class="check"><input type="checkbox" id="show-raw"> 원본 랜드마크</label>
+      </div>
+      <div class="row">
+        <label class="check"><input type="checkbox" id="grasp" checked> 쥔 물건 추정</label>
+        <label class="check"><input type="checkbox" id="contact" checked> 손가락 접촉 보정</label>
       </div>
       <div class="row">
         <label for="look">손 재질</label>
