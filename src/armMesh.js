@@ -158,8 +158,15 @@ export function buildArm(loop, { ringSize = 64 } = {}) {
     const i0 = best ? best.i : 0;
     const i1 = (i0 + 1) % L;
     const f = best ? best.s : 0;
-    ring0.push(loop.points[i0].clone().lerp(loop.points[i1], f));
-    ring0S.push(loop.slopes[i0].clone().lerp(loop.slopes[i1], f));
+    const q = loop.points[i0].clone().lerp(loop.points[i1], f);
+    const slope = loop.slopes[i0].clone().lerp(loop.slopes[i1], f);
+    // The hand narrows toward the wrist; carrying that taper on down the arm
+    // pinches a dent just past the border. Keep only slopes that widen.
+    const out = new THREE.Vector2(q.x - c.x, q.z - c.z).normalize();
+    const o = slope.dot(out);
+    if (o < 0) slope.addScaledVector(out, -o);
+    ring0.push(q);
+    ring0S.push(slope);
   }
 
   const cy = ring0.reduce((s, p) => s + p.y, 0) / R;
@@ -186,7 +193,7 @@ export function buildArm(loop, { ringSize = 64 } = {}) {
   const SE = 2.15; // superellipse exponent: a touch flatter-sided than an ellipse, like a forearm
   stations.forEach((a, r) => {
     const wFore = THREE.MathUtils.smoothstep(a, UPPER - 0.045, UPPER + 0.045);
-    const wHand = THREE.MathUtils.smoothstep(a, aLoop - 0.045, aLoop);
+    const wHand = THREE.MathUtils.smoothstep(a, aLoop - 0.07, aLoop); // the wrist bends over ~7 cm of skin
     const setAttrs = (v) => {
       weights[v * 3] = 1 - wFore;
       weights[v * 3 + 1] = wFore - wHand;

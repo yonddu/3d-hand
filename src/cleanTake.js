@@ -13,14 +13,14 @@
 const SIDES = ['left', 'right'];
 const MIN_RUN = 4; // a hand seen for fewer frames than this is a false find
 const MAX_GAP = 8; // dropouts up to this many frames are filled in
-const WRIST_WIN = 8; // frames either side used to judge the palm
+const WRIST_WIN = 4; // frames on each side used to judge the palm
 const WRIST_FLIP = 50; // degrees from its neighbours: a misread palm
 const WRIST_JUMP = 0.08; // metres from its neighbours: a misread position
 const MAX_SWAP = 24; // a hand briefly read as the other hand, up to this many frames
 const SWAP_NEAR = 0.08; // metres: where the other hand just was
 const BONE_WIN = 3;
 const BONE_SPIKE = 30; // degrees
-const SIGMA = { wrist: 1.6, bone: 1.3, pos: 1.6 }; // smoothing, in frames
+const SIGMA = { wrist: 1.6, bone: 1.3, pos: 2.5 }; // smoothing, in frames
 
 const isQuat = (k) => k.endsWith('Q');
 const POS_KEYS = ['wrist', 'elbow', 'shoulder'];
@@ -120,22 +120,35 @@ function cleanSide(hands, swapped) {
   runs = runsOf(hands);
 
   for (const [s, e] of runs) {
-    // 2. Misread palms: a palm turned far from where its neighbours say it
-    // is, or a hand jumped away from them. The whole hand of such a frame is
-    // rebuilt from the good frames on both sides.
+    // 2. Misread palms: a palm turned far from where the frames before AND
+    // the frames after say it is, while those two agree with each other (or
+    // a hand jumped away from both). Fast real motion passes, since there
+    // the frames before and after disagree. Such a frame is rebuilt from the
+    // good frames on both sides.
     const bad = [];
+    const medPos = (win) => [0, 1, 2].map((c) => {
+      const v = win.map((h) => h.wrist[c]).sort((p, q) => p - q);
+      return v[v.length >> 1];
+    });
+    const dist = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
     for (let i = s; i <= e; i++) {
-      const lo = Math.max(s, i - WRIST_WIN);
-      const hi = Math.min(e, i + WRIST_WIN);
-      const win = [];
-      for (let j = lo; j <= hi; j++) win.push(hands[j]);
-      const med = qmedoid(win.map((h) => h.handQ));
-      const pm = [0, 1, 2].map((c) => {
-        const v = win.map((h) => h.wrist[c]).sort((p, q) => p - q);
-        return v[v.length >> 1];
-      });
-      const far = Math.hypot(...hands[i].wrist.map((v, c) => v - pm[c]));
-      bad[i] = qangle(hands[i].handQ, med) > WRIST_FLIP || far > WRIST_JUMP;
+      const before = [];
+      const after = [];
+      for (let j = Math.max(s, i - WRIST_WIN); j < i; j++) before.push(hands[j]);
+      for (let j = i + 1; j <= Math.min(e, i + WRIST_WIN); j++) after.push(hands[j]);
+      if (!before.length || !after.length) {
+        bad[i] = false;
+        continue;
+      }
+      const qb = qmedoid(before.map((h) => h.handQ));
+      const qa = qmedoid(after.map((h) => h.handQ));
+      const q = hands[i].handQ;
+      const turned = qangle(q, qb) > WRIST_FLIP && qangle(q, qa) > WRIST_FLIP && qangle(qa, qb) < WRIST_FLIP;
+      const pb = medPos(before);
+      const pa = medPos(after);
+      const p = hands[i].wrist;
+      const jumped = dist(p, pb) > WRIST_JUMP && dist(p, pa) > WRIST_JUMP && dist(pa, pb) < WRIST_JUMP;
+      bad[i] = turned || jumped;
     }
     const good = [];
     for (let i = s; i <= e; i++) if (!bad[i]) good.push(i);

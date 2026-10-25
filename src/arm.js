@@ -177,7 +177,11 @@ export class ArmRig {
     this.bones.shoulder = bone(`${P}Shoulder`, this.group);
     this.bones.arm = bone(`${P}Arm`, this.bones.shoulder);
     this.bones.fore = bone(`${P}ForeArm`, this.bones.arm, UPPER);
-    this.bones.hand = bone(`${P}Hand`, this.bones.fore, FORE);
+    // A helper halfway through the wrist bend (screen only, not exported):
+    // skin over the wrist follows it, so a bent wrist rounds over two half
+    // turns instead of folding flat in one.
+    this.bones.mid = bone(`${P}WristMid`, this.bones.fore, FORE);
+    this.bones.hand = bone(`${P}Hand`, this.bones.mid, 0);
 
     const jointGeo = new THREE.SphereGeometry(0.008, 12, 8);
     const jointMat = new THREE.MeshBasicMaterial({ color: 0x3fd0c9, depthTest: false, transparent: true });
@@ -202,10 +206,12 @@ export class ArmRig {
     const skinIndex = new Uint16Array(n * 4);
     const skinWeight = new Float32Array(n * 4);
     for (let i = 0; i < n; i++) {
-      for (let j = 0; j < 3; j++) {
-        skinIndex[i * 4 + j] = j + 1; // bones: 0 shoulder, 1 arm, 2 forearm, 3 hand
-        skinWeight[i * 4 + j] = arm.weights[i * 3 + j];
-      }
+      // bones: 0 shoulder, 1 arm, 2 forearm, 3 wrist helper, 4 hand. The hand's
+      // share is split: the forearm side of the bend goes to the helper.
+      const h = arm.weights[i * 3 + 2];
+      const toHand = THREE.MathUtils.smoothstep(h, 0.35, 1) * h;
+      skinIndex.set([1, 2, 3, 4], i * 4);
+      skinWeight.set([arm.weights[i * 3], arm.weights[i * 3 + 1], h - toHand, toHand], i * 4);
     }
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
@@ -224,9 +230,10 @@ export class ArmRig {
     B.shoulder.quaternion.identity();
     B.arm.quaternion.copy(ARM_BIND);
     B.fore.quaternion.identity();
+    B.mid.quaternion.identity();
     B.hand.quaternion.identity();
     this.group.updateMatrixWorld(true);
-    const skeleton = new THREE.Skeleton([B.shoulder, B.arm, B.fore, B.hand]);
+    const skeleton = new THREE.Skeleton([B.shoulder, B.arm, B.fore, B.mid, B.hand]);
     this.mesh = new THREE.SkinnedMesh(g, material);
     this.mesh.name = `${this.side}ArmMesh`;
     this.mesh.frustumCulled = false;
@@ -274,7 +281,8 @@ export class ArmRig {
     B.shoulder.position.copy(L.S);
     B.arm.quaternion.copy(L.arm);
     B.fore.quaternion.copy(L.fore);
-    B.hand.quaternion.copy(L.hand);
+    B.mid.quaternion.identity().slerp(L.hand, 0.5);
+    B.hand.quaternion.copy(B.mid.quaternion).invert().multiply(L.hand);
     this.elbowDot.position.copy(L.E);
     this.result = this.measure(handQuat);
     return this.result;

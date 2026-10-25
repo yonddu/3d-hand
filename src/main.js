@@ -574,17 +574,19 @@ function feed(inputs, t) {
     }
     state.lastSeen[side] = t;
     state.rawLandmarks[side] = input.world;
-    const smooth = filters[side].filter(input.world.map((p) => [p.x, p.y, p.z]), t).map((a) => new THREE.Vector3(...a));
+    // A recording is smoothed afterwards, both ways and without lag
+    // (cleanTake.js), so it skips the live filters, which always trail a little.
+    const smooth = rec.offline ? input.world.map((p) => p.clone()) : filters[side].filter(input.world.map((p) => [p.x, p.y, p.z]), t).map((a) => new THREE.Vector3(...a));
     let anc;
     if (input.ray) {
-      const [[ix, iy]] = imageFilters[side].filter([[input.image.x, input.image.y, 0]], t);
-      const [[d]] = depthFilters[side].filter([[input.depth, 0, 0]], t);
+      const [[ix, iy]] = rec.offline ? [[input.image.x, input.image.y]] : imageFilters[side].filter([[input.image.x, input.image.y, 0]], t);
+      const [[d]] = rec.offline ? [[input.depth]] : depthFilters[side].filter([[input.depth, 0, 0]], t);
       anc = input.ray({ x: ix, y: iy }).multiplyScalar(d).toArray();
-    } else [anc] = anchorFilters[side].filter([[input.anchor.x, input.anchor.y, input.anchor.z]], t);
+    } else [anc] = rec.offline ? [input.anchor.toArray()] : anchorFilters[side].filter([[input.anchor.x, input.anchor.y, input.anchor.z]], t);
     const rig = rigs[side];
     rig.group.visible = true;
     rig.group.position.set(anc[0], anc[1], anc[2]);
-    state.lastSolve[side] = solvers[side].solve(smooth, { limits: state.limits, fit: state.fit, occluded: input.occluded });
+    state.lastSolve[side] = solvers[side].solve(smooth, { limits: state.limits, fit: state.fit, occluded: input.occluded, smoothing: !rec.offline });
     if (realHands[side]) {
       realHands[side].setProportions(smooth);
       realHands[side].setPinches(smooth);
@@ -696,7 +698,9 @@ function fitArCamera() {
   videoTex.repeat.set(ca > va ? 1 : ca / va, ca > va ? va / ca : 1);
   videoTex.offset.set((1 - videoTex.repeat.x) / 2, (1 - videoTex.repeat.y) / 2);
 }
-const arWanted = () => $('ar').checked && (state.source === 'camera' || state.source === 'video') && (!state.frozen || !!(review.take && review.take.videoUrl)) && video.readyState >= 2;
+// A video being stepped or scrubbed drops its ready state while it seeks; the
+// view must not flip out of passthrough then (that resets all tracking).
+const arWanted = () => $('ar').checked && (state.source === 'camera' || state.source === 'video') && (!state.frozen || !!(review.take && review.take.videoUrl)) && (video.readyState >= 2 || video.seeking || (rec.on && rec.offline));
 function syncAr() {
   $('ar-btn').hidden = state.source === 'demo';
   const on = arWanted();
