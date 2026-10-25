@@ -79,6 +79,9 @@ export class ThenarPad {
       for (const j of this.nb[f]) m.add(P(j));
       return P(i).sub(m.divideScalar(this.nb[f].length));
     });
+    // Rest mean edge length around each free vertex, to tell where the
+    // skinning squeezes the pad.
+    this.restEdge = free.map((i, f) => this.nb[f].reduce((sum, j) => sum + P(i).distanceTo(P(j)), 0) / this.nb[f].length);
 
     // x_i - s_i * mean(x_j over free j) = (1 - s_i) p_i + s_i (r_i + mean(p_j over fixed j))
     // The matrix is the same every frame: invert it once.
@@ -140,18 +143,31 @@ export class ThenarPad {
     const mats = [];
     for (const i of this.ring) skinned.set(i, new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(blend(i, M)));
     const F = this.free.length;
+    const lbs = this.free.map((i) => {
+      const B = blend(i, new THREE.Matrix4());
+      mats.push(B);
+      return new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(B);
+    });
+    const at = (j) => (this.slot[j] >= 0 ? lbs[this.slot[j]] : skinned.get(j));
+    // How much the skinning squeezes the tissue around each vertex: where it
+    // keeps its size the pad keeps its full rest relief (it then matches the
+    // skinned surface), where it is squeezed the relief flattens instead of
+    // bulging out.
+    const keep = this.free.map((i, f) => {
+      const e = this.nb[f].reduce((sum, j) => sum + lbs[f].distanceTo(at(j)), 0) / this.nb[f].length;
+      return THREE.MathUtils.lerp(ThenarPad.detail, 1, THREE.MathUtils.smoothstep(e / this.restEdge[f], ThenarPad.squeeze[0], ThenarPad.squeeze[1]));
+    });
     const rhs = new Float64Array(F * 3);
     const v = new THREE.Vector3();
     const r = new THREE.Vector3();
     const m3 = new THREE.Matrix3();
     this.free.forEach((i, f) => {
-      const B = blend(i, new THREE.Matrix4());
-      mats.push(B);
+      const B = mats[f];
       const s = this.soft[i];
-      v.fromBufferAttribute(pos, i).applyMatrix4(B);
-      // Rest offset turned with the bones, at its rest length.
+      v.copy(lbs[f]);
+      // Rest offset turned with the bones.
       const d = this.delta[f];
-      r.copy(d).applyMatrix3(m3.setFromMatrix4(B)).setLength(d.length() * ThenarPad.detail);
+      r.copy(d).applyMatrix3(m3.setFromMatrix4(B)).setLength(d.length() * keep[f]);
       const k = s / this.nb[f].length;
       let fx = 0;
       let fy = 0;
@@ -245,8 +261,12 @@ export class ThenarPad {
   }
 }
 
-// Share of the pad's rest relief kept on top of the smooth surface.
+// Share of the pad's rest relief kept on top of the smooth surface where the
+// skinning squeezes it.
 ThenarPad.detail = 0.3;
+// Skinned/rest edge length ratio: below the first the pad is squeezed, above
+// the second it is not.
+ThenarPad.squeeze = [0.85, 1];
 
 // Dense inverse by Gauss-Jordan with partial pivoting (n is a few hundred).
 function invert(A, n) {
