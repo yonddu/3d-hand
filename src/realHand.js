@@ -282,8 +282,9 @@ export class RealHand {
     for (const key of ['thumb', 'index', 'middle', 'ring', 'pinky']) M[key] = this.chainPose(key).pos;
     const palm = this.modelPalm;
     const bendAt = (pos, k) => pos[k].clone().sub(pos[k - 1]).normalize().angleTo(pos[k + 1].clone().sub(pos[k]).normalize());
-    // PIP bend of index and middle, ~45 to ~85 degrees.
-    const bent = THREE.MathUtils.smoothstep(Math.min(bendAt(M.index, 1), bendAt(M.middle, 1)), 0.8, 1.5);
+    // PIP bend of index and middle, ~35 to ~65 degrees (the thumb on top hides
+    // part of the fingers, so the tracker often reads them less bent).
+    const bent = THREE.MathUtils.smoothstep(Math.min(bendAt(M.index, 1), bendAt(M.middle, 1)), 0.6, 1.1);
     const toSeg = (q, a, b) => {
       const ab = b.clone().sub(a);
       const t = THREE.MathUtils.clamp(q.clone().sub(a).dot(ab) / ab.lengthSq(), 0, 1);
@@ -298,8 +299,12 @@ export class RealHand {
     const thumbDir = M.thumb[3].clone().sub(M.thumb[1]).normalize();
     const ulnar = M.pinky[0].clone().sub(M.index[0]).normalize();
     const thumbBend = bendAt(M.thumb, 1) + bendAt(M.thumb, 2);
-    const across = Math.max(THREE.MathUtils.smoothstep(thumbDir.dot(ulnar), 0.12, 0.35), THREE.MathUtils.smoothstep(thumbBend, 0.8, 1.2));
+    // A thumb tip lying right on the curled fingers is wrapping whichever way
+    // it points (a raised thumb's tip is a thumb length away from them).
+    const onTop = THREE.MathUtils.clamp((0.32 - near) / 0.12, 0, 1);
+    const across = Math.max(THREE.MathUtils.smoothstep(thumbDir.dot(ulnar), 0.12, 0.35), THREE.MathUtils.smoothstep(thumbBend, 0.8, 1.2), onTop);
     this.thumbWrap = bent * onFingers * across;
+    this.thumbWrapParts = { bent, onFingers, across, near, pip: [bendAt(M.index, 1), bendAt(M.middle, 1)], thumbBend, dir: thumbDir.dot(ulnar) };
   }
 
   wrapThumb() {
@@ -331,15 +336,15 @@ export class RealHand {
         links[k].bone.quaternion.premultiply(parent.clone().invert().multiply(R).multiply(parent));
       }
     };
-    for (let it = 0; it < 4; it++) {
+    for (let it = 0; it < 6; it++) {
       // The IP joint sits over the index, the tip reaches the middle finger.
       const ipGoal = backOf('index', 0.35);
       const tipGoal = backOf('middle', 0.45);
       if (!ipGoal || !tipGoal) return;
       const { pos } = this.chainPose('thumb');
-      ccd(pos[2].clone().lerp(ipGoal, w * 0.6), 1, 0.15);
+      ccd(pos[2].clone().lerp(ipGoal, w), 1, 0.25);
       const now = this.chainPose('thumb').pos[3];
-      ccd(now.clone().lerp(tipGoal, w * 0.6), 2, 0.15);
+      ccd(now.clone().lerp(tipGoal, w), 2, 0.25);
     }
   }
 

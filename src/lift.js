@@ -19,7 +19,25 @@ const PARENT = [-1, 0, 1, 2, 3, 0, 5, 6, 7, 0, 9, 10, 11, 0, 13, 14, 15, 0, 17, 
 const ORDER = [1, 5, 9, 13, 17, 2, 3, 4, 6, 7, 8, 10, 11, 12, 14, 15, 16, 18, 19, 20];
 const PALM = [[0, 5], [0, 9], [0, 13], [0, 17], [5, 17], [5, 9], [9, 13], [13, 17]];
 
-// The palm is placed first, as one rigid piece: its world shape is turned and
+// Bone lengths. MediaPipe's 3D guess also gives each bone a length, but on
+// some pictures (a large open hand seen from the back, for one) that guess
+// collapses: a palm 1.6 cm wide, a finger bone 1.5 cm long. Taking those
+// lengths, every bone would lean far out of the picture and an open hand would
+// come out as a fist. So lengths come from standard hand proportions (relative
+// to the palm, wrist to middle knuckle), and each hand's own fingers are
+// learned as it moves: a bone is at least as long as the longest it has
+// looked in the picture.
+const CANON = {
+  1: 0.35, 2: 0.41, 3: 0.35, 4: 0.3, // thumb
+  5: 0.95, 6: 0.47, 7: 0.28, 8: 0.23, // index
+  9: 1, 10: 0.52, 11: 0.33, 12: 0.24, // middle
+  13: 0.93, 14: 0.48, 15: 0.32, 16: 0.24, // ring
+  17: 0.85, 18: 0.39, 19: 0.22, 20: 0.21, // pinky
+};
+const GROW_MAX = 1.3; // a finger up to 30% longer than standard
+const PALM_REF = [0.07, 0.1]; // metres, wrist to middle knuckle
+
+// The palm is placed first, as one rigid piece: a standard palm is turned and
 // scaled until it covers the palm in the picture. Lifting each knuckle from
 // the wrist on its own cannot tell a palm seen edge-on from a flat one (every
 // knuckle would sit at the wrist's depth), and a flat palm seen edge-on flips
@@ -28,29 +46,24 @@ const PALM = [[0, 5], [0, 9], [0, 13], [0, 17], [5, 17], [5, 9], [9, 13], [13, 1
 // the last frame had is kept (motion is continuous), unless the palm passes
 // edge-on or flat, where the two meet and the world reading may switch it.
 const PALM_PTS = [0, 5, 9, 13, 17];
+// Standard palm in its own plane (along the middle finger, across), palm length 1.
+const PALM_SHAPE = [[0, 0], [0.92, -0.3], [1, 0], [0.9, 0.2], [0.77, 0.36]];
 const SAME_POSE = 25; // degrees between the two mirror poses: they are one pose
 const SWITCH_VOTES = 8; // frames the world reading must disagree before a switch
 
-function fitPalm(world, u) {
+function fitPalm(world, u, palm) {
   const v3 = (i) => [world[i].x, world[i].y, world[i].z];
   const sub = (a, b) => a.map((x, n) => x - b[n]);
-  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
   const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
   const unit = (a) => {
     const l = Math.hypot(...a) || 1;
     return a.map((x) => x / l);
   };
-  const W = PALM_PTS.map(v3);
-  const cw = [0, 1, 2].map((n) => W.reduce((t, p) => t + p[n], 0) / W.length);
+  // The world reading only says which way the palm faces (for the mirror choice).
+  const nW = unit(cross(sub(v3(5), v3(0)), sub(v3(17), v3(0))));
+  const c0 = [0, 1].map((n) => PALM_SHAPE.reduce((t, p) => t + p[n], 0) / PALM_SHAPE.length);
+  const loc = PALM_SHAPE.map(([al, ac]) => [(al - c0[0]) * palm, (ac - c0[1]) * palm, 0]);
   const cu = [0, 1].map((n) => PALM_PTS.reduce((t, i) => t + u[i][n], 0) / PALM_PTS.length);
-  // Palm frame of the world shape: along the middle finger, across, normal.
-  const e1 = unit(sub(W[2], W[0]));
-  const nW = unit(cross(sub(W[1], W[0]), sub(W[4], W[0])));
-  const e2 = cross(nW, e1);
-  const loc = W.map((p) => {
-    const d = sub(p, cw);
-    return [dot(d, e1), dot(d, e2), dot(d, nW)];
-  });
   // Picture = A · (palm-plane coordinates), least squares (2x2).
   let Suu = 0, Suv = 0, Svv = 0;
   const S = [[0, 0], [0, 0]];
@@ -101,7 +114,16 @@ export function liftToPicture(world, image, aspect, side = null, memory = null) 
   // Picture units: x scaled by the aspect so both axes share one unit.
   const u = image.map((p) => [p.x * aspect, p.y]);
   const d2 = (a, b) => Math.hypot(u[a][0] - u[b][0], u[a][1] - u[b][1]);
-  const palmFit = fitPalm(world, u);
+  // Palm length: the world reading's, kept within real hand sizes.
+  const wp = [len(0, 5) / CANON[5], len(0, 9), len(0, 13) / CANON[13]].sort((p, q) => p - q)[1];
+  const palm = Math.min(Math.max(wp, PALM_REF[0]), PALM_REF[1]);
+  if (memory && !memory.grow) memory.grow = [];
+  // The world length where it is believable, the standard one where it is not.
+  const boneLen = (i) => {
+    const c = palm * CANON[i] * ((memory && memory.grow[i]) || 1);
+    return Math.min(Math.max(len(i, PARENT[i]), 0.8 * c), 1.25 * c);
+  };
+  const palmFit = fitPalm(world, u, palm);
   let k;
   let palmZ = null;
   if (palmFit) {
@@ -157,7 +179,13 @@ export function liftToPicture(world, image, aspect, side = null, memory = null) 
     } else {
       const dx = x - out[p].x;
       const dy = y - out[p].y;
-      const L = len(i, p);
+      const L = boneLen(i);
+      if (memory && i !== 1) {
+        // A bone is at least as long as it looks: learn this hand's fingers.
+        const seen = Math.min(Math.hypot(dx, dy) / (palm * CANON[i]), GROW_MAX);
+        const g = memory.grow[i] || 1;
+        if (seen > g) memory.grow[i] = g + (seen - g) * 0.2;
+      }
       const room = Math.sqrt(Math.max(L * L - dx * dx - dy * dy, 0));
       const wz = world[i].z - world[p].z;
       let sign = wz >= 0 ? 1 : -1;
