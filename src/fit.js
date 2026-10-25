@@ -22,6 +22,8 @@ const W_IP = 0.35; // thumb IP follows its MCP
 const W_CONVERGE = 0.5; // bent fingers lean toward the middle of the hand
 const W_ROLL = 1.2; // knuckles barely turn about their length
 const W_TIME = 0.12; // stay near the last frame; more when tracking is unsure
+const W_CLOSE = 0.8; // hidden joints follow the natural closing path
+const PIP_PER_MCP = 1.1; // closing a fist: PIP bends a little more than the knuckle
 const DIP_PER_PIP = 0.67;
 const IP_PER_MCP = 0.9;
 const CONVERGE = { index: -5, middle: 0, ring: 5, pinky: 10 };
@@ -74,7 +76,7 @@ function residuals(theta, ctx) {
   const r = [];
   // Data: each joint against its tracked point.
   for (let k = 0; k < 3; k++) {
-    const w = ctx.conf[k] / ctx.palm;
+    const w = (ctx.conf[k] * (1 - 0.85 * ctx.hidden[k])) / ctx.palm;
     const d = pts[k].clone().sub(ctx.obs[k]);
     r.push(d.x * w, d.y * w, d.z * w * W_DEPTH);
   }
@@ -92,6 +94,9 @@ function residuals(theta, ctx) {
   } else {
     const wd = W_DIP * (0.5 + 0.5 * THREE.MathUtils.smoothstep(ang[1].flex, 10, 60));
     r.push((ang[2].flex - DIP_PER_PIP * ang[1].flex) * D2R * wd);
+    // Hidden middle joint: it bends the way a closing finger bends.
+    const pip = Math.min(PIP_PER_MCP * Math.max(ang[0].flex, 0), 100);
+    r.push((ang[1].flex - pip) * D2R * W_CLOSE * ctx.hidden[1]);
     r.push((ang[0].abd - CONVERGE[ctx.key] * t) * D2R * W_CONVERGE * t);
     // Roll is unreliable once the fingertip is hidden in a fist.
     r.push(ang[0].roll * D2R * W_ROLL * (1 + 4 * t));
@@ -189,7 +194,19 @@ export function fitFinger({ finger, chain, side, P, wristQ, conf, palm, prev, st
   const lay = layout(finger.key);
   const limits = [0, 1, 2].map((k) => (useLimits ? limitsFor(finger.key, k) : [-180, 180, -180, 180]));
   const rollMax = finger.key === 'thumb' ? ROLL_MAX.thumb : ROLL_MAX.finger;
-  const ctx = { key: finger.key, chain, side, wristQ, obs, len, conf, palm, lay, limits, prev };
+  // Which tracked points are guesses. Seen from the back of the hand (the
+  // first-person view), a finger bent at the knuckle hides its last two
+  // joints inside the fist; the camera has no picture of them and the tracker
+  // tends to guess them half open. The knuckle and first bone stay visible,
+  // so their bend is trusted and the hidden joints follow it along the path a
+  // closing finger takes, instead of the guess.
+  const palmN = new THREE.Vector3(0, 0, 1).applyQuaternion(wristQ);
+  const along = new THREE.Vector3(0, 1, 0).applyQuaternion(wristQ);
+  const backFacing = THREE.MathUtils.smoothstep(-palmN.z, 0.15, 0.5); // +z points at the camera
+  const knuckleBend = Math.atan2(obs[0].dot(palmN), obs[0].dot(along)) / D2R;
+  const tucked = finger.key === 'thumb' ? 0 : backFacing * THREE.MathUtils.smoothstep(knuckleBend, 35, 70);
+  const hidden = [0, tucked, tucked];
+  const ctx = { key: finger.key, chain, side, wristQ, obs, len, conf, palm, lay, limits, prev, hidden };
   // Start from the last frame, or from the fresh reading when that already
   // fits better (the hand moved fast, or was just found again).
   const cost = (x) => residuals(x, ctx).reduce((s, v) => s + v * v, 0);

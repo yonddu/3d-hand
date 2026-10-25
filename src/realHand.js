@@ -268,31 +268,32 @@ export class RealHand {
   // wrapped over the backs of the index and middle middle phalanges. Seen from
   // behind, the thumb in a fist is mostly hidden, so the tracked thumb usually
   // hovers off the fingers or sinks into them; a real thumb rests on them.
+  // Read from the solved model, not the raw points: in a fist seen from
+  // behind the raw finger joints are guesses (usually too open), and the
+  // solver has already replaced them with the closing path.
   setThumbWrap(P) {
-    const palm = P[0].distanceTo(P[9]);
     this.thumbWrap = 0;
-    if (palm < 1e-4) return;
-    const curl = (m, p, d) => {
-      const a = P[p].clone().sub(P[m]).normalize();
-      const b = P[d].clone().sub(P[p]).normalize();
-      return Math.acos(THREE.MathUtils.clamp(a.dot(b), -1, 1));
-    };
+    if (P[0].distanceTo(P[9]) < 1e-4) return;
+    const M = {};
+    for (const key of ['thumb', 'index', 'middle', 'ring', 'pinky']) M[key] = this.chainPose(key).pos;
+    const palm = this.modelPalm;
+    const bendAt = (pos, k) => pos[k].clone().sub(pos[k - 1]).normalize().angleTo(pos[k + 1].clone().sub(pos[k]).normalize());
     // PIP bend of index and middle, ~45 to ~85 degrees.
-    const bent = THREE.MathUtils.smoothstep(Math.min(curl(5, 6, 7), curl(9, 10, 11)), 0.8, 1.5);
+    const bent = THREE.MathUtils.smoothstep(Math.min(bendAt(M.index, 1), bendAt(M.middle, 1)), 0.8, 1.5);
     const toSeg = (q, a, b) => {
-      const ab = P[b].clone().sub(P[a]);
-      const t = THREE.MathUtils.clamp(q.clone().sub(P[a]).dot(ab) / ab.lengthSq(), 0, 1);
-      return q.distanceTo(P[a].clone().addScaledVector(ab, t));
+      const ab = b.clone().sub(a);
+      const t = THREE.MathUtils.clamp(q.clone().sub(a).dot(ab) / ab.lengthSq(), 0, 1);
+      return q.distanceTo(a.clone().addScaledVector(ab, t));
     };
-    const tip = P[4];
-    const near = Math.min(toSeg(tip, 6, 7), toSeg(tip, 10, 11), toSeg(tip, 5, 6), toSeg(tip, 9, 10)) / palm;
-    const onFingers = THREE.MathUtils.clamp((0.6 - near) / 0.3, 0, 1);
+    const tip = M.thumb[3];
+    const near = Math.min(...['index', 'middle'].flatMap((k) => [toSeg(tip, M[k][0], M[k][1]), toSeg(tip, M[k][1], M[k][2])])) / palm;
+    const onFingers = THREE.MathUtils.clamp((0.7 - near) / 0.3, 0, 1);
     // A wrapping thumb points across the hand toward the little finger, or is
     // bent at its MCP/IP; a raised one (thumbs-up) is straight and points
     // along the hand.
-    const thumbDir = P[4].clone().sub(P[2]).normalize();
-    const ulnar = P[17].clone().sub(P[5]).normalize();
-    const thumbBend = curl(1, 2, 3) + curl(2, 3, 4);
+    const thumbDir = M.thumb[3].clone().sub(M.thumb[1]).normalize();
+    const ulnar = M.pinky[0].clone().sub(M.index[0]).normalize();
+    const thumbBend = bendAt(M.thumb, 1) + bendAt(M.thumb, 2);
     const across = Math.max(THREE.MathUtils.smoothstep(thumbDir.dot(ulnar), 0.12, 0.35), THREE.MathUtils.smoothstep(thumbBend, 0.8, 1.2));
     this.thumbWrap = bent * onFingers * across;
   }

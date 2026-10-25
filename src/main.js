@@ -799,6 +799,7 @@ function tick(now) {
       const live = state.frozen ? !!rigs[side].group.visible : state.lastSeen[side] >= 0 && t - state.lastSeen[side] < LIVE_WINDOW;
       $(`seen-${side}`).textContent = live ? '추적 중' : '없음';
     }
+    $('slow-hint').hidden = state.source === 'demo';
     $('gesture').textContent = state.source === 'demo' && !state.frozen ? `데모 동작: ${state.gesture}` : '';
     $('object-info').textContent = SIDES.map((s) => {
       const o = grasps[s].current;
