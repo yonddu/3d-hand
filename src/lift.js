@@ -49,7 +49,7 @@ const PALM_PTS = [0, 5, 9, 13, 17];
 // Standard palm in its own plane (along the middle finger, across), palm length 1.
 const PALM_SHAPE = [[0, 0], [0.92, -0.3], [1, 0], [0.9, 0.2], [0.77, 0.36]];
 const SAME_POSE = 25; // degrees between the two mirror poses: they are one pose
-const SWITCH_VOTES = 8; // frames the world reading must disagree before a switch
+const SWITCH_VOTES = 45; // frames (1.5 s) the world reading must disagree before a switch
 
 function fitPalm(world, u, palm) {
   const v3 = (i) => [world[i].x, world[i].y, world[i].z];

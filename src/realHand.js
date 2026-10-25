@@ -299,11 +299,15 @@ export class RealHand {
     const thumbDir = M.thumb[3].clone().sub(M.thumb[1]).normalize();
     const ulnar = M.pinky[0].clone().sub(M.index[0]).normalize();
     const thumbBend = bendAt(M.thumb, 1) + bendAt(M.thumb, 2);
-    // A thumb tip lying right on the curled fingers is wrapping whichever way
-    // it points (a raised thumb's tip is a thumb length away from them).
-    const onTop = THREE.MathUtils.clamp((0.32 - near) / 0.12, 0, 1);
+    // A thumb tip near the curled fingers is wrapping whichever way it points:
+    // in a closed fist the thumb goes over the fingers, almost never inside
+    // them, and the camera rarely sees which (from behind the hand the thumb
+    // is hidden). A raised thumb's tip is a thumb length away from them.
+    const onTop = THREE.MathUtils.clamp((0.4 - near) / 0.15, 0, 1);
     const across = Math.max(THREE.MathUtils.smoothstep(thumbDir.dot(ulnar), 0.12, 0.35), THREE.MathUtils.smoothstep(thumbBend, 0.8, 1.2), onTop);
-    this.thumbWrap = bent * onFingers * across;
+    // A raised thumb (thumbs-up) points out away from the little finger.
+    const raised = THREE.MathUtils.smoothstep(-thumbDir.dot(ulnar), 0.1, 0.2);
+    this.thumbWrap = bent * onFingers * across * (1 - raised);
     this.thumbWrapParts = { bent, onFingers, across, near, pip: [bendAt(M.index, 1), bendAt(M.middle, 1)], thumbBend, dir: thumbDir.dot(ulnar) };
   }
 
@@ -311,7 +315,7 @@ export class RealHand {
     const rig = this.rig;
     const w = this.thumbWrap;
     const hand = this.modelPalm / 0.094; // the model's size relative to a typical palm
-    const LIFT = 0.017 * hand; // finger radius + thumb radius: surfaces touching
+    const LIFT = 0.022 * hand; // finger radius + thumb radius: surfaces touching, not overlapping
     // A point on the back (outside of the bend) of a finger's middle phalanx.
     const backOf = (key, t) => {
       const { pos } = this.chainPose(key);
@@ -346,6 +350,10 @@ export class RealHand {
       const now = this.chainPose('thumb').pos[3];
       ccd(now.clone().lerp(tipGoal, w), 2, 0.25);
     }
+    // How far the thumb tip ended up outside the middle finger's bend (for checks).
+    const goal = backOf('middle', 0.45);
+    const mid = this.chainPose('middle').pos;
+    if (goal) this.thumbOutside = this.chainPose('thumb').pos[3].clone().sub(mid[1].clone().lerp(mid[2], 0.45)).dot(goal.sub(mid[1].clone().lerp(mid[2], 0.45)).normalize()) / this.modelPalm;
   }
 
   // Bent fingers press against their neighbours. Tracking places each finger

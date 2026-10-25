@@ -553,10 +553,12 @@ function feed(inputs, t) {
     // A palm that turns 75+ degrees between two frames ~0.1 s apart is almost
     // always a misread (palm and back confused, fingers swapped), not a real
     // turn. Hold the last hand for up to two such frames; if the new reading
-    // persists, it is real and the hand follows.
+    // persists, it is real and the hand follows. A recording is cleaned
+    // against the frames on both sides afterwards (cleanTake.js), which tells
+    // the two apart better than holding, so recordings skip the hold.
     const frameQ = handFrameQuat(input.world, side);
     const recent = state.lastSeen[side] >= 0 && t - state.lastSeen[side] < 0.35;
-    if (recent && lastFrameQ[side] && frameQ.angleTo(lastFrameQ[side]) > JUMP_ANGLE && jumps[side] < JUMP_HOLD) {
+    if (!rec.offline && recent && lastFrameQ[side] && frameQ.angleTo(lastFrameQ[side]) > JUMP_ANGLE && jumps[side] < JUMP_HOLD) {
       jumps[side]++;
       state.lastSeen[side] = t;
       continue;
