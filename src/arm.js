@@ -26,6 +26,7 @@ const Y = new THREE.Vector3(0, 1, 0);
 const TWISTS = 5;
 // Forearm roll allowed either side of thumb up: pronation/supination ~80-90
 // degrees plus slack for shoulder rotation and the guessed elbow.
+const SEEN_BEND = (20 * Math.PI) / 180; // most a seen forearm may bend the wrist off its rest line
 const REST_EXT = (10 * Math.PI) / 180; // wrist extension held without thinking: median of the arm pose dictionary
 const ROLL_LIMIT = (110 * Math.PI) / 180;
 
@@ -289,17 +290,27 @@ export class ArmRig {
   update(wrist, handQuat, elbowHint = null) {
     const handY = Y.clone().applyQuaternion(handQuat);
     let target;
+    // People hold the wrist nearly straight (a little extended): the forearm
+    // continues the hand's line. Reaching back to a guessed shoulder bent the
+    // wrist sideways whenever the phone was held another way (user: "nobody's
+    // wrist bends like that").
+    const palmN = new THREE.Vector3(0, 0, 1).applyQuaternion(handQuat);
+    const back = handY.clone().multiplyScalar(-Math.cos(REST_EXT)).addScaledVector(palmN, -Math.sin(REST_EXT));
     if (elbowHint) {
       target = elbowHint.clone();
       this.source = 'pose';
+      if (this.follow) {
+        // A forearm read from the picture (skin colour, the pose model) can
+        // catch the sleeve or the desk. In first person the wrist rarely sits
+        // far off straight, so the seen line may only bend it so far.
+        const d = target.clone().sub(wrist).normalize();
+        const off = d.angleTo(back);
+        if (off > SEEN_BEND) d.copy(back).lerp(d, SEEN_BEND / off).normalize();
+        target = wrist.clone().addScaledVector(d, FORE);
+      }
     } else if (this.follow) {
-      // First person with no elbow in view: people hold the wrist nearly
-      // straight (a little extended), so the forearm continues the hand's
-      // line. Reaching back to a guessed shoulder instead bent the wrist
-      // sideways whenever the phone was not held the way the guess assumes
-      // (user: "nobody's wrist bends like that"). The shoulder gives way.
-      const palm = new THREE.Vector3(0, 0, 1).applyQuaternion(handQuat);
-      const back = handY.clone().multiplyScalar(-Math.cos(REST_EXT)).addScaledVector(palm, -Math.sin(REST_EXT));
+      // First person with no elbow in view: the forearm on the hand's line,
+      // and the shoulder gives way.
       target = wrist.clone().addScaledVector(back, FORE);
       target.z = Math.min(target.z, -0.06); // never between the eye and the phone
       this.source = 'hand';
