@@ -245,6 +245,7 @@ export class ArmRig {
     g.setAttribute('skinIndex', new THREE.BufferAttribute(skinIndex, 4));
     g.setAttribute('skinWeight', new THREE.BufferAttribute(skinWeight, 4));
     g.setAttribute('wristFade', new THREE.BufferAttribute(new Float32Array(arm.fadeElbow), 1));
+    g.setAttribute('skinDQ', new THREE.BufferAttribute(new Float32Array(n).fill(1), 1)); // dual quaternion skinning (realHand withWristFade)
     g.setIndex(new THREE.BufferAttribute(arm.index, 1));
 
     if (this.mesh) {

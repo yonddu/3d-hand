@@ -109,7 +109,21 @@ function fitPalm(world, u, palm) {
 // aspect: frame width / height, memory: an object kept per hand between
 // frames (or null). Returns 21 {x,y,z} in MediaPipe world axes
 // (x right, y down, z away from the camera), wrist at the origin.
-export function liftToPicture(world, image, aspect, side = null, memory = null) {
+// In first person the forearm comes into the picture from below, from the
+// shoulder on the hand's own side, and leans away from the camera. Elbow
+// position in picture units (x by the aspect), depth lean per unit of
+// picture length.
+const FP_ELBOW = { right: [0.85, 1.35], left: [0.15, 1.35] };
+const FP_LEAN = 0.6;
+// Palm normal (out of the palm) against the forearm: the forearm turns the
+// palm from facing the body's midline (thumb up) at most ~90 degrees either
+// way, to palm down or palm up. A palm facing away from the midline would
+// need the thumb turned down past that, which the arm cannot do; this much
+// slack past palm down/up is allowed for shoulder rotation and the guessed
+// forearm line.
+const LATERAL = 0.3;
+
+export function liftToPicture(world, image, aspect, side = null, memory = null, firstPerson = false) {
   const len = (a, b) => Math.hypot(world[a].x - world[b].x, world[a].y - world[b].y, world[a].z - world[b].z);
   // Picture units: x scaled by the aspect so both axes share one unit.
   const u = image.map((p) => [p.x * aspect, p.y]);
@@ -133,7 +147,17 @@ export function liftToPicture(world, image, aspect, side = null, memory = null) 
     const worldPick = dotN(p0.n, palmFit.nWorld) >= dotN(p1.n, palmFit.nWorld) ? 0 : 1;
     let pick = worldPick;
     const apart = Math.acos(Math.max(-1, Math.min(1, dotN(p0.n, p1.n)))) / (Math.PI / 180);
-    if (memory && memory.n && apart > SAME_POSE) {
+    // The two poses are the same picture with the hand turned the two ways
+    // about the line of sight: one through the thumb-up side (the way the
+    // forearm turns), one through the thumb-down side. When one of them
+    // needs the forearm turned past its range, it is not the pose.
+    const reach = firstPerson && (side === 'right' || side === 'left') ? forearmReach(u, aspect, side) : null;
+    const v0 = reach ? reach(p0.n) : 0;
+    const v1 = reach ? reach(p1.n) : 0;
+    if (reach && apart > SAME_POSE && Math.min(v0, v1) < -LATERAL && Math.abs(v0 - v1) > 0.25) {
+      pick = v0 > v1 ? 0 : 1;
+      if (memory) memory.votes = 0;
+    } else if (memory && memory.n && apart > SAME_POSE) {
       const keep = dotN(p0.n, memory.n) >= dotN(p1.n, memory.n) ? 0 : 1;
       memory.votes = keep === worldPick ? 0 : (memory.votes || 0) + 1;
       pick = memory.votes >= SWITCH_VOTES ? worldPick : keep;
@@ -270,4 +294,22 @@ function occlusion(P) {
     occ[i] = o;
   }
   return occ;
+}
+
+// For a palm normal n (MediaPipe world axes, the orientation fitPalm gives:
+// out of the palm for a right hand, out of the back for a left one), how far
+// the palm faces the body's midline across the guessed forearm line: 1 thumb
+// up, 0 palm down or up, -1 thumb down.
+function forearmReach(u, aspect, side) {
+  const [ex, ey] = FP_ELBOW[side];
+  const dx = u[0][0] - ex * aspect;
+  const dy = u[0][1] - ey;
+  const f = [dx, dy, FP_LEAN * Math.hypot(dx, dy)];
+  const fl = Math.hypot(...f) || 1;
+  const fu = f.map((v) => v / fl);
+  const s = side === 'right' ? 1 : -1;
+  // Midline: toward the other side of the picture, across the forearm.
+  const m = [-s - fu[0] * -s * fu[0], -fu[1] * -s * fu[0], -fu[2] * -s * fu[0]];
+  const ml = Math.hypot(...m) || 1;
+  return (n) => (s * (n[0] * m[0] + n[1] * m[1] + n[2] * m[2])) / ml;
 }

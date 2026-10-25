@@ -443,7 +443,7 @@ function fromMediaPipe(hand) {
   const aspect = (video.videoWidth || 4) / (video.videoHeight || 3);
   // Rebuild the 3D points from the picture (see lift.js): MediaPipe's own 3D
   // guess is often turned against what the camera shows.
-  const raw = state.lift ? liftToPicture(hand.world, hand.landmarks, aspect, hand.side, liftMemory[hand.side]) : hand.world;
+  const raw = state.lift ? liftToPicture(hand.world, hand.landmarks, aspect, hand.side, liftMemory[hand.side], (state.source === 'camera' && !facingUser()) || (state.source === 'video' && $('video-fp').checked)) : hand.world;
   const world = raw.map((p) => new THREE.Vector3(p.x, -p.y, -p.z));
   const occluded = raw.occluded || null;
   const a = hand.landmarks[0];

@@ -13,8 +13,11 @@ import { bakeSkin } from './exportGlb.js';
 import { fromGeometry, clipPlane, subdivide, toGeometry } from './meshOps.js';
 import { ThenarPad } from './thenar.js';
 
-// Where the wrist is cut open for the arm, along the hand's -Y from the wrist joint (m).
-const WRIST_CUT = 0.002;
+// Where the wrist is cut open for the arm, along the hand's -Y from the wrist
+// joint (m). Negative: above the joint, inside the heel of the hand, so the
+// arm skin's bend (armMesh WRIST_BEND) straddles the joint as real skin does
+// instead of all lying below it on the forearm.
+const WRIST_CUT = -0.015;
 import { basisQuat, handFrameQuat } from './handRig.js';
 
 // WebXR joint names per finger: [metacarpal, proximal, intermediate/distal, distal/tip, tip].
@@ -81,6 +84,7 @@ export class RealHand {
     this.restFrame = handFrameQuat(frameLandmarks, this.side);
     this.restFrameInv = this.restFrame.clone().invert();
     this.refineMesh();
+    this.pinBorder();
     this.pad = new ThenarPad(this.mesh, this.restPos);
     this.addWristFade();
 
@@ -127,6 +131,40 @@ export class RealHand {
     const m = subdivide(clipPlane(fromGeometry(old), handY, k));
     this.mesh.geometry = toGeometry(m);
     old.dispose();
+  }
+
+  // The cut runs through the heel of the hand, where the model ties some skin
+  // to the thumb's metacarpal. The arm skin shares the border vertices and
+  // moves only with the wrist, so near the border the hand's skin is handed
+  // over to the wrist bone too (fully on the border, fading out 1.2 cm up),
+  // or the seam would open when the thumb moves.
+  pinBorder() {
+    const g = this.mesh.geometry;
+    const pos = g.attributes.position;
+    const si = g.attributes.skinIndex;
+    const sw = g.attributes.skinWeight;
+    const W = this.mesh.skeleton.bones.findIndex((b) => b.name === 'wrist');
+    const handY = new THREE.Vector3(0, 1, 0).applyQuaternion(this.restFrame);
+    const k = handY.dot(this.restPos.wrist) - WRIST_CUT;
+    const v = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) {
+      const pin = 1 - THREE.MathUtils.smoothstep(handY.dot(v.fromBufferAttribute(pos, i)) - k, 0, 0.012);
+      if (pin <= 0) continue;
+      const w = {};
+      for (let c = 0; c < 4; c++) {
+        const b = si.getComponent(i, c);
+        w[b] = (w[b] || 0) + sw.getComponent(i, c) * (1 - pin);
+      }
+      w[W] = (w[W] || 0) + pin;
+      const top = Object.entries(w).sort((a, b) => b[1] - a[1]).slice(0, 4);
+      const sum = top.reduce((t, [, x]) => t + x, 0) || 1;
+      for (let c = 0; c < 4; c++) {
+        si.setComponent(i, c, top[c] ? +top[c][0] : 0);
+        sw.setComponent(i, c, top[c] ? top[c][1] / sum : 0);
+      }
+    }
+    si.needsUpdate = true;
+    sw.needsUpdate = true;
   }
 
   // Seam normals from the arm (hand-bone space) so hand and arm shade as one surface.
@@ -486,14 +524,79 @@ export class RealHand {
   }
 }
 
+// Dual quaternion skinning for meshes with a skinDQ attribute of 1 (the arm;
+// the hand has none and keeps linear blending, which the thenar pad solves
+// against). Linear blending averages the bones' matrices, so where two bones
+// share a vertex across a bent wrist or a turned forearm the skin is pulled
+// toward the joint's axis and the limb thins; blending the rotations instead
+// keeps its thickness.
+const DQ_PARS = `
+#ifdef USE_SKINNING
+attribute float skinDQ;
+vec4 dqQuat(mat4 m) {
+  float tr = m[0][0] + m[1][1] + m[2][2];
+  if (tr > 0.0) { float s = sqrt(tr + 1.0) * 2.0; return vec4((m[1][2] - m[2][1]) / s, (m[2][0] - m[0][2]) / s, (m[0][1] - m[1][0]) / s, 0.25 * s); }
+  if (m[0][0] > m[1][1] && m[0][0] > m[2][2]) { float s = sqrt(1.0 + m[0][0] - m[1][1] - m[2][2]) * 2.0; return vec4(0.25 * s, (m[1][0] + m[0][1]) / s, (m[2][0] + m[0][2]) / s, (m[1][2] - m[2][1]) / s); }
+  if (m[1][1] > m[2][2]) { float s = sqrt(1.0 + m[1][1] - m[0][0] - m[2][2]) * 2.0; return vec4((m[1][0] + m[0][1]) / s, 0.25 * s, (m[2][1] + m[1][2]) / s, (m[2][0] - m[0][2]) / s); }
+  float s = sqrt(1.0 + m[2][2] - m[0][0] - m[1][1]) * 2.0; return vec4((m[2][0] + m[0][2]) / s, (m[2][1] + m[1][2]) / s, 0.25 * s, (m[0][1] - m[1][0]) / s);
+}
+vec4 dqMul(vec4 a, vec4 b) { return vec4(a.w * b.xyz + b.w * a.xyz + cross(a.xyz, b.xyz), a.w * b.w - dot(a.xyz, b.xyz)); }
+void dqAdd(mat4 m, float w, vec4 ref, inout vec4 r, inout vec4 e) {
+  vec4 q = dqQuat(m);
+  vec4 d = 0.5 * dqMul(vec4(m[3].xyz, 0.0), q);
+  if (dot(q, ref) < 0.0) { q = -q; d = -d; }
+  r += w * q; e += w * d;
+}
+vec3 dqRotate(vec4 r, vec3 v) { return v + 2.0 * cross(r.xyz, cross(r.xyz, v) + r.w * v); }
+#endif
+`;
+const DQ_BLEND = `
+  vec4 dqR = vec4(0.0); vec4 dqE = vec4(0.0);
+  vec4 dqRef = dqQuat(boneMatX);
+  dqAdd(boneMatX, skinWeight.x, dqRef, dqR, dqE);
+  dqAdd(boneMatY, skinWeight.y, dqRef, dqR, dqE);
+  dqAdd(boneMatZ, skinWeight.z, dqRef, dqR, dqE);
+  dqAdd(boneMatW, skinWeight.w, dqRef, dqR, dqE);
+  float dqLen = length(dqR); dqR /= dqLen; dqE /= dqLen;
+`;
+const DQ_NORMAL = `
+#ifdef USE_SKINNING
+  vec3 dqRestNormal = objectNormal;
+#endif
+#include <skinnormal_vertex>
+#ifdef USE_SKINNING
+  if (skinDQ > 0.0) {
+    ${DQ_BLEND}
+    vec3 dqN = mat3(bindMatrixInverse) * dqRotate(dqR, mat3(bindMatrix) * dqRestNormal);
+    objectNormal = mix(objectNormal, dqN, skinDQ);
+  }
+#endif
+`;
+const DQ_VERTEX = `
+#ifdef USE_SKINNING
+  vec3 dqRestPos = transformed;
+#endif
+#include <skinning_vertex>
+#ifdef USE_SKINNING
+  if (skinDQ > 0.0) {
+    ${DQ_BLEND}
+    vec3 dqP = (bindMatrix * vec4(dqRestPos, 1.0)).xyz;
+    vec3 dqT = 2.0 * (dqR.w * dqE.xyz - dqE.w * dqR.xyz + cross(dqR.xyz, dqE.xyz));
+    transformed = mix(transformed, (bindMatrixInverse * vec4(dqRotate(dqR, dqP) + dqT, 1.0)).xyz, skinDQ);
+  }
+#endif
+`;
+
 export function withWristFade(material) {
   const prev = material.onBeforeCompile;
   material.transparent = true;
-  material.customProgramCacheKey = () => `wrist-fade|${prev ? prev.toString() : ''}`;
+  material.customProgramCacheKey = () => `wrist-fade-dq|${prev ? prev.toString() : ''}`;
   material.onBeforeCompile = (shader, renderer) => {
     if (prev) prev(shader, renderer);
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', 'attribute float wristFade;\nvarying float vWristFade;\n#include <common>')
+      .replace('#include <common>', `attribute float wristFade;\nvarying float vWristFade;\n#include <common>\n${DQ_PARS}`)
+      .replace('#include <skinnormal_vertex>', DQ_NORMAL)
+      .replace('#include <skinning_vertex>', DQ_VERTEX)
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWristFade = wristFade;');
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', 'varying float vWristFade;\n#include <common>')
