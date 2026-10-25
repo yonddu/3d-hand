@@ -11,6 +11,10 @@ import { borderLoops } from './meshOps.js';
 export const UPPER = 0.29; // shoulder -> elbow
 export const FORE = 0.26; // elbow -> wrist
 const WRIST_A = UPPER + FORE;
+// The wrist bends over this much skin above the joint (m). Real skin creases
+// within ~3 cm of the wrist crease; a longer blend moved the visible bend
+// down onto the forearm.
+const WRIST_BEND = 0.035;
 
 // Cross-section [width across the hand (x), thickness (z)] by distance from the shoulder.
 const PROFILE = [
@@ -193,7 +197,7 @@ export function buildArm(loop, { ringSize = 64 } = {}) {
   const SE = 2.15; // superellipse exponent: a touch flatter-sided than an ellipse, like a forearm
   stations.forEach((a, r) => {
     const wFore = THREE.MathUtils.smoothstep(a, UPPER - 0.045, UPPER + 0.045);
-    const wHand = THREE.MathUtils.smoothstep(a, aLoop - 0.07, aLoop); // the wrist bends over ~7 cm of skin
+    const wHand = THREE.MathUtils.smoothstep(a, aLoop - WRIST_BEND, aLoop); // skin the wrist bend carries
     const setAttrs = (v) => {
       weights[v * 3] = 1 - wFore;
       weights[v * 3 + 1] = wFore - wHand;
