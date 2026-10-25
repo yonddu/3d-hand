@@ -155,15 +155,18 @@ export class HandTracker {
       let side = cat.categoryName.toLowerCase();
       // Tasks-vision labels match the person in an unmirrored frame; the toggle covers odd cases.
       if (swapHandedness) side = side === 'left' ? 'right' : 'left';
-      return { side, score: cat.score, landmarks: lm, world: res.worldLandmarks[i] };
+      return { side, score: cat.score, landmarks: lm, world: res.worldLandmarks[i], chiral: chirality(res.worldLandmarks[i]) };
     });
-    return resolveSides(this.keepSides(hands, nowMs), rightOnImageRight !== swapHandedness);
+    this.lastHands = hands;
+    return resolveSides(this.keepSides(hands, nowMs, swapHandedness), rightOnImageRight !== swapHandedness);
   }
 
-  // The left/right label of a lone hand seen from behind flickers. A hand that
-  // continues one from the last frames (same place in the picture) keeps that
-  // hand's side unless the new label holds for several frames in a row.
-  keepSides(hands, nowMs) {
+  // The left/right label of a lone hand flickers, most of all while it turns
+  // between palm and back. A wrong label mirrors the palm frame and bends the
+  // fingers backward, so the hand's 3D shape decides first (chirality), and
+  // when that is unclear (flat hand) a hand that continues one from the last
+  // frames keeps its side unless the new label holds for several frames.
+  keepSides(hands, nowMs, swap = false) {
     const prev = (this.tracks || []).filter((k) => nowMs - k.t < 400);
     this.tracks = hands.map((h) => {
       const x = h.landmarks[0].x;
@@ -177,19 +180,40 @@ export class HandTracker {
           bestD = d;
         }
       }
+      const chiral = best ? best.chiral * 0.4 + h.chiral * 0.6 : h.chiral;
       let flips = 0;
-      if (best && best.side !== h.side) {
+      if (Math.abs(chiral) > CHIRAL_SURE) h.side = chiral > 0 !== swap ? 'right' : 'left';
+      else if (best && best.side !== h.side) {
         flips = best.flips + 1;
         if (flips < SIDE_FLIP_FRAMES) h.side = best.side;
         else flips = 0;
       }
-      return { side: h.side, x, y, t: nowMs, flips };
+      return { side: h.side, x, y, t: nowMs, flips, chiral };
     });
     return hands;
   }
 }
 
 const SIDE_FLIP_FRAMES = 8;
+const CHIRAL_SURE = 0.25;
+
+// Which hand the 3D shape is, independent of the label: fingers and thumb
+// curl toward the palm, and the palm normal from (index MCP, pinky MCP) flips
+// between a right and a left hand. > 0 looks like a right hand, < 0 a left
+// one; near 0 (flat open hand) says nothing.
+export function chirality(W) {
+  const v = (i) => [W[i].x - W[0].x, W[i].y - W[0].y, W[i].z - W[0].z];
+  const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const a = v(5);
+  const b = v(17);
+  const n = [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const len = Math.hypot(...n) || 1;
+  const size = Math.hypot(...v(9)) || 1;
+  let s = 0;
+  for (const [mcp, tip] of [[5, 8], [9, 12], [13, 16], [17, 20], [2, 4]]) s += dot(sub(v(tip), v(mcp)), n) / len / size;
+  return s;
+}
 
 // Two hands with the same label: keep the more confident label and give the
 // other hand the opposite side, by where each hand is in the image. A camera

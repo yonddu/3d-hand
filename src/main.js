@@ -12,6 +12,7 @@ import { ArmRig } from './arm.js';
 import { wristLoop } from './armMesh.js';
 import { exportGlb, frameFromLive, frameFromPoseHand, zipFiles } from './exportGlb.js';
 import { capturePose, validatePose, applyPose, loadLibrary, saveLibrary } from './pose.js';
+import { initRomPanel } from './romPanel.js';
 
 const CONFIG = window.HMS_CONFIG || {};
 const $ = (id) => document.getElementById(id);
@@ -295,6 +296,8 @@ $('swap').onchange = (e) => {
 // --- engine controls -------------------------------------------------------------
 
 $('limits').onchange = (e) => (state.limits = e.target.checked);
+const romPanel = initRomPanel($('rom-table'));
+$('rom-reset').onclick = () => romPanel.reset();
 const bindSlider = (id, obj, key) => {
   const el = $(id);
   el.oninput = () => {

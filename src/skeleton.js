@@ -37,15 +37,33 @@ export const FINGERS = [
   { key: 'pinky', label: '소지', mixamo: 'Pinky', joints: [17, 18, 19, 20], jointNames: ['MCP', 'PIP', 'DIP'] },
 ];
 
-// Joint limits in degrees: [flexMin, flexMax, abdMin, abdMax] per bone.
-// Abduction is measured toward the thumb side as positive (mirrored per hand by the solver).
-export const LIMITS = {
-  thumb: [[-35, 60, -40, 45], [-15, 75, -15, 15], [-25, 90, 0, 0]],
-  finger: [[-30, 95, -25, 25], [0, 115, 0, 0], [-10, 90, 0, 0]],
+// Active range of motion in degrees, per finger and joint (MCP, PIP, DIP; for
+// the thumb CMC, MCP, IP): [flexMin, flexMax, abdMin, abdMax]. Negative flexion
+// is hyperextension (bending backward). Abduction is toward the thumb side as
+// positive (mirrored per hand by the solver). Editable in the options panel.
+// Flexion follows the clinical ROM table (MCP 90 / 0, PIP 100 / 0, DIP 90 / 0,
+// thumb MCP 60 / 0, thumb IP 80 / 0); abduction and the thumb CMC are typical values.
+export const DEFAULT_LIMITS = {
+  thumb: [[-30, 55, -35, 45], [0, 60, -10, 10], [0, 80, 0, 0]],
+  index: [[0, 90, -12, 20], [0, 100, 0, 0], [0, 90, 0, 0]],
+  middle: [[0, 90, -15, 15], [0, 100, 0, 0], [0, 90, 0, 0]],
+  ring: [[0, 90, -18, 10], [0, 100, 0, 0], [0, 90, 0, 0]],
+  pinky: [[0, 90, -30, 10], [0, 100, 0, 0], [0, 90, 0, 0]],
 };
+const copyLimits = (L) => Object.fromEntries(Object.entries(L).map(([k, v]) => [k, v.map((r) => r.slice())]));
+export const LIMITS = copyLimits(DEFAULT_LIMITS);
 
 export function limitsFor(fingerKey, k) {
-  return (fingerKey === 'thumb' ? LIMITS.thumb : LIMITS.finger)[k];
+  return LIMITS[fingerKey][k];
+}
+
+export function setLimits(L) {
+  for (const key of Object.keys(DEFAULT_LIMITS)) {
+    LIMITS[key] = DEFAULT_LIMITS[key].map((def, k) => {
+      const row = L && L[key] && L[key][k];
+      return Array.isArray(row) && row.length === 4 && row.every(Number.isFinite) ? row.slice() : def.slice();
+    });
+  }
 }
 
 // Bone names follow the Mixamo convention so poses can be retargeted later

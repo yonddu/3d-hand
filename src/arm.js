@@ -15,7 +15,8 @@ export { UPPER, FORE };
 // The wrist is an ellipsoid (radiocarpal) joint: it flexes/extends and tilts
 // toward the thumb or the little finger, but does not twist. Pronation lives in
 // the forearm (segmentQuat rolls it with the hand). Range of motion in degrees.
-const WRIST_ROM = { flex: 75, ext: 65, radial: 20, ulnar: 35 };
+const WRIST_ROM = { flex: 70, ext: 60, radial: 20, ulnar: 35 };
+const ELBOW_MAX = (150 * Math.PI) / 180; // elbow flexion 150, extension 0
 const COMFORT = 0.6; // share of the range the IK view uses before turning the forearm
 const SHRUG = 0.12; // how far the shoulder may move to keep the wrist natural (m)
 const Y = new THREE.Vector3(0, 1, 0);
@@ -73,6 +74,17 @@ export function armLocals(S0, E0, W, handQ, { comfort = COMFORT, shrug = SHRUG, 
       }
       E = best.e;
       S.copy(best.s);
+    }
+  }
+  // Elbow flexes 0..150 degrees: a sharper fold swings the upper arm open.
+  const upperDir = E.clone().sub(S).normalize();
+  const foreDir = W.clone().sub(E).normalize();
+  const fold = upperDir.angleTo(foreDir);
+  if (fold > ELBOW_MAX) {
+    const axis = new THREE.Vector3().crossVectors(foreDir, upperDir);
+    if (axis.lengthSq() > 1e-12) {
+      upperDir.copy(foreDir).applyAxisAngle(axis.normalize(), ELBOW_MAX);
+      S.copy(E).addScaledVector(upperDir, -UPPER);
     }
   }
   const fore = segmentQuat(E, W, handQ);
