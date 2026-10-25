@@ -212,5 +212,62 @@ export function liftToPicture(world, image, aspect, side = null, memory = null) 
       palmN = unit(side === 'right' ? cross(a, b) : cross(b, a));
     }
   }
+  out.occluded = occlusion(out);
+  if (memory) {
+    // Overlaps come and go with tracker noise; settle them over a few frames.
+    if (memory.occ) out.occluded = out.occluded.map((v, i) => memory.occ[i] * 0.6 + v * 0.4);
+    memory.occ = out.occluded;
+  }
   return out;
+}
+
+// Which joints the camera cannot see: a joint behind another finger or the
+// palm (in the picture they overlap, and the other part is nearer the
+// camera). The tracker only guesses where those joints are, so the fit leans
+// on how hands move instead (see fit.js). 0 seen .. 1 hidden, per landmark.
+const CHAINS = [[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16], [17, 18, 19, 20]];
+const FINGER_OF = [];
+CHAINS.forEach((c, f) => c.forEach((i) => (FINGER_OF[i] = f)));
+const COVER = [0.006, 0.014]; // metres in the picture: fully covered .. clear (a finger is ~1.6 cm wide)
+const IN_FRONT = 0.006; // metres nearer the camera to count as in front
+
+function occlusion(P) {
+  const occ = new Array(21).fill(0);
+  const smooth = (d) => 1 - Math.min(Math.max((d - COVER[0]) / (COVER[1] - COVER[0]), 0), 1);
+  for (let i = 2; i < 21; i++) {
+    if (FINGER_OF[i] === undefined || CHAINS[FINGER_OF[i]][0] === i) continue; // knuckles sit on the palm
+    const q = P[i];
+    let o = 0;
+    // Other fingers' bones (from their knuckle out).
+    CHAINS.forEach((c, f) => {
+      if (f === FINGER_OF[i]) return;
+      for (let k = 0; k + 1 < c.length; k++) {
+        const a = P[c[k]];
+        const b = P[c[k + 1]];
+        const abx = b.x - a.x;
+        const aby = b.y - a.y;
+        const l2 = abx * abx + aby * aby;
+        const t = l2 > 1e-10 ? Math.min(Math.max(((q.x - a.x) * abx + (q.y - a.y) * aby) / l2, 0), 1) : 0;
+        const d = Math.hypot(a.x + abx * t - q.x, a.y + aby * t - q.y);
+        const z = a.z + (b.z - a.z) * t;
+        if (z < q.z - IN_FRONT) o = Math.max(o, smooth(d));
+      }
+    });
+    // The palm (two triangles over wrist, index and little finger knuckles).
+    for (const [a, b, c] of [[0, 5, 9], [0, 9, 13], [0, 13, 17], [0, 5, 17]]) {
+      const A = P[a];
+      const B = P[b];
+      const C = P[c];
+      const det = (B.y - C.y) * (A.x - C.x) + (C.x - B.x) * (A.y - C.y);
+      if (Math.abs(det) < 1e-10) continue;
+      const l1 = ((B.y - C.y) * (q.x - C.x) + (C.x - B.x) * (q.y - C.y)) / det;
+      const l2 = ((C.y - A.y) * (q.x - C.x) + (A.x - C.x) * (q.y - C.y)) / det;
+      const l3 = 1 - l1 - l2;
+      if (l1 < 0 || l2 < 0 || l3 < 0) continue;
+      const z = l1 * A.z + l2 * B.z + l3 * C.z;
+      if (z < q.z - IN_FRONT) o = 1;
+    }
+    occ[i] = o;
+  }
+  return occ;
 }

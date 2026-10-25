@@ -39,7 +39,7 @@ export class HandSolver {
 
   // P: 21 THREE.Vector3 in rig orientation (any origin, meters).
   // Returns per-bone angles and confidences and writes rotations to the rig.
-  solve(P, { limits = true, smoothing = true, synergy = true, fit = false } = {}) {
+  solve(P, { limits = true, smoothing = true, synergy = true, fit = false, occluded = null } = {}) {
     const rig = this.rig;
     const side = rig.side;
     const wristQ = handFrameQuat(P, side);
@@ -119,13 +119,13 @@ export class HandSolver {
         confidence[finger.key].push(c);
       });
     }
-    if (fit) this.fitHand(P, wristQ, angles, confidence, { limits, smoothing });
+    if (fit) this.fitHand(P, wristQ, angles, confidence, { limits, smoothing, occluded });
     return { angles, confidence };
   }
 
   // Fit each finger of the hand model to the points (see fit.js), seeded by
   // the last frame or, the first time, by the per-bone reading.
-  fitHand(P, wristQ, angles, confidence, { limits, smoothing }) {
+  fitHand(P, wristQ, angles, confidence, { limits, smoothing, occluded }) {
     const rig = this.rig;
     const palm = P[0].distanceTo(P[9]);
     for (const finger of FINGERS) {
@@ -135,7 +135,7 @@ export class HandSolver {
         : [a[0].flex, a[0].abd, 0, a[1].flex, a[2].flex];
       const prev = this.fitPrev[finger.key] || null;
       const chain = rig.chains[finger.key];
-      const res = fitFinger({ finger, chain, side: rig.side, P, wristQ, conf: confidence[finger.key], palm, prev, start, useLimits: limits });
+      const res = fitFinger({ finger, chain, side: rig.side, P, wristQ, conf: confidence[finger.key], palm, prev, start, useLimits: limits, occluded });
       this.fitPrev[finger.key] = res.theta;
       chain.forEach((link, k) => this.apply(link.bone, res.locals[k], smoothing ? 0.85 : 1));
       angles[finger.key] = res.ang.map(({ flex, abd }) => ({ flex, abd }));

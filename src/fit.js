@@ -10,6 +10,7 @@
 // the picture plane counts more than depth, which a single camera only guesses.
 import * as THREE from 'three';
 import { limitsFor, sideSign } from './skeleton.js';
+import { F as FINGER_SHAPES, T as THUMB_SHAPES } from './shapes.js';
 
 const D2R = Math.PI / 180;
 const Y = new THREE.Vector3(0, 1, 0);
@@ -24,6 +25,7 @@ const W_CONVERGE = 0.5; // bent fingers lean toward the middle of the hand
 const W_ROLL = 1.2; // knuckles barely turn about their length
 const W_TIME = 0.03; // stay near the last frame, lightly (the point filters already smooth)
 const W_CLOSE = 0.8; // hidden joints follow the natural closing path
+const W_SHAPE = 0.7; // hidden joints take the nearest basic shape
 const PIP_PER_MCP = 1.1; // closing a fist: PIP bends a little more than the knuckle
 const DIP_PER_PIP = 0.67;
 const IP_PER_MCP = 0.9;
@@ -101,6 +103,13 @@ function residuals(theta, ctx) {
     r.push((ang[0].abd - CONVERGE[ctx.key] * t) * D2R * W_CONVERGE * t);
     // Roll is unreliable once the fingertip is hidden in a fist.
     r.push(ang[0].roll * D2R * W_ROLL * (1 + 4 * t));
+  }
+  // Hidden joints: the basic hand shape that the seen joints match best.
+  if (ctx.shape) {
+    theta.forEach((v, i) => {
+      const k = ctx.lay[i][0];
+      if (ctx.hidden[k] > 0) r.push((v - ctx.shape[i]) * D2R * W_SHAPE * ctx.hidden[k]);
+    });
   }
   // Time: unsure tracking leans on the last frame.
   if (ctx.prev) {
@@ -187,7 +196,7 @@ function solveLinear(A, b) {
 // Fit one finger. P: tracked points (rig orientation), wristQ: palm frame,
 // conf: per-bone confidence, prev: last frame's angles for this finger or null.
 // Returns { theta, locals, ang } (angles in degrees, abd toward the thumb).
-export function fitFinger({ finger, chain, side, P, wristQ, conf, palm, prev, start, useLimits }) {
+export function fitFinger({ finger, chain, side, P, wristQ, conf, palm, prev, start, useLimits, occluded = null }) {
   const J = finger.joints;
   const base = P[J[0]];
   const obs = [1, 2, 3].map((k) => P[J[k]].clone().sub(base));
@@ -206,8 +215,11 @@ export function fitFinger({ finger, chain, side, P, wristQ, conf, palm, prev, st
   const backFacing = THREE.MathUtils.smoothstep(-palmN.z, 0.15, 0.5); // +z points at the camera
   const knuckleBend = Math.atan2(obs[0].dot(palmN), obs[0].dot(along)) / D2R;
   const tucked = finger.key === 'thumb' ? 0 : backFacing * THREE.MathUtils.smoothstep(knuckleBend, 35, 70);
-  const hidden = [0, tucked, tucked];
-  const ctx = { key: finger.key, chain, side, wristQ, obs, len, conf, palm, lay, limits, prev, hidden };
+  // Joints behind another finger or the palm (seen in the picture, lift.js).
+  const occ = (k) => (occluded ? occluded[J[k + 1]] || 0 : 0);
+  const hidden = [occ(0), Math.max(tucked, occ(1)), Math.max(tucked, occ(2))];
+  const shape = nearestShape(finger.key, start, hidden);
+  const ctx = { key: finger.key, chain, side, wristQ, obs, len, conf, palm, lay, limits, prev, hidden, shape };
   // Start from the last frame, or from the fresh reading when that already
   // fits better (the hand moved fast, or was just found again).
   const cost = (x) => residuals(x, ctx).reduce((s, v) => s + v * v, 0);
@@ -223,6 +235,30 @@ export function fitFinger({ finger, chain, side, P, wristQ, conf, palm, prev, st
   });
   const { locals, ang } = forward(theta, ctx);
   return { theta, locals, ang };
+}
+
+// The basic shape (shapes.js) closest to this reading, judged on the seen
+// joints only; null when every joint is seen.
+function nearestShape(key, theta, hidden) {
+  if (Math.max(...hidden) < 0.05) return null;
+  const lay = layout(key);
+  const shapes = key === 'thumb'
+    ? Object.values(THUMB_SHAPES)
+    : Object.values(FINGER_SHAPES).map(([m, p, d]) => [m, theta[1], 0, p, d]);
+  let best = null;
+  let bestCost = Infinity;
+  for (const sh of shapes) {
+    let c = 0;
+    lay.forEach(([k, kind], i) => {
+      if (kind === 'roll') return;
+      c += (1 - hidden[k]) * (theta[i] - sh[i]) ** 2;
+    });
+    if (c < bestCost) {
+      bestCost = c;
+      best = sh;
+    }
+  }
+  return best;
 }
 
 export function startAngles(key) {
