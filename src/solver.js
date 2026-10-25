@@ -71,16 +71,12 @@ export class HandSolver {
           // band; inside it the bone follows the tracked direction exactly.
           const [fMin, fMax, aMin, aMax] = limitsFor(finger.key, k);
           flex = clamp(flex, fMin - TOL_FLEX, fMax + TOL_FLEX);
-          let lo = aMin;
-          let hi = aMax;
-          // A finger bent at the knuckle cannot spread far: the side ligaments
-          // tighten, so a fist keeps its fingers together.
-          if (k === 0 && finger.key !== 'thumb' && flex > 0) {
-            const room = Math.max(0, Math.cos(flex * D2R));
-            lo *= room;
-            hi *= room;
-          }
-          abdThumb = clamp(abdThumb, lo - TOL_ABD, hi + TOL_ABD);
+          // A finger bent at the knuckle cannot spread: the side ligaments
+          // tighten, so a fist keeps its fingers together. Tracking guesses
+          // the hidden fingers of a fist and spreads them, so the tolerance
+          // shrinks with the bend too.
+          const room = k === 0 && finger.key !== 'thumb' && flex > 0 ? Math.max(0, Math.cos(flex * D2R)) : 1;
+          abdThumb = clamp(abdThumb, (aMin - TOL_ABD) * room, (aMax + TOL_ABD) * room);
           abd = -abdThumb * sideSign(side);
         }
         _e.set(flex * D2R, 0, abd * D2R, 'XZY');

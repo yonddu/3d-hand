@@ -175,6 +175,7 @@ export class RealHand {
     placeRigid('wrist');
     for (const key of ['index', 'middle', 'ring', 'pinky']) placeRigid(XR[key][0]);
 
+    this.closeFist();
     if (this.pinches.length) this.solvePinches();
     for (const finger of FINGERS) {
       const chain = drivenChain(finger.key);
@@ -239,6 +240,47 @@ export class RealHand {
       const r = P[4].distanceTo(P[tip]) / palm;
       const weight = THREE.MathUtils.clamp((0.42 - r) / 0.17, 0, 1);
       if (weight > 0) this.pinches.push({ key, weight });
+    }
+  }
+
+  // Bent fingers press against their neighbours. Tracking places each finger
+  // on its own and a fist seen from behind is mostly guessed, which leaves
+  // gaps; real fingers can only close those gaps, so neighbours that are both
+  // bent at the knuckle are turned toward each other until their sides touch
+  // (spacing = how far apart the knuckles sit on the palm).
+  closeFist() {
+    const rig = this.rig;
+    const pairs = [['index', 'middle'], ['middle', 'ring'], ['ring', 'pinky']];
+    const flexOf = (key) => {
+      const { pos } = this.chainPose(key);
+      const palmN = new THREE.Vector3(0, 0, 1).applyQuaternion(rig.wrist.quaternion);
+      const along = new THREE.Vector3(0, 1, 0).applyQuaternion(rig.wrist.quaternion);
+      const d = pos[1].clone().sub(pos[0]).normalize();
+      return Math.atan2(d.dot(palmN), d.dot(along)); // knuckle bend toward the palm
+    };
+    const turn = (key, goal) => {
+      const { pos } = this.chainPose(key);
+      const from = pos[1].clone().sub(pos[0]).normalize();
+      const to = goal.clone().sub(pos[0]).normalize();
+      const R = new THREE.Quaternion().setFromUnitVectors(from, to);
+      const parent = rig.wrist.quaternion;
+      rig.chains[key][0].bone.quaternion.premultiply(parent.clone().invert().multiply(R).multiply(parent));
+    };
+    for (let it = 0; it < 2; it++) {
+      for (const [a, b] of pairs) {
+        const bend = Math.min(flexOf(a), flexOf(b));
+        const w = THREE.MathUtils.smoothstep(bend, 0.5, 1.2); // ~30 to ~70 degrees
+        if (w <= 0) continue;
+        const A = this.chainPose(a).pos;
+        const B = this.chainPose(b).pos;
+        const spacing = A[0].distanceTo(B[0]);
+        const gap = A[1].distanceTo(B[1]);
+        if (gap <= spacing) continue;
+        const dir = A[1].clone().sub(B[1]).normalize();
+        const close = ((gap - spacing) / 2) * w;
+        turn(a, A[1].clone().addScaledVector(dir, -close));
+        turn(b, B[1].clone().addScaledVector(dir, close));
+      }
     }
   }
 
