@@ -279,7 +279,13 @@ function palmCup(world, side, memory) {
   const d = (a, b) => Math.hypot(world[a].x - world[b].x, world[a].y - world[b].y, world[a].z - world[b].z) / palm;
   const near = (x) => 1 - Math.min(Math.max((x - 0.12) / 0.25, 0), 1);
   const fromTouch = Math.max(CUP_MAX * near(d(4, 20)), 0.6 * CUP_MAX * near(d(4, 16)));
-  let cup = Math.min(Math.max(Math.max(fromWorld, fromTouch), 0), CUP_MAX);
+  // The world reading alone does not tell a flat hand from a cupped one: a
+  // flat open palm turned to the camera read 24-31 degrees, as much as real
+  // cupping (user photos). Only believe it while the thumb has come across
+  // toward the ring and little fingers (thumb tip within ~1.2 palm lengths).
+  const reach = Math.min(d(4, 20), d(4, 16));
+  const across = 1 - Math.min(Math.max((reach - 0.5) / 0.7, 0), 1);
+  let cup = Math.min(Math.max(Math.max(Math.min(fromWorld, CUP_MAX * across), fromTouch), 0), CUP_MAX);
   if (memory) {
     if (memory.cup !== undefined) cup = memory.cup + (cup - memory.cup) * 0.5;
     memory.cup = cup;

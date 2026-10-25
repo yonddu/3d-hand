@@ -38,8 +38,13 @@ export function wristPivot(wrist, handQuat) {
 export function pivotLoop(loop) {
   return { ...loop, points: loop.points.map((p) => p.clone().setY(p.y - WRIST_PIVOT)) };
 }
-const SEEN_BEND = (20 * Math.PI) / 180; // most a seen forearm may bend the wrist off its rest line
-const REST_EXT = (10 * Math.PI) / 180; // wrist extension held without thinking: median of the arm pose dictionary
+// Most a seen forearm may bend the wrist off its rest line. 20 deg still
+// showed as a bent wrist on a straight real arm (user screenshots, v35-v39):
+// the picture's forearm line is too noisy to be trusted for more.
+const SEEN_BEND = (6 * Math.PI) / 180;
+// Wrist extension held without thinking. The dictionary median is 10 deg,
+// but seen from the eyes a straight forearm-hand line reads as right.
+const REST_EXT = (5 * Math.PI) / 180;
 const ROLL_LIMIT = (110 * Math.PI) / 180;
 
 // Bind pose shared with the GLB export: arm straight forward (-Z), palm down.
@@ -333,7 +338,9 @@ export class ArmRig {
     }
     // Live passthrough: the forearm lies on the seen line and the shoulder is free.
     this.opts = !this.follow ? { side: this.side } : { direct: true, comfort: 1, shrug: 2, side: this.side };
-    this.elbow.lerp(target, 0.35);
+    // In first person the elbow comes from the hand itself; easing it made
+    // the forearm trail the hand, a bent wrist whenever the hand moved.
+    this.elbow.lerp(target, this.follow ? 1 : 0.35);
     return this.pose(wrist, handQuat);
   }
 

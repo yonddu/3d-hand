@@ -511,8 +511,8 @@ function elbowFromPose(hand, anchor, aspect, k) {
 // forearm to a plane through the camera; within it, the depth slant is taken
 // from the usual reach back toward the shoulder.
 const forearmFinder = new ForearmFinder();
-const WRIST_REST_EXT = 10; // degrees of wrist extension people hold without thinking (arm pose dictionary median)
-const HAND_LINE = 0.9; // share of the forearm direction taken from the hand's line
+const WRIST_REST_EXT = 5; // degrees of wrist extension held without thinking (arm.js REST_EXT)
+const HAND_LINE = 1; // share of the forearm direction taken from the hand's line
 function elbowFromPicture(hand, world, anchor, ray, aspect) {
   if (!tracker || !forearmFinder.grab(video, tracker.lastDetectAt)) return null;
   const f = forearmFinder.find(hand.landmarks);
