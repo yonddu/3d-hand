@@ -1,7 +1,10 @@
 // Builds two entry pages from app.html:
-//   index.html            standalone app, every dependency served from ./vendor (works offline / any static host)
+//   index.html            standalone app, every dependency served from ./vendor (works offline / any static host);
+//                         the app code goes as one minified file (app.bundle.js) and sw.js keeps the
+//                         large files on the phone between visits
 //   dist/artifact/        single-page build for claude.ai Artifacts (libraries from jsDelivr, wasm + model as files)
 import { readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { build } from 'esbuild';
 
 const MP_VERSION = '0.10.21';
@@ -12,6 +15,20 @@ const importMap = (imports) => `<script type="importmap">${JSON.stringify({ impo
 const config = (cfg) => `<script>window.HMS_CONFIG = ${JSON.stringify(cfg)};</script>`;
 
 // --- standalone -------------------------------------------------------------
+// One minified file instead of 35 modules fetched one after another (each
+// import is found only once the file importing it has arrived). Its name
+// carries a hash of its contents, so a phone never runs an old copy.
+const appBundle = await build({
+  entryPoints: ['src/main.js'],
+  bundle: true,
+  format: 'esm',
+  write: false,
+  minify: true,
+  external: ['three', 'three/addons/*', '@mediapipe/tasks-vision'],
+});
+const appJs = appBundle.outputFiles[0].text;
+const appHash = createHash('sha256').update(appJs).digest('hex').slice(0, 10);
+writeFileSync('app.bundle.js', appJs);
 const standalone = `<!doctype html>
 <html lang="ko">
 <head>
@@ -28,13 +45,14 @@ ${config({
   objectModelPath: 'vendor/models/efficientdet_lite0.tflite',
   poseModelPath: 'vendor/models/pose_landmarker_lite.task',
   handModels: { left: { url: 'vendor/models/hand-left.glb' }, right: { url: 'vendor/models/hand-right.glb' } },
+  serviceWorker: 'sw.js',
 })}
 ${importMap({
   three: './vendor/three/three.module.min.js',
   'three/addons/': './vendor/three/addons/',
   '@mediapipe/tasks-vision': './vendor/mediapipe/vision_bundle.mjs',
 })}
-<script type="module" src="src/main.js"></script>
+<script type="module" src="app.bundle.js?h=${appHash}"></script>
 </body>
 </html>
 `;

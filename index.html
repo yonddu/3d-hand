@@ -395,7 +395,7 @@
 </div>
 <div class="toast" id="toast" hidden></div>
 
-<script>window.HMS_CONFIG = {"wasmBase":"vendor/mediapipe/wasm","modelPath":"vendor/models/hand_landmarker.task","objectModelPath":"vendor/models/efficientdet_lite0.tflite","poseModelPath":"vendor/models/pose_landmarker_lite.task","handModels":{"left":{"url":"vendor/models/hand-left.glb"},"right":{"url":"vendor/models/hand-right.glb"}}};</script>
+<script>window.HMS_CONFIG = {"wasmBase":"vendor/mediapipe/wasm","modelPath":"vendor/models/hand_landmarker.task","objectModelPath":"vendor/models/efficientdet_lite0.tflite","poseModelPath":"vendor/models/pose_landmarker_lite.task","handModels":{"left":{"url":"vendor/models/hand-left.glb"},"right":{"url":"vendor/models/hand-right.glb"}},"serviceWorker":"sw.js"};</script>
 <script type="importmap">{
   "imports": {
     "three": "./vendor/three/three.module.min.js",
@@ -403,6 +403,6 @@
     "@mediapipe/tasks-vision": "./vendor/mediapipe/vision_bundle.mjs"
   }
 }</script>
-<script type="module" src="src/main.js"></script>
+<script type="module" src="app.bundle.js?h=99517a5644"></script>
 </body>
 </html>

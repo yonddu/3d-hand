@@ -23,6 +23,10 @@ import { initRomPanel } from './romPanel.js';
 import { ForearmFinder } from './forearm.js';
 
 const CONFIG = window.HMS_CONFIG || {};
+// The large files stay on the phone between visits (sw.js).
+if (CONFIG.serviceWorker && 'serviceWorker' in navigator && window.isSecureContext) {
+  navigator.serviceWorker.register(CONFIG.serviceWorker).catch((err) => console.warn('service worker not registered', err));
+}
 const $ = (id) => document.getElementById(id);
 const SIDES = ['left', 'right'];
 

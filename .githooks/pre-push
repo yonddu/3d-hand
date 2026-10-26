@@ -4,6 +4,12 @@
 # Takes live outside the repo; a machine without them skips the replay.
 set -e
 npm run --silent check
+# The site runs app.bundle.js, not src/: it must be built from the code being pushed.
+node build.mjs > /dev/null
+if ! git diff --quiet -- index.html app.bundle.js; then
+  echo "pre-push: index.html / app.bundle.js were out of date; rebuilt them, commit and push again"
+  exit 1
+fi
 TAKES=/mnt/project-files/hand-motion-studio/takes/
 if [ -d "$TAKES" ]; then
   node tools/regress.mjs "$TAKES"
