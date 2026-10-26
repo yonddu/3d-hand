@@ -1328,6 +1328,7 @@ function startRecording() {
 
 function stopRecording() {
   rec.on = false;
+  $('busy').hidden = true;
   if (rec.offline) {
     rec.offline = false;
     resetTracking();
@@ -1425,14 +1426,21 @@ function backToCamera() {
 }
 
 function updateGuide() {
+  // The frame-by-frame pass hides behind a loading screen; only the finished result is shown.
+  const busy = rec.on && rec.offline;
+  $('busy').hidden = !busy;
+  if (busy) {
+    const end = rec.endTime || video.duration || 1;
+    const pct = Math.min(99, Math.round((video.currentTime / end) * 100));
+    $('busy-bar').style.width = `${pct}%`;
+    $('busy-text').textContent = camRec.processing ? `${pct}% · 끝나면 결과 영상이 바로 열립니다` : `${pct}%`;
+  }
   const g = $('guide');
   let html = '';
   if (review.take && review.take.videoUrl) {
     html = '결과를 확인하세요. 마음에 들면 <b>저장</b>, 아니면 <b>버리기</b>. 저장하지 않으면 남지 않습니다.';
-  } else if (camRec.processing) {
-    const end = rec.endTime || video.duration || 1;
-    const pct = Math.min(99, Math.round((video.currentTime / end) * 100));
-    html = `녹화한 영상을 한 프레임씩 분석하는 중… ${pct}%`;
+  } else if (rec.on && rec.offline) {
+    html = '';
   } else if (camRec.on) {
     const sec = (performance.now() - camRec.t0) / 1000;
     $('rec-time').textContent = `● ${sec.toFixed(1)}초`;
