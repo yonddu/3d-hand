@@ -512,7 +512,7 @@ function elbowFromPose(hand, anchor, aspect, k) {
 // from the usual reach back toward the shoulder.
 const forearmFinder = new ForearmFinder();
 const WRIST_REST_EXT = 5; // degrees of wrist extension held without thinking (arm.js REST_EXT)
-const HAND_LINE = 1; // share of the forearm direction taken from the hand's line
+const HAND_LINE = 1; // share of the forearm direction kept from the forearm's own line (rest: toward the shoulder)
 function elbowFromPicture(hand, world, anchor, ray, aspect) {
   if (!tracker || !forearmFinder.grab(video, tracker.lastDetectAt)) return null;
   const f = forearmFinder.find(hand.landmarks);
@@ -526,16 +526,18 @@ function elbowFromPicture(hand, world, anchor, ray, aspect) {
   if (across.dot(next.clone().sub(along)) < 0) across.negate();
   const guess = arms[hand.side].homeShoulder.clone().sub(anchor).normalize();
   const reach = along.clone().multiplyScalar(guess.dot(along)).addScaledVector(across, Math.max(guess.dot(across), 0.35)).normalize();
-  // The picture fixes the forearm's line but not how steeply it runs toward
-  // the camera. Pointing it at the shoulder lays the forearm nearly flat, and
-  // a hand held up then bends 60-70 degrees at the wrist, folding the skin
-  // into a dent. People keep the wrist near straight (a little extended), so
-  // within the picture's plane the forearm mostly continues the hand's line.
-  const q = handFrameQuat(world, hand.side);
-  const fingers = new THREE.Vector3(0, 1, 0).applyQuaternion(q);
-  const palm = new THREE.Vector3(0, 0, 1).applyQuaternion(q);
-  const ext = THREE.MathUtils.degToRad(WRIST_REST_EXT);
-  const pref = fingers.multiplyScalar(-Math.cos(ext)).addScaledVector(palm, -Math.sin(ext));
+  // The picture fixes the plane the forearm lies in, not where in it. Within
+  // the plane keep the forearm where it already is: taking the hand's line
+  // here (v40-v41) pulled the forearm after every wrist bend, so a bent wrist
+  // never showed (user GLB: wrist flexion stuck at -5 deg).
+  const held = arms[hand.side].elbow.clone().sub(anchor);
+  let pref;
+  if (held.length() > 0.13 && held.length() < 0.39) pref = held.normalize();
+  else {
+    const q = handFrameQuat(world, hand.side);
+    const ext = THREE.MathUtils.degToRad(WRIST_REST_EXT);
+    pref = new THREE.Vector3(0, -Math.cos(ext), -Math.sin(ext)).applyQuaternion(q);
+  }
   pref.addScaledVector(n, -pref.dot(n));
   const a1 = Math.min(pref.dot(along), 0.2); // the elbow is not much farther away than the wrist
   const c1 = Math.max(pref.dot(across), 0.35); // and runs toward the arm in the picture
