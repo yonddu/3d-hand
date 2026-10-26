@@ -19,6 +19,12 @@
 //   asnap  the forearm turning more than 20 deg in one frame with the wrist still
 //   topen  (marks only, for regress.mjs issues) frames where the thumb looks open
 //   wdis   (marks only) frames whose palm faces the other way from MediaPipe's world reading
+//   unsure frames the tracker had to guess, by reason, each kept with where the
+//          hand was so the guesses say what data to collect next (--unsure):
+//            facing   both mirror poses of the palm fit and no rule decided (lift.js)
+//            hidden   fingers hidden and no grip shape fits the seen ones (gripPrior.js)
+//            arm      no elbow seen and no arm pose near this hand (armPrior.js)
+//            together a hand hidden behind the other, placed from the frames around (togetherPass.js)
 // --live replays with the grip chosen frame by frame only, as the live view does;
 // by default the take is replayed twice, the second time with the grips chosen
 // over the whole take (gripPrior.js planGrips), as a filmed take is.
@@ -34,7 +40,7 @@ import { ArmRig } from '../src/arm.js';
 import { cleanTake } from '../src/cleanTake.js';
 import { restLandmarks } from '../src/skeleton.js';
 import { expandPose, poseElbowAR, lineElbow } from '../src/elbowHint.js';
-import { planGrips, objectSize, heldFamily } from '../src/gripPrior.js';
+import { planGrips, objectSize, heldFamily, GraspPrior, HIDDEN_MIN, FIT_MAX } from '../src/gripPrior.js';
 import { planMirrors } from '../src/mirrorPlan.js';
 
 const FLIP = (45 * Math.PI) / 180;
@@ -44,6 +50,17 @@ const F_JUMP = 15;
 const F_FLIP = 45;
 const A_SNAP = 20;
 const A_STILL = 0.03;
+const ARM_TRUST = 0.1; // arm-pose prior trust below this, with no elbow seen, is a guess
+const GRASP = new GraspPrior();
+
+// Where a hand is and which way its palm faces, in words, for the unsure list.
+const facing = (n) => {
+  const [x, y, z] = n;
+  const a = [Math.abs(x), Math.abs(y), Math.abs(z)];
+  const i = a.indexOf(Math.max(...a));
+  return i === 0 ? (x > 0 ? 'palm-right' : 'palm-left') : i === 1 ? (y > 0 ? 'palm-up' : 'palm-down') : z > 0 ? 'palm-to-face' : 'palm-away';
+};
+const where = (p) => `${Math.round(p.x * 10) * 10}x ${Math.round(p.y * 10) * 10}y ${Math.round(-p.z * 10) * 10}fwd cm`;
 
 // Where the app puts the wrist in first person (main.js fromMediaPipe, AR):
 // on its camera ray, at the distance where the model's palm covers the hand.
@@ -120,7 +137,12 @@ function pass(take, plans, logs = null, keep = false) {
   const arms = { left: new ArmRig('left'), right: new ArmRig('right') };
   arms.left.follow = arms.right.follow = true;
   const made = take.frames.map((f) => ({ t: f.t, hands: { left: null, right: null } }));
-  const out = { frames: 0, swap: 0, flip: 0, jump: 0, grip: 0, gsw: 0, gjump: 0, fjump: 0, fflip: 0, asnap: 0, events: [], marks: [] };
+  const out = { frames: 0, swap: 0, flip: 0, jump: 0, grip: 0, gsw: 0, gjump: 0, fjump: 0, fflip: 0, asnap: 0, unsure: { facing: 0, hidden: 0, arm: 0, together: 0 }, guesses: [], events: [], marks: [] };
+  const guess = (t, side, reason, about) => {
+    out.unsure[reason]++;
+    out.guesses.push({ t, side, reason, about });
+    out.marks.push({ t, side, kind: 'unsure', n: 1 });
+  };
   let prevHands = [];
   take.frames.forEach((f, fi) => {
     const t = f.t;
@@ -168,6 +190,28 @@ function pass(take, plans, logs = null, keep = false) {
       if (plans) opts.plan = plans[side][fi] || null;
       const res = solvers[side].solve(P, opts);
       if (logs) logs[side][fi] = solvers[side].gripIn;
+      const gin = solvers[side].gripIn;
+      if (!logs && gin) {
+        const hid = Object.keys(gin.hidden).filter((k) => Math.max(...gin.hidden[k]) >= HIDDEN_MIN);
+        const g = plans && plans[side][fi];
+        const off = g ? GRASP.misfit(g, gin.reading, gin.hidden) : Infinity;
+        if (hid.length && !(off <= FIT_MAX)) {
+          // The nearest shape in the data, to say what shape is missing.
+          let near = g;
+          let d = off;
+          if (!g) for (const c of GRASP.family(gin.shape)) {
+            const m = GRASP.misfit(c, gin.reading, gin.hidden);
+            if (m < d) [near, d] = [c, m];
+          }
+          // The seen fingers in words: the shape the data lacks.
+          const seenF = Object.keys(gin.hidden).filter((k) => !hid.includes(k)).map((k) => {
+            const a = gin.reading[k];
+            const bend = k === 'thumb' ? (a[3] + a[6]) / 2 : (a[0] + a[3] + a[4]) / 3;
+            return `${k} ${bend < 25 ? 'straight' : bend < 60 ? 'bent' : 'curled'}`;
+          });
+          guess(t, side, 'hidden', `${hid.join('+')} hidden; seen ${seenF.join(', ') || 'none'}${gin.shape ? `; holding ${gin.shape}` : ''}${near ? `; nearest ${near.id} ${Math.round(d)} deg off` : ''}`);
+        }
+      }
       const rig = solvers[side].rig;
       const { anchor, z, ray } = anchorOf(h, take.aspect);
       rig.group.position.copy(anchor);
@@ -176,6 +220,10 @@ function pass(take, plans, logs = null, keep = false) {
       const elbow = poseElbowAR(expandPose(f.pose), h, z, ray) || (lines ? lineElbow(lines, h, P, anchor, ray, take.aspect, arms[side]) : null);
       arms[side].update(anchor, rig.wrist.quaternion, elbow);
       const m = arms[side].measure(rig.wrist.quaternion);
+      // The palm as placed, and its mirror in depth (the other pose the picture fits).
+      const palmN = new THREE.Vector3(0, 0, 1).applyQuaternion(rig.wrist.quaternion).toArray();
+      if (!logs && raw.mirror && raw.mirror.unsure) guess(t, side, 'facing', `${where(anchor)}, ${facing(palmN)} or ${facing([palmN[0], palmN[1], -palmN[2]])}`);
+      if (!logs && !elbow && arms[side].priorTrust < ARM_TRUST) guess(t, side, 'arm', `${where(anchor)}, ${facing(palmN)}`);
       made[fi].hands[side] = { wrist: anchor.toArray(), handQ: rig.wrist.quaternion.toArray(), upperQ: m.upperArmQuat, foreQ: m.forearmQuat, elbow: m.elbow, shoulder: m.shoulder, fingers: rig.getPose().bones, cup: [rig.cup || 0] };
       const q = handFrameQuat(P, side);
       const flex = [];
@@ -202,6 +250,7 @@ function pass(take, plans, logs = null, keep = false) {
   else {
     const motion = cleanTake(made);
     out.together = motion.together;
+    for (const t of motion.together.times) guess(t, 'both', 'together', 'one hand behind the other');
     finished(motion, out);
     if (keep) out.motion = motion; // the finished frames, for a closer look at one take
   }
@@ -262,8 +311,17 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(im
   const args = process.argv.slice(2);
   const asJson = args.includes('--json');
   const showEvents = args.includes('--frames');
+  const showUnsure = args.includes('--unsure');
   const live = args.includes('--live');
-  const total = { takes: 0, frames: 0, swap: 0, flip: 0, jump: 0, grip: 0, gsw: 0, gjump: 0, fjump: 0, fflip: 0, asnap: 0 };
+  const total = { takes: 0, frames: 0, swap: 0, flip: 0, jump: 0, grip: 0, gsw: 0, gjump: 0, fjump: 0, fflip: 0, asnap: 0, unsure: { facing: 0, hidden: 0, arm: 0, together: 0 } };
+  const wanted = {};
+  // Score-only takes stay out of the data list (choosing data from them would
+  // tune on them), and a clip replayed under several file names counts once.
+  const splitFile = path.join(path.dirname(new URL(import.meta.url).pathname), 'regress-split.json');
+  const split = fs.existsSync(splitFile) ? JSON.parse(fs.readFileSync(splitFile, 'utf8')) : {};
+  const holdout = new Set(split.holdout || []);
+  const copies = {};
+  for (const names of Object.values(split.videos || {})) for (const n of names) copies[n] = names.length;
   const rows = [];
   for (const file of files(args.filter((a) => !a.startsWith('--')))) {
     const take = readTake(file);
@@ -275,11 +333,44 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(im
     rows.push({ file: path.basename(file), ...r });
     total.takes++;
     for (const k of ['frames', 'swap', 'flip', 'jump', 'grip', 'gsw', 'gjump', 'fjump', 'fflip', 'asnap']) total[k] += r[k];
+    for (const k of Object.keys(total.unsure)) total.unsure[k] += r.unsure[k];
+    if (!holdout.has(path.basename(file))) for (const g of r.guesses) {
+      const key = `${g.reason}: ${g.side} ${dataKey(g)}`;
+      wanted[key] = (wanted[key] || 0) + 1 / (copies[path.basename(file)] || 1);
+    }
     if (!asJson) {
       console.log(`${path.basename(file).padEnd(28)} frames ${String(r.frames).padStart(5)}  swap ${String(r.swap).padStart(3)}  flip ${String(r.flip).padStart(4)}  jump ${String(r.jump).padStart(5)}  grip ${String(r.grip).padStart(4)}  gsw ${String(r.gsw).padStart(4)}  gjump ${String(r.gjump).padStart(4)} | out fjump ${String(r.fjump).padStart(5)}  fflip ${String(r.fflip).padStart(3)}  asnap ${String(r.asnap).padStart(3)}`);
       if (showEvents) for (const e of r.events) console.log(`    ${e}`);
+      if (showUnsure) for (const g of stretches(r.guesses)) console.log(`    unsure ${g.from.toFixed(2)}-${g.to.toFixed(2)}s ${g.side} ${g.reason} (${g.n} frames): ${g.about}`);
     }
   }
   if (asJson) console.log(JSON.stringify({ total, rows: rows.map(({ events, marks, ...r }) => r) }, null, 1));
-  else console.log(`TOTAL ${total.takes} takes  frames ${total.frames}  swap ${total.swap}  flip ${total.flip}  jump ${total.jump}  grip ${total.grip}  gsw ${total.gsw}  gjump ${total.gjump} | out fjump ${total.fjump}  fflip ${total.fflip}  asnap ${total.asnap}`);
+  else {
+    console.log(`TOTAL ${total.takes} takes  frames ${total.frames}  swap ${total.swap}  flip ${total.flip}  jump ${total.jump}  grip ${total.grip}  gsw ${total.gsw}  gjump ${total.gjump} | out fjump ${total.fjump}  fflip ${total.fflip}  asnap ${total.asnap}`);
+    console.log(`UNSURE hand-frames  ` + Object.entries(total.unsure).map(([k, v]) => `${k} ${v}`).join('  '));
+    if (showUnsure) {
+      console.log('data to collect next (most guessed first, dev takes only, frames per clip):');
+      for (const [k, n] of Object.entries(wanted).sort((a, b) => b[1] - a[1]).slice(0, 20)) console.log(`  ${String(Math.round(n)).padStart(5)}  ${k}`);
+    }
+  }
+}
+
+// Unsure frames in a row (same hand, reason and description) as one stretch.
+function stretches(guesses) {
+  const out = [];
+  for (const g of guesses) {
+    const o = out.findLast((x) => x.side === g.side && x.reason === g.reason);
+    if (o && g.t - o.to < 0.2 && dataKey(o) === dataKey(g)) {
+      o.to = g.t;
+      o.n++;
+    } else out.push({ ...g, from: g.t, to: g.t, n: 1 });
+  }
+  return out.sort((a, b) => a.from - b.from);
+}
+
+// The part of a guess's description that names the missing data: for hidden
+// fingers the nearest shape, else where the hand was and which way it faced.
+function dataKey(g) {
+  if (g.reason === 'hidden') return g.about.replace(/; nearest .*$/, '');
+  return g.about;
 }

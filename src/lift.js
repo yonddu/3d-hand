@@ -181,10 +181,11 @@ export function liftToPicture(world, image, aspect, side = null, memory = null, 
       memory.nW = palmFit.nWorld;
     }
     const steady = memory && memory.sureRun >= WORLD_RUN;
+    const forearm = reach && apart > SAME_POSE && Math.min(v0, v1) < -LATERAL && Math.abs(v0 - v1) > MIDLINE_GAP;
     if (steady) {
       pick = worldPick;
       memory.votes = 0;
-    } else if (reach && apart > SAME_POSE && Math.min(v0, v1) < -LATERAL && Math.abs(v0 - v1) > MIDLINE_GAP) {
+    } else if (forearm) {
       pick = v0 > v1 ? 0 : 1;
       if (memory) memory.votes = 0;
     } else if (memory && memory.n && apart > SAME_POSE) {
@@ -195,7 +196,8 @@ export function liftToPicture(world, image, aspect, side = null, memory = null, 
     } else if (memory) memory.votes = 0;
     // A pose chosen with the whole take known (mirrorPlan.js) beats them all.
     if (memory && memory.want) pick = dotN(p0.n, memory.want) >= dotN(p1.n, memory.want) ? 0 : 1;
-    mirror = { n: [p0.n, p1.n], nW: palmFit.nWorld, v: reach ? [v0, v1] : null, pick };
+    // unsure: the two poses differ and no rule had a clear say (replay.mjs marks these frames).
+    mirror = { n: [p0.n, p1.n], nW: palmFit.nWorld, v: reach ? [v0, v1] : null, pick, unsure: apart > SAME_POSE && !sure && !steady && !forearm };
     palmZ = palmFit.poses[pick].z;
     if (memory) memory.n = palmFit.poses[pick].n;
   } else {

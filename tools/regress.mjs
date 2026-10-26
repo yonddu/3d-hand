@@ -76,9 +76,10 @@ for (const [name, r] of Object.entries(results)) {
   const s = sums[holdout.has(name) ? 'held-out' : 'dev'];
   s.takes++;
   for (const m of METRICS) s[m] = (s[m] || 0) + r[m];
+  s.unsure = (s.unsure || 0) + Object.values(r.unsure).reduce((a, b) => a + b, 0);
 }
 console.log('');
-for (const [k, s] of Object.entries(sums)) console.log(`${k.padEnd(8)} ${s.takes} takes  ` + METRICS.map((m) => `${m} ${s[m] || 0}`).join('  '));
+for (const [k, s] of Object.entries(sums)) console.log(`${k.padEnd(8)} ${s.takes} takes  ` + METRICS.map((m) => `${m} ${s[m] || 0}`).join('  ') + `  | unsure ${s.unsure || 0}`);
 if (args.includes('--update') || args.includes('--accept')) {
   const accept = args.includes('--accept');
   for (const [name, r] of Object.entries(results)) {

@@ -18,9 +18,9 @@ const KEYS = ['thumb', 'index', 'middle', 'ring', 'pinky'];
 const JOINT = { thumb: [0, 0, 0, 1, 1, 1, 2], finger: [0, 0, 0, 1, 2] };
 const ROLL = { thumb: [2, 5], finger: [2] };
 
-const HIDDEN_MIN = 0.3; // a joint at least this hidden makes it worth guessing
+export const HIDDEN_MIN = 0.3; // a joint at least this hidden makes it worth guessing
 const SEEN_MIN = 6; // seen angles (weighted) needed to tell grips apart
-const FIT_MAX = 16; // degrees (RMS over seen angles) for a grip to count
+export const FIT_MAX = 16; // degrees (RMS over seen angles) for a grip to count
 const SWITCH = 0.7; // a new grip must fit this much better than the held one
 const HOLD = 6; // for this many frames in a row
 const SIZE_TOL = 0.25; // log size ratio between grip and object that counts as one unit of mismatch

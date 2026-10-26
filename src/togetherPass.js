@@ -87,12 +87,14 @@ function nearest(side, w, q, rel) {
 
 // frames: [{t, hands: {left, right}}] with hands {wrist, handQ, fingers,
 // upperQ, foreQ, elbow, shoulder, ...}. lerpHand(a, b, u) blends two hands
-// (cleanTake.js). Fills in place; returns { filled, fromData } frame counts.
+// (cleanTake.js). Fills in place; returns { filled, fromData } frame counts
+// and the filled frames' times.
 export function fillTogether(frames, lerpHand) {
   const both = (i) => frames[i].hands.left && frames[i].hands.right;
   const lone = (i) => !!frames[i].hands.left !== !!frames[i].hands.right;
   let filled = 0;
   let fromData = 0;
+  const times = [];
   let i = 0;
   while (i < frames.length) {
     if (!lone(i)) {
@@ -153,7 +155,8 @@ export function fillTogether(frames, lerpHand) {
       if (Array.isArray(base.elbow)) base.elbow = base.elbow.map((v, c) => v + shift[c]);
       frames[k].hands[hid] = base;
       filled++;
+      times.push(frames[k].t);
     }
   }
-  return { filled, fromData };
+  return { filled, fromData, times };
 }

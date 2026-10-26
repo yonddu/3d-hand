@@ -347,6 +347,7 @@ export class ArmRig {
     this.prior ||= new ArmPrior(this.side, this.homeShoulder);
     const guess = this.prior.guess(pivot, handQuat);
     this.priorIds = guess ? guess.ids : null;
+    this.priorTrust = guess ? guess.trust : 0;
     if (guess) back.lerp(guess.dir.clone().applyQuaternion(handQuat), Math.min(1, guess.trust * PRIOR_GAIN)).normalize();
     if (this.follow) {
       target = this.followElbow(pivot, handQuat, back, elbowHint);
