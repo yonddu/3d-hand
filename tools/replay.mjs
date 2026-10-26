@@ -138,9 +138,9 @@ function pass(take, plans, logs = null, keep = false) {
   arms.left.follow = arms.right.follow = true;
   const made = take.frames.map((f) => ({ t: f.t, hands: { left: null, right: null } }));
   const out = { frames: 0, swap: 0, flip: 0, jump: 0, grip: 0, gsw: 0, gjump: 0, fjump: 0, fflip: 0, asnap: 0, unsure: { facing: 0, hidden: 0, arm: 0, together: 0 }, guesses: [], events: [], marks: [] };
-  const guess = (t, side, reason, about) => {
+  const guess = (t, side, reason, about, extra = null) => {
     out.unsure[reason]++;
-    out.guesses.push({ t, side, reason, about });
+    out.guesses.push({ t, side, reason, about, ...extra });
     out.marks.push({ t, side, kind: 'unsure', n: 1 });
   };
   let prevHands = [];
@@ -209,7 +209,7 @@ function pass(take, plans, logs = null, keep = false) {
             const bend = k === 'thumb' ? (a[3] + a[6]) / 2 : (a[0] + a[3] + a[4]) / 3;
             return `${k} ${bend < 25 ? 'straight' : bend < 60 ? 'bent' : 'curled'}`;
           });
-          guess(t, side, 'hidden', `${hid.join('+')} hidden; seen ${seenF.join(', ') || 'none'}${gin.shape ? `; holding ${gin.shape}` : ''}${near ? `; nearest ${near.id} ${Math.round(d)} deg off` : ''}`);
+          guess(t, side, 'hidden', `${hid.join('+')} hidden; seen ${seenF.join(', ') || 'none'}${gin.shape ? `; holding ${gin.shape}` : ''}${near ? `; nearest ${near.id} ${Math.round(d)} deg off` : ''}`, { reading: gin.reading, hidden: gin.hidden, near: near && near.id });
         }
       }
       const rig = solvers[side].rig;
