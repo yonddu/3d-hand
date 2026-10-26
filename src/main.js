@@ -381,7 +381,10 @@ const syncArmVisibility = () =>
 function attachArm(side) {
   const real = realHands[side];
   arms[side].setSkin(wristLoop(real ? real.exportSkin() : null), real ? real.mesh.material : rigs[side].mesh.material);
-  if (real) real.setSeamNormals(arms[side].skinData.seam);
+  if (real) {
+    real.setSeamNormals(arms[side].skinData.seam);
+    real.setBendSource(arms[side].bones.mid, arms[side].bones.hand);
+  }
 }
 $('show-arm').onchange = syncArmVisibility;
 $('show-upper').onchange = syncArmVisibility;
@@ -840,6 +843,10 @@ function tick(now) {
     else if (rec.frameReady) stepOffline();
   }
   if (!state.ar) controls.update();
+  scene.updateMatrixWorld();
+  // The heel of the hand shares the wrist's bend with the arm skin (only
+  // when the arm is shown; a hand ending at the wrist keeps its own shape).
+  for (const side of SIDES) if (realHands[side]) realHands[side].syncBend(!(arms[side].group.visible && $('show-arm').checked));
   renderer.render(scene, camera);
 
   frames++;

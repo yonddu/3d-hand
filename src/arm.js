@@ -249,12 +249,14 @@ export class ArmRig {
       // share is split, the forearm side of the bend going to the wrist helper.
       const MID = 3 + TWISTS;
       const h = arm.weights[i * 3 + 2];
-      const toHand = THREE.MathUtils.smoothstep(h, 0.35, 1) * h;
       const f = arm.weights[i * 3 + 1];
       const u = THREE.MathUtils.clamp(((arm.position[i * 3 + 1] - UPPER) / FORE) * (TWISTS + 1), 0, TWISTS + 1); // 0 elbow .. wrist
       const k = Math.min(Math.floor(u), TWISTS);
       const t = u - k;
-      const w = { 1: arm.weights[i * 3], [MID]: h - toHand, [MID + 1]: toHand };
+      // The arm side of the bend takes at most the helper's half turn; the
+      // heel of the hand makes the rest (RealHand bend bone), so the bend
+      // straddles the border.
+      const w = { 1: arm.weights[i * 3], [MID]: h };
       w[2 + k] = (w[2 + k] || 0) + f * (1 - t);
       w[3 + k] = (w[3 + k] || 0) + f * t;
       const top = Object.entries(w).filter(([, x]) => x > 0).sort((a, b) => b[1] - a[1]).slice(0, 4);

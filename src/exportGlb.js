@@ -126,6 +126,10 @@ function buildSide(side, head, skin, shoulder) {
   B.arm = bone(`${P}Arm`, B.shoulder, [0, 0, 0], ARM_BIND.toArray());
   B.fore = bone(`${P}ForeArm`, B.arm, [0, UPPER, 0]);
   B.hand = bone(wristName(side), B.fore, [0, FORE, 0]);
+  // Helper on the wrist pivot taking half the hand's turn: the arm skin's
+  // side of the bend and the heel of the hand follow it, so the wrist rounds
+  // over the joint instead of folding like paper (user).
+  B.bend = bone(`${P}WristBend`, B.fore, [0, FORE, 0]);
   B.fingers = {};
   for (const finger of FINGERS) {
     let parent = B.hand;
@@ -163,12 +167,15 @@ function buildGeometry(sides, bonesBySide, skins, boneIndex) {
     for (const { id, normal } of arm.seam) normal.toArray(parts[parts.length - 1].normal, id * 3);
     const n = arm.position.length / 3;
     const idx = new Uint16Array(n * 4);
-    const ids = [boneIndex[`${P}Arm`], boneIndex[`${P}ForeArm`], boneIndex[wristName(side)]];
+    const ids = [boneIndex[`${P}Arm`], boneIndex[`${P}ForeArm`], boneIndex[`${P}WristBend`], boneIndex[wristName(side)]];
     const w = new Float32Array(n * 4);
     for (let i = 0; i < n; i++) {
-      for (let j = 0; j < 3; j++) {
+      // As in the app (arm.js setSkin): the arm side of the bend rides the
+      // half-turn helper, the heel of the hand (its skin) makes the rest.
+      const share = [arm.weights[i * 3], arm.weights[i * 3 + 1], arm.weights[i * 3 + 2], 0];
+      for (let j = 0; j < 4; j++) {
         idx[i * 4 + j] = ids[j];
-        w[i * 4 + j] = arm.weights[i * 3 + j];
+        w[i * 4 + j] = share[j];
       }
     }
     B.arm.updateWorldMatrix(true, false);
@@ -352,6 +359,7 @@ export async function exportGlb({ frames, skins, name = 'HMS_Motion', includeObj
     quatTrack(`${P}Arm`, locals.flatMap((l) => l.arm));
     quatTrack(`${P}ForeArm`, locals.flatMap((l) => l.fore));
     quatTrack(wristName(side), locals.flatMap((l) => l.hand));
+    quatTrack(`${P}WristBend`, locals.flatMap((l) => new THREE.Quaternion().slerp(new THREE.Quaternion().fromArray(l.hand), 0.5).toArray()));
     for (const finger of FINGERS) {
       for (let k = 0; k < 3; k++) {
         const n = boneName(side, finger, k);

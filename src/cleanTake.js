@@ -20,6 +20,7 @@ const MAX_SWAP = 24; // a hand briefly read as the other hand, up to this many f
 const SWAP_NEAR = 0.08; // metres: where the other hand just was
 const BURST_STEP = 25; // degrees in one frame: faster than a wrist turns (~750 deg/s)
 const BURST_MAX = 15; // a palm misread for up to this many frames (0.5 s)
+const BURST_LONG = 36; // up to 1.2 s when it also snaps back faster than a wrist turns
 const BURST_BACK = 30; // degrees: back where it was before the burst
 const BONE_WIN = 3;
 const BONE_SPIKE = 30; // degrees
@@ -162,8 +163,15 @@ function cleanSide(hands, swapped) {
       const q0 = hands[i - 1].handQ;
       if (qangle(hands[i].handQ, q0) < BURST_STEP) continue;
       let k = i + 1;
-      while (k <= Math.min(e, i + BURST_MAX) && qangle(hands[k].handQ, q0) > BURST_BACK) k++;
-      if (k > e || k > i + BURST_MAX) continue;
+      while (k <= Math.min(e, i + BURST_LONG) && qangle(hands[k].handQ, q0) > BURST_BACK) k++;
+      if (k > e || k > i + BURST_LONG) continue;
+      // Past half a second, only a snap both ways counts (user GLB: palm read
+      // mirrored for 0.8 s, 54 deg a frame in and out).
+      if (k > i + BURST_MAX) {
+        let snapBack = false;
+        for (let j = Math.max(i + 1, k - 4); j <= k; j++) if (qangle(hands[j].handQ, hands[j - 1].handQ) >= BURST_STEP) snapBack = true;
+        if (!snapBack) continue;
+      }
       for (let j = i; j < k; j++) bad[j] = true;
       i = k;
     }

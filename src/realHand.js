@@ -22,6 +22,7 @@ import { addDepthPrepass } from './prepass.js';
 // further in (v37, -3 cm) opened the hand through the heel and the arm grew
 // from that 7.3 x 5.5 cm border, a swollen wrist (user screenshot).
 const WRIST_CUT = -0.015;
+const BEND_IN = 0.02; // m of the heel of the hand, above the border, that shares the wrist's bend
 import { basisQuat, handFrameQuat, cupQuat } from './handRig.js';
 
 // WebXR joint names per finger: [metacarpal, proximal, intermediate/distal, distal/tip, tip].
@@ -88,6 +89,18 @@ export class RealHand {
     this.restFrame = handFrameQuat(frameLandmarks, this.side);
     this.restFrameInv = this.restFrame.clone().invert();
     this.refineMesh();
+    // The bend shared across the wrist: a bone carrying half the hand's turn
+    // on the forearm (the arm's WristMid, see syncBend). The heel of the hand
+    // just above the border rides on it, so the wrist rounds over both sides
+    // of the joint like real skin instead of folding at the border.
+    this.bendBone = new THREE.Bone();
+    this.bendBone.name = 'wrist-bend';
+    this.bendBone.matrixAutoUpdate = false;
+    {
+      const sk = this.mesh.skeleton;
+      const wi = sk.bones.findIndex((b) => b.name === 'wrist');
+      this.mesh.skeleton = new THREE.Skeleton([...sk.bones, this.bendBone], [...sk.boneInverses, sk.boneInverses[wi].clone()]);
+    }
     this.pinBorder();
     // Linear skinning for the hand (the thenar pad is solved for it); the arm
     // has 1 here. Set explicitly: a missing attribute reads whatever value its
@@ -155,18 +168,22 @@ export class RealHand {
     const si = g.attributes.skinIndex;
     const sw = g.attributes.skinWeight;
     const W = this.mesh.skeleton.bones.findIndex((b) => b.name === 'wrist');
+    const BEND = this.mesh.skeleton.bones.indexOf(this.bendBone);
     const handY = new THREE.Vector3(0, 1, 0).applyQuaternion(this.restFrame);
     const k = handY.dot(this.restPos.wrist) - WRIST_CUT;
     const v = new THREE.Vector3();
     for (let i = 0; i < pos.count; i++) {
-      const pin = 1 - THREE.MathUtils.smoothstep(handY.dot(v.fromBufferAttribute(pos, i)) - k, 0, 0.012);
-      if (pin <= 0) continue;
+      const d = handY.dot(v.fromBufferAttribute(pos, i)) - k;
+      const pin = 1 - THREE.MathUtils.smoothstep(d, 0, 0.012);
+      const bend = BEND >= 0 ? 1 - THREE.MathUtils.smoothstep(d, 0, BEND_IN) : 0;
+      if (pin <= 0 && bend <= 0) continue;
       const w = {};
       for (let c = 0; c < 4; c++) {
         const b = si.getComponent(i, c);
-        w[b] = (w[b] || 0) + sw.getComponent(i, c) * (1 - pin);
+        w[b] = (w[b] || 0) + sw.getComponent(i, c) * (1 - pin) * (1 - bend);
       }
-      w[W] = (w[W] || 0) + pin;
+      w[W] = (w[W] || 0) + pin * (1 - bend);
+      if (bend > 0) w[BEND] = (w[BEND] || 0) + bend;
       const top = Object.entries(w).sort((a, b) => b[1] - a[1]).slice(0, 4);
       const sum = top.reduce((t, [, x]) => t + x, 0) || 1;
       for (let c = 0; c < 4; c++) {
@@ -176,6 +193,27 @@ export class RealHand {
     }
     si.needsUpdate = true;
     sw.needsUpdate = true;
+  }
+
+  // Pose the shared-bend bone from the arm: the hand's wrist joint moved by
+  // the half turn the hand has not yet made at the arm's wrist helper
+  // (mid * hand^-1). Call after the arm is posed, before drawing. With no arm
+  // (or at rest) it sits on the wrist joint.
+  setBendSource(mid, hand) {
+    this.bendSource = mid && hand ? { mid, hand } : null;
+  }
+
+  syncBend(atRest = false) {
+    if (!this.bendBone) return;
+    const wrist = this.joints.wrist;
+    wrist.updateWorldMatrix(true, false);
+    const m = this.bendBone.matrixWorld.copy(wrist.matrixWorld);
+    const src = this.bendSource;
+    if (!atRest && src) {
+      src.mid.updateWorldMatrix(true, false);
+      src.hand.updateWorldMatrix(true, false);
+      m.premultiply(new THREE.Matrix4().copy(src.hand.matrixWorld).invert()).premultiply(src.mid.matrixWorld);
+    }
   }
 
   // Seam normals from the arm (hand-bone space) so hand and arm shade as one surface.
@@ -272,7 +310,13 @@ export class RealHand {
     if (this.root.visible && (!this.padKey || key.some((x, i) => x !== this.padKey[i]))) {
       this.padKey = key;
       this.root.updateMatrixWorld(true);
+      // Solved with the bend bone on the wrist joint: the pad's offsets are
+      // rest-space and must not depend on the wrist's bend (nor on a bend
+      // bone not yet posed this frame).
+      const bend = this.bendBone ? this.bendBone.matrixWorld.clone() : null;
+      this.syncBend(true);
       this.pad.update();
+      if (bend) this.bendBone.matrixWorld.copy(bend);
     }
   }
 
@@ -554,6 +598,8 @@ export class RealHand {
     this.root.updateMatrixWorld(true);
     // World -> hand-bone space; the rig wrist sits at the origin with its rest rotation.
     const toHand = new THREE.Matrix4().makeRotationFromQuaternion(rig.wristRest.clone().invert());
+    jointBone['wrist-bend'] = `${side === 'left' ? 'Left' : 'Right'}WristBend`;
+    this.syncBend(true);
     const baked = bakeSkin(this.mesh, toHand, (i) => jointBone[this.mesh.skeleton.bones[i].name] || wristName(side));
     rig.setPose(saved);
     this.update();
