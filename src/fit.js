@@ -196,7 +196,7 @@ function solveLinear(A, b) {
 // Fit one finger. P: tracked points (rig orientation), wristQ: palm frame,
 // conf: per-bone confidence, prev: last frame's angles for this finger or null.
 // Returns { theta, locals, ang } (angles in degrees, abd toward the thumb).
-export function fitFinger({ finger, chain, side, P, wristQ, conf, palm, prev, start, useLimits, occluded = null }) {
+export function fitFinger({ finger, chain, side, P, wristQ, conf, palm, prev, start, useLimits, occluded = null, prior = null }) {
   const J = finger.joints;
   const base = P[J[0]];
   const obs = [1, 2, 3].map((k) => P[J[k]].clone().sub(base));
@@ -204,21 +204,10 @@ export function fitFinger({ finger, chain, side, P, wristQ, conf, palm, prev, st
   const lay = layout(finger.key);
   const limits = [0, 1, 2].map((k) => (useLimits ? limitsFor(finger.key, k) : [-180, 180, -180, 180]));
   const rollMax = finger.key === 'thumb' ? ROLL_MAX.thumb : ROLL_MAX.finger;
-  // Which tracked points are guesses. Seen from the back of the hand (the
-  // first-person view), a finger bent at the knuckle hides its last two
-  // joints inside the fist; the camera has no picture of them and the tracker
-  // tends to guess them half open. The knuckle and first bone stay visible,
-  // so their bend is trusted and the hidden joints follow it along the path a
-  // closing finger takes, instead of the guess.
-  const palmN = new THREE.Vector3(0, 0, 1).applyQuaternion(wristQ);
-  const along = new THREE.Vector3(0, 1, 0).applyQuaternion(wristQ);
-  const backFacing = THREE.MathUtils.smoothstep(-palmN.z, 0.15, 0.5); // +z points at the camera
-  const knuckleBend = Math.atan2(obs[0].dot(palmN), obs[0].dot(along)) / D2R;
-  const tucked = finger.key === 'thumb' ? 0 : backFacing * THREE.MathUtils.smoothstep(knuckleBend, 35, 70);
-  // Joints behind another finger or the palm (seen in the picture, lift.js).
-  const occ = (k) => (occluded ? occluded[J[k + 1]] || 0 : 0);
-  const hidden = [occ(0), Math.max(tucked, occ(1)), Math.max(tucked, occ(2))];
-  const shape = nearestShape(finger.key, start, hidden);
+  const hidden = hiddenJoints(finger, P, wristQ, occluded);
+  // A grip guessed from the whole hand (gripPrior.js) when there is one, else the
+  // basic shape this finger's seen joints match.
+  const shape = Math.max(...hidden) < 0.05 ? null : prior || nearestShape(finger.key, start, hidden);
   const ctx = { key: finger.key, chain, side, wristQ, obs, len, conf, palm, lay, limits, prev, hidden, shape };
   // Start from the last frame, or from the fresh reading when that already
   // fits better (the hand moved fast, or was just found again).
@@ -235,6 +224,27 @@ export function fitFinger({ finger, chain, side, P, wristQ, conf, palm, prev, st
   });
   const { locals, ang } = forward(theta, ctx);
   return { theta, locals, ang };
+}
+
+// How hidden each joint of a finger is (0 seen .. 1 a guess), base to tip.
+export function hiddenJoints(finger, P, wristQ, occluded = null) {
+  const J = finger.joints;
+  const base = P[J[0]];
+  const obs0 = P[J[1]].clone().sub(base);
+  // Which tracked points are guesses. Seen from the back of the hand (the
+  // first-person view), a finger bent at the knuckle hides its last two
+  // joints inside the fist; the camera has no picture of them and the tracker
+  // tends to guess them half open. The knuckle and first bone stay visible,
+  // so their bend is trusted and the hidden joints follow it along the path a
+  // closing finger takes, instead of the guess.
+  const palmN = new THREE.Vector3(0, 0, 1).applyQuaternion(wristQ);
+  const along = new THREE.Vector3(0, 1, 0).applyQuaternion(wristQ);
+  const backFacing = THREE.MathUtils.smoothstep(-palmN.z, 0.15, 0.5); // +z points at the camera
+  const knuckleBend = Math.atan2(obs0.dot(palmN), obs0.dot(along)) / D2R;
+  const tucked = finger.key === 'thumb' ? 0 : backFacing * THREE.MathUtils.smoothstep(knuckleBend, 35, 70);
+  // Joints behind another finger or the palm (seen in the picture, lift.js).
+  const occ = (k) => (occluded ? occluded[J[k + 1]] || 0 : 0);
+  return [occ(0), Math.max(tucked, occ(1)), Math.max(tucked, occ(2))];
 }
 
 // The basic shape (shapes.js) closest to this reading, judged on the seen

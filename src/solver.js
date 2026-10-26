@@ -8,7 +8,8 @@
 import * as THREE from 'three';
 import { FINGERS, limitsFor, sideSign } from './skeleton.js';
 import { handFrameQuat, cupQuat } from './handRig.js';
-import { fitFinger } from './fit.js';
+import { fitFinger, hiddenJoints } from './fit.js';
+import { GraspPrior } from './gripPrior.js';
 
 const D2R = Math.PI / 180;
 const R2D = 180 / Math.PI;
@@ -29,12 +30,14 @@ export class HandSolver {
     this.refLen = {}; // running reference length per bone, for confidence
     this.smoothed = new Map(); // bone -> last output quaternion
     this.fitPrev = {}; // finger -> last fitted angles (model fitting)
+    this.grasp = new GraspPrior(); // grip guess for hidden fingers
   }
 
   reset() {
     this.refLen = {};
     this.smoothed.clear();
     this.fitPrev = {};
+    this.grasp.reset();
   }
 
   // P: 21 THREE.Vector3 in rig orientation (any origin, meters).
@@ -129,16 +132,27 @@ export class HandSolver {
   fitHand(P, wristQ, angles, confidence, { limits, smoothing, occluded }) {
     const rig = this.rig;
     const palm = P[0].distanceTo(P[9]);
+    const starts = {};
+    const frames = {};
+    const hidden = {};
     for (const finger of FINGERS) {
       const a = angles[finger.key];
-      const start = finger.key === 'thumb'
+      starts[finger.key] = finger.key === 'thumb'
         ? [a[0].flex, a[0].abd, 0, a[1].flex, a[1].abd, 0, a[2].flex]
         : [a[0].flex, a[0].abd, 0, a[1].flex, a[2].flex];
+      // Ring and little finger hang from metacarpals folded by the cupping.
+      frames[finger.key] = wristQ.clone().multiply(cupQuat(rig.side, finger.key, rig.cup));
+      hidden[finger.key] = hiddenJoints(finger, P, frames[finger.key], occluded);
+    }
+    // The grip the seen fingers point to, for the hidden ones (gripPrior.js).
+    const grip = this.grasp.update(starts, hidden);
+    this.gripName = this.grasp.current ? this.grasp.current.name : '';
+    for (const finger of FINGERS) {
+      const start = starts[finger.key];
       const prev = this.fitPrev[finger.key] || null;
       const chain = rig.chains[finger.key];
-      // Ring and little finger hang from metacarpals folded by the cupping.
       const cupQ = cupQuat(rig.side, finger.key, rig.cup);
-      const res = fitFinger({ finger, chain, side: rig.side, P, wristQ: wristQ.clone().multiply(cupQ), conf: confidence[finger.key], palm, prev, start, useLimits: limits, occluded });
+      const res = fitFinger({ finger, chain, side: rig.side, P, wristQ: frames[finger.key], conf: confidence[finger.key], palm, prev, start, useLimits: limits, occluded, prior: grip && grip[finger.key] });
       res.locals[0].premultiply(cupQ);
       this.fitPrev[finger.key] = res.theta;
       chain.forEach((link, k) => this.apply(link.bone, res.locals[k], smoothing ? 0.85 : 1));

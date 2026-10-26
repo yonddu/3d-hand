@@ -863,7 +863,10 @@ function tick(now) {
     $('gesture').textContent = state.source === 'demo' && !state.frozen ? `데모 동작: ${state.gesture}` : '';
     $('object-info').textContent = SIDES.map((s) => {
       const o = grasps[s].current;
-      return o ? `${s === 'left' ? '왼손' : '오른손'}: ${describeObject(o)}` : '';
+      const hand = s === 'left' ? '왼손' : '오른손';
+      if (o) return `${hand}: ${describeObject(o)}`;
+      // Grip guessed for hidden fingers (gripPrior.js).
+      return solvers[s].gripName ? `${hand} 가려진 손가락: ${solvers[s].gripName} 모양으로 추정` : '';
     }).filter(Boolean).join(' · ');
   }
   if (now - tableT > 120) {
