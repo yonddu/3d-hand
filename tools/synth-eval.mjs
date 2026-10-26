@@ -152,7 +152,7 @@ for (const s of lines) {
 const med = (a) => (a.length ? a.slice().sort((x, y) => x - y)[a.length >> 1] : NaN);
 const f1 = (v) => v.toFixed(1);
 console.log(`samples ${sum.n}, MediaPipe found the hand in ${sum.found} (${f1((100 * sum.found) / Math.max(1, sum.n))}%), labelled the other side in ${sum.label}`);
-console.log(`JOINT ANGLE ERROR ${f1(angle.e / Math.max(1, angle.n))} deg (app angles vs posed, 15 joints)   curled finger joints (60+ deg) read ${f1(angle.curled / Math.max(1, angle.curledN))} deg off`);
+console.log(`JOINT ANGLE ERROR ${(angle.e / Math.max(1, angle.n)).toFixed(2)} deg (app angles vs posed, 15 joints)   curled finger joints (60+ deg) read ${f1(angle.curled / Math.max(1, angle.curledN))} deg off`);
 console.log(`joint bend error  pipeline ${f1(sum.bend / sum.bendN)} deg   raw MediaPipe world ${f1(sum.raw / sum.bendN)} deg   (mean over 15 joints)`);
 console.log(`palm facing error pipeline median ${f1(med(sum.face))} deg, turned over (>${FLIP}) ${sum.flips}   raw MediaPipe median ${f1(med(sum.rawFace))} deg, turned over ${sum.rawFlips}`);
 console.log(`frames marked unsure (facing) ${sum.unsure}, of them turned over ${sum.unsureFlips}; turned over without the mark ${sum.flips - sum.unsureFlips}`);
