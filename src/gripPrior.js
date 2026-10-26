@@ -24,6 +24,10 @@ const FIT_MAX = 16; // degrees (RMS over seen angles) for a grip to count
 const SWITCH = 0.7; // a new grip must fit this much better than the held one
 const HOLD = 6; // for this many frames in a row
 const SIZE_TOL = 0.25; // log size ratio between grip and object that counts as one unit of mismatch
+// A rare shape (gestures.js CATEGORY_WEIGHT) pays this many units of the fit
+// limit squared per unit of -ln(weight).
+const RARE = 0.5;
+const rareCost = (g) => RARE * -Math.log(g.weight || 1);
 
 // Every real hand shape in the dictionary takes part, not only the grips:
 // hidden fingers in a sign or a gesture are filled the same way. Over the
@@ -115,13 +119,13 @@ export class GraspPrior {
     let best = null;
     let bestFit = Infinity;
     for (const g of family) {
-      const f = Math.sqrt(this.misfit(g, reading, hidden) ** 2 + FIT_MAX ** 2 * sizeCost(g, size, shape));
+      const f = Math.sqrt(this.misfit(g, reading, hidden) ** 2 + FIT_MAX ** 2 * (sizeCost(g, size, shape) + rareCost(g)));
       if (f < bestFit) {
         bestFit = f;
         best = g;
       }
     }
-    const held = this.current ? Math.sqrt(this.misfit(this.current, reading, hidden) ** 2 + FIT_MAX ** 2 * sizeCost(this.current, size, shape)) : Infinity;
+    const held = this.current ? Math.sqrt(this.misfit(this.current, reading, hidden) ** 2 + FIT_MAX ** 2 * (sizeCost(this.current, size, shape) + rareCost(this.current))) : Infinity;
     if (held > FIT_MAX * 1.5) this.current = null; // the hand left that grip
     if (!this.current) {
       this.current = bestFit <= FIT_MAX ? best : null;
@@ -223,7 +227,7 @@ function planRun(log, plan, s, e, prior) {
   const back = new Int32Array(T * S);
   let best = new Float64Array(S);
   let next = new Float64Array(S);
-  const sc = C.map((g) => sizeCost(g, size, shape, reach));
+  const sc = C.map((g) => sizeCost(g, size, shape, reach) + rareCost(g));
   for (let t = 0; t < T; t++) {
     const f = log[s + t];
     let m = Infinity;

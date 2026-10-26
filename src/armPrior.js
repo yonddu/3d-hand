@@ -14,10 +14,11 @@ import { TWO_HAND_MOTIONS } from './twoHandMotions.js';
 const KEYS = ['sFlex', 'sAbd', 'hRot', 'elbow', 'pron', 'wFlex', 'wDev'];
 // Each arm of the two-hand movements (keys hold [right, left]): how an arm
 // is held while the hands work together, clasped, crossed or on one tool.
+const TWO_WEIGHT = { twoDaily: 1, twoSport: 0.8, twoFilm: 0.6, twoAnime: 0.5 };
 function twoHandPoses(side) {
   const k = side === 'right' ? 0 : 1;
   const out = [];
-  for (const row of TWO_HAND_MOTIONS) row[6].forEach((key, i) => out.push({ id: `${row[0]}/${i}`, arm: Object.fromEntries(KEYS.map((n, j) => [n, key[k][j]])) }));
+  for (const row of TWO_HAND_MOTIONS) row[6].forEach((key, i) => out.push({ id: `${row[0]}/${i}`, weight: TWO_WEIGHT[row[2]] ?? 1, arm: Object.fromEntries(KEYS.map((n, j) => [n, key[k][j]])) }));
   return out;
 }
 
@@ -32,7 +33,7 @@ export class ArmPrior {
     this.entries = poses.map((p) => {
       const j = armPoseJoints(p.arm, side, shoulder);
       const dir = j.E.clone().sub(j.W).normalize().applyQuaternion(j.handQ.clone().invert());
-      return { id: p.id, W: j.W, Q: j.handQ, dir };
+      return { id: p.id, W: j.W, Q: j.handQ, dir, weight: p.weight ?? 1 };
     });
   }
 
@@ -55,7 +56,7 @@ export class ArmPrior {
     const dir = new THREE.Vector3();
     let wsum = 0;
     for (const { e, cost } of best) {
-      const w = Math.exp(-0.5 * cost);
+      const w = Math.exp(-0.5 * cost) * e.weight;
       dir.addScaledVector(e.dir, w);
       wsum += w;
     }

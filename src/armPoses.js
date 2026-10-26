@@ -147,6 +147,10 @@ export const ARM_CATEGORIES = {
   ...MOTION_CATEGORIES,
 };
 
+// How common each kind of arm pose is (1 most): the range grid is a sweep of
+// the joints, not something people do, and counts least (armPrior.js).
+export const ARM_WEIGHT = { armRom: 0.3, armSport: 0.8, armSportMove: 0.8, armMusic: 0.7, armBody: 0.8 };
+
 const clamp = (v, [a, b]) => Math.min(b, Math.max(a, v));
 
 // Wrist flexion/deviation pulled inside its elliptical range.
@@ -175,7 +179,7 @@ export const ARM_POSES = RAW_UNIQUE.map(([id, name, category, hand, sFlex, sAbd,
     sFlex: clamp(sFlex, ARM_ROM.sFlex), sAbd: clamp(sAbd, ARM_ROM.sAbd), hRot: clamp(hRot, ARM_ROM.hRot),
     elbow: clamp(elbow, ARM_ROM.elbow), pron: clamp(pron, ARM_ROM.pron), wFlex: Math.round(f), wDev: Math.round(d),
   };
-  const entry = { id, name, category, hand, arm };
+  const entry = { id, name, category, hand, arm, weight: ARM_WEIGHT[category] ?? 1 };
   if (note) entry.note = note;
   return entry;
 });

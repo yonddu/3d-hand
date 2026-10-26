@@ -1731,6 +1731,15 @@ export const CATEGORIES = {
   exercise: '운동·웨이트·클라이밍',
 };
 
+// How common each kind of hand shape is in everyday filmed hands (1 most).
+// Tracking leans less on rare shapes (gripPrior.js), so a blurred everyday
+// hand is not read as a sign or a hand seal that happens to fit it.
+export const CATEGORY_WEIGHT = {
+  natural: 1, daily: 1, grip: 1, objects: 1, graspTax: 1, steps: 1, combo: 0.9, greeting: 0.9, number: 0.9,
+  exercise: 0.8, sport: 0.8, play: 0.7, opposition: 0.7, handshape: 0.6, asl: 0.5, ksl: 0.5,
+  martial: 0.4, mudra: 0.35, dive: 0.35, signal: 0.35, rude: 0.4,
+};
+
 function build() {
   const byId = {};
   const out = [];
@@ -1750,7 +1759,7 @@ function build() {
         h[key] = [mcp, abd, 0, pip, dip];
       });
     }
-    const entry = { id, name, category: cat, h };
+    const entry = { id, name, category: cat, h, weight: CATEGORY_WEIGHT[cat] ?? 1 };
     for (const k of ['region', 'note', 'verify']) if (opts[k]) entry[k] = opts[k];
     const base = thumb && (thumb.ref || (thumb.mix && thumb.mix[0]));
     const cup = opts.cup ?? (typeof thumb === 'string' ? THUMB_CUP[thumb] : base && byId[base].cup);
