@@ -2,7 +2,7 @@
  "book_floor_06-37.glb": {
   "swap": 0,
   "flip": 7,
-  "jump": 90,
+  "jump": 88,
   "gsw": 6,
   "fjump": 17,
   "fflip": 0,
@@ -182,9 +182,9 @@
  "v53_user1.glb": {
   "swap": 0,
   "flip": 8,
-  "jump": 208,
+  "jump": 207,
   "gsw": 17,
-  "fjump": 113,
+  "fjump": 112,
   "fflip": 0,
   "asnap": 1
  },
@@ -193,16 +193,16 @@
   "flip": 5,
   "jump": 158,
   "gsw": 11,
-  "fjump": 120,
+  "fjump": 119,
   "fflip": 0,
   "asnap": 0
  },
  "book_turn_08-19.glb": {
   "swap": 0,
-  "flip": 15,
-  "jump": 226,
+  "flip": 10,
+  "jump": 225,
   "gsw": 6,
-  "fjump": 76,
+  "fjump": 64,
   "fflip": 0,
   "asnap": 0
  }

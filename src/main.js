@@ -457,7 +457,10 @@ function fromMediaPipe(hand) {
   const aspect = (video.videoWidth || 4) / (video.videoHeight || 3);
   // Rebuild the 3D points from the picture (see lift.js): MediaPipe's own 3D
   // guess is often turned against what the camera shows.
-  const raw = state.lift ? liftToPicture(hand.world, hand.landmarks, aspect, hand.side, liftMemory[hand.side], (state.source === 'camera' && !facingUser()) || (state.source === 'video' && $('video-fp').checked)) : hand.world;
+  const firstPerson = (state.source === 'camera' && !facingUser()) || (state.source === 'video' && $('video-fp').checked);
+  const raw = state.lift ? liftToPicture(hand.world, hand.landmarks, aspect, hand.side, liftMemory[hand.side], firstPerson) : hand.world;
+  // A filmed take may lift this frame again with the whole clip known (mirrorPass.js).
+  const relift = rec.offline && raw.mirror ? { world: hand.world.map(({ x, y, z }) => ({ x, y, z })), image: hand.landmarks.map(({ x, y, z }) => ({ x, y, z })), aspect, firstPerson, flip: !state.ar && facingUser(), mirror: raw.mirror } : null;
   const world = raw.map((p) => new THREE.Vector3(p.x, -p.y, -p.z));
   const cup = raw.cup || 0;
   const a = hand.landmarks[0];
@@ -486,7 +489,7 @@ function fromMediaPipe(hand) {
     // Facing the camera, the body (and so the shoulders) is behind the hands.
     const sgn = hand.side === 'right' ? 1 : -1;
     const shoulder = facingUser() ? new THREE.Vector3(-0.18 * sgn, anchor.y - 0.12, Math.min(anchor.z - 0.3, -0.5)) : null;
-    return { side: hand.side, world, occluded, cup, anchor, vision, elbow, shoulder, ray, image: { x: a.x, y: a.y }, depth: z };
+    return { side: hand.side, world, occluded, cup, anchor, vision, elbow, shoulder, ray, image: { x: a.x, y: a.y }, depth: z, relift };
   }
   // Lay hands out on a work plane at WORK_DEPTH so they stay in frame; real
   // depth changes still move the hand, at half strength.
@@ -500,7 +503,7 @@ function fromMediaPipe(hand) {
     anchor.set(-anchor.x, anchor.y, -2 * WORK_DEPTH - anchor.z);
     if (elbow) elbow.set(-elbow.x, elbow.y, -2 * WORK_DEPTH - elbow.z);
   }
-  return { side: hand.side, world, occluded, cup, anchor, vision, elbow };
+  return { side: hand.side, world, occluded, cup, anchor, vision, elbow, relift };
 }
 
 // Elbow seen by the pose model, placed relative to this hand's wrist.
@@ -583,7 +586,9 @@ function feed(inputs, t) {
     const solveOpts = { limits: state.limits, fit: state.fit, occluded: input.occluded, cup: input.cup || 0, held: heldFamily(input.vision), heldSize: objectSize(input.vision), smoothing: !rec.offline };
     state.lastSolve[side] = solvers[side].solve(smooth, solveOpts);
     // A filmed take is solved again once the whole clip is known (gripPass.js).
-    state.solveIn[side] = rec.offline && state.fit ? { P: smooth.map((p) => p.toArray()), opts: solveOpts } : null;
+    state.solveIn[side] = rec.offline && state.fit
+      ? { P: smooth.map((p) => p.toArray()), opts: solveOpts, relift: input.relift || null, elbow: input.elbow ? input.elbow.toArray() : null, shoulder: input.shoulder ? input.shoulder.toArray() : null }
+      : null;
     if (realHands[side]) {
       realHands[side].setProportions(smooth);
       realHands[side].setPinches(smooth);
@@ -1441,7 +1446,13 @@ function stopRecording() {
   const filmed = camRec.processing;
   rec.finishing = 0;
   updateGuide();
-  replanGrips(trimFrames(rec.frames), (u) => (rec.finishing = u))
+  const makeArm = (side) => {
+    const arm = new ArmRig(side);
+    arm.follow = arms[side].follow;
+    arm.opts = arms[side].opts;
+    return arm;
+  };
+  replanGrips(trimFrames(rec.frames), (u) => (rec.finishing = u), makeArm)
     .catch((e) => {
       console.error(e);
       return trimFrames(rec.frames);

@@ -152,6 +152,7 @@ export function liftToPicture(world, image, aspect, side = null, memory = null, 
   const palmFit = fitPalm(world, u, palm);
   let k;
   let palmZ = null;
+  let mirror = null; // both mirror poses and what each rule says of them, for mirrorPlan.js
   if (palmFit) {
     k = palmFit.k;
     const [p0, p1] = palmFit.poses;
@@ -192,6 +193,9 @@ export function liftToPicture(world, image, aspect, side = null, memory = null, 
       pick = memory.votes >= SWITCH_VOTES ? worldPick : keep;
       if (pick === worldPick) memory.votes = 0;
     } else if (memory) memory.votes = 0;
+    // A pose chosen with the whole take known (mirrorPlan.js) beats them all.
+    if (memory && memory.want) pick = dotN(p0.n, memory.want) >= dotN(p1.n, memory.want) ? 0 : 1;
+    mirror = { n: [p0.n, p1.n], nW: palmFit.nWorld, v: reach ? [v0, v1] : null, pick };
     palmZ = palmFit.poses[pick].z;
     if (memory) memory.n = palmFit.poses[pick].n;
   } else {
@@ -311,6 +315,7 @@ export function liftToPicture(world, image, aspect, side = null, memory = null, 
       if (memory && best[n].room > 0.25 * best[n].L) memory.signs[i] = best[n].sign;
     });
   });
+  out.mirror = mirror;
   out.cup = palmCup(world, side, memory);
   out.occluded = occlusion(out);
   if (memory) {

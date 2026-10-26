@@ -35,6 +35,7 @@ import { cleanTake } from '../src/cleanTake.js';
 import { restLandmarks } from '../src/skeleton.js';
 import { expandPose, poseElbowAR, lineElbow } from '../src/elbowHint.js';
 import { planGrips, objectSize, heldFamily } from '../src/gripPrior.js';
+import { planMirrors } from '../src/mirrorPlan.js';
 
 const FLIP = (45 * Math.PI) / 180;
 const JUMP = 30;
@@ -99,11 +100,15 @@ const points = (flat, dims = 3) => {
 
 export function replay(take, { live = false, keep = false } = {}) {
   if (live) return pass(take, null, null, keep);
-  const logs = { left: [], right: [] };
+  const logs = { left: [], right: [], mirror: { left: [], right: [] } };
   pass(take, null, logs);
   const plans = { left: planGrips(logs.left), right: planGrips(logs.right) };
+  // Palm facing, chosen over the whole take as a filmed take is (mirrorPlan.js).
+  plans.mirror = { left: planMirrors(fill(logs.mirror.left, take)), right: planMirrors(fill(logs.mirror.right, take)) };
   return pass(take, plans, null, keep);
 }
+
+const fill = (a, take) => take.frames.map((_, i) => a[i] || null);
 
 function pass(take, plans, logs = null, keep = false) {
   const tracker = Object.create(HandTracker.prototype);
@@ -142,7 +147,9 @@ function pass(take, plans, logs = null, keep = false) {
       const side = h.side;
       if (seen.has(side)) continue;
       seen.add(side);
+      memory[side].want = (plans && plans.mirror && plans.mirror[side][fi]) || null;
       const raw = liftToPicture(h.world, h.landmarks, take.aspect, side, memory[side], take.firstPerson);
+      if (logs) logs.mirror[side][fi] = raw.mirror || null;
       const P = raw.map((p) => new THREE.Vector3(p.x, -p.y, -p.z));
       // wdis (marks only): the palm placed facing the other way from the
       // world reading, for issues about the palm bouncing back while it turns.
