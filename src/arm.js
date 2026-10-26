@@ -38,13 +38,12 @@ export function wristPivot(wrist, handQuat) {
 export function pivotLoop(loop) {
   return { ...loop, points: loop.points.map((p) => p.clone().setY(p.y - WRIST_PIVOT)) };
 }
-// Most a seen forearm may bend the wrist off its rest line. 20 deg still
-// showed as a bent wrist on a straight real arm (user screenshots, v35-v39):
-// the picture's forearm line is too noisy to be trusted for more.
-const SEEN_BEND = (6 * Math.PI) / 180;
 // Wrist extension held without thinking. The dictionary median is 10 deg,
 // but seen from the eyes a straight forearm-hand line reads as right.
 const REST_EXT = (5 * Math.PI) / 180;
+const WRIST_FLEX = (75 * Math.PI) / 180;
+const WRIST_EXT = (65 * Math.PI) / 180;
+const WRIST_DEV = (30 * Math.PI) / 180;
 const ROLL_LIMIT = (110 * Math.PI) / 180;
 
 // Bind pose shared with the GLB export: arm straight forward (-Z), palm down.
@@ -314,24 +313,12 @@ export class ArmRig {
     // wrist bends like that").
     const palmN = new THREE.Vector3(0, 0, 1).applyQuaternion(handQuat);
     const back = handY.clone().multiplyScalar(-Math.cos(REST_EXT)).addScaledVector(palmN, -Math.sin(REST_EXT));
-    if (elbowHint) {
+    if (this.follow) {
+      target = this.followElbow(pivot, handQuat, back, elbowHint);
+      this.source = elbowHint ? 'pose' : 'hand';
+    } else if (elbowHint) {
       target = elbowHint.clone();
       this.source = 'pose';
-      if (this.follow) {
-        // A forearm read from the picture (skin colour, the pose model) can
-        // catch the sleeve or the desk. In first person the wrist rarely sits
-        // far off straight, so the seen line may only bend it so far.
-        const d = target.clone().sub(pivot).normalize();
-        const off = d.angleTo(back);
-        if (off > SEEN_BEND) d.copy(back).lerp(d, SEEN_BEND / off).normalize();
-        target = pivot.clone().addScaledVector(d, FORE);
-      }
-    } else if (this.follow) {
-      // First person with no elbow in view: the forearm on the hand's line,
-      // and the shoulder gives way.
-      target = pivot.clone().addScaledVector(back, FORE);
-      target.z = Math.min(target.z, -0.06); // never between the eye and the phone
-      this.source = 'hand';
     } else {
       target = solveElbow(this.shoulder, pivot, pivot.clone().addScaledVector(handY, -FORE));
       this.source = 'ik';
@@ -342,6 +329,51 @@ export class ArmRig {
     // the forearm trail the hand, a bent wrist whenever the hand moved.
     this.elbow.lerp(target, this.follow ? 1 : 0.35);
     return this.pose(wrist, handQuat);
+  }
+
+  // First person: where the elbow is now. Bending the wrist turns the hand
+  // about the wrist while the wrist itself stays put, so the forearm keeps
+  // its place (the elbow holds still) and the hand shows the bend. Moving
+  // the arm carries the wrist, and the forearm then eases back onto the
+  // hand's line, the way a relaxed wrist rides. Either way the bend stays
+  // within the wrist's range. Pinning the forearm to the hand's line (v40)
+  // swung the whole forearm with every wrist bend (user).
+  followElbow(pivot, handQuat, back, hint) {
+    const inv = handQuat.clone().invert();
+    const rest = back.clone().applyQuaternion(inv);
+    let d = this.elbow.clone().sub(pivot);
+    const len = d.length();
+    const jump = this.lastPivot ? this.lastPivot.distanceTo(pivot) : Infinity;
+    this.lastPivot = pivot.clone();
+    // Travel of the wrist, read through a light average so tracking jitter
+    // (a few mm frame to frame) does not count as the arm moving.
+    const was = jump > 0.15 || !this.calmPivot ? pivot.clone() : this.calmPivot.clone();
+    this.calmPivot = was.clone().lerp(pivot, 0.3);
+    const travel = was.distanceTo(this.calmPivot);
+    // Lost track, a new take or a jump: start on the hand's line.
+    if (!(len > FORE * 0.5 && len < FORE * 1.5) || jump > 0.15) d = rest.clone();
+    else d.divideScalar(len).applyQuaternion(inv);
+    if (d.y > -0.2) d.copy(rest); // a forearm ahead of the hand is no wrist bend
+    // Ease back onto the line while the wrist travels (past 4 mm a frame;
+    // 2.4 cm or more: a third of the way each frame); a still
+    // wrist keeps its bend, with only a slow drift.
+    const ease = 0.002 + 0.3 * THREE.MathUtils.clamp((travel - 0.004) / 0.02, 0, 1);
+    if (hint) {
+      // A seen elbow (pose model, or the forearm line in the picture) pulls
+      // gently; on its own it is too noisy to set the forearm (sleeve, desk).
+      const h = hint.clone().sub(pivot).normalize().applyQuaternion(inv);
+      if (h.y < -0.2) d.lerp(h, 0.08);
+    }
+    d.lerp(rest, Math.min(ease, 1));
+    // Wrist range (hand frame: +z palm side): flexion 75, extension 65,
+    // deviation 30 either way.
+    const down = Math.max(-d.y, 1e-3);
+    const fe = THREE.MathUtils.clamp(Math.atan2(d.z, down), -WRIST_EXT, WRIST_FLEX);
+    const dv = THREE.MathUtils.clamp(Math.atan2(d.x, down), -WRIST_DEV, WRIST_DEV);
+    d.set(Math.tan(dv), -1, Math.tan(fe)).normalize().applyQuaternion(handQuat);
+    const target = pivot.clone().addScaledVector(d, FORE);
+    target.z = Math.min(target.z, -0.06); // never between the eye and the phone
+    return target;
   }
 
   // Pose the bones for this wrist, using the current elbow hint (no smoothing).
