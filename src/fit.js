@@ -270,9 +270,11 @@ export function hiddenJoints(finger, P, wristQ, occluded = null) {
   // closing finger takes, instead of the guess.
   const palmN = new THREE.Vector3(0, 0, 1).applyQuaternion(wristQ);
   const along = new THREE.Vector3(0, 1, 0).applyQuaternion(wristQ);
-  const backFacing = THREE.MathUtils.smoothstep(-palmN.z, 0.15, 0.5); // +z points at the camera
   const knuckleBend = Math.atan2(obs0.dot(palmN), obs0.dot(along)) / D2R;
-  const tucked = finger.key === 'thumb' ? 0 : backFacing * THREE.MathUtils.smoothstep(knuckleBend, 35, 70);
+  // Any view, not only the back of the hand: on rendered hands with known
+  // poses (tools/synth-eval.mjs) MediaPipe put the end joints of a finger
+  // bent past 80 deg a third of a palm too open even facing the camera.
+  const tucked = finger.key === 'thumb' ? 0 : THREE.MathUtils.smoothstep(knuckleBend, 35, 70);
   // Joints behind another finger or the palm (seen in the picture, lift.js).
   const occ = (k) => (occluded ? occluded[J[k + 1]] || 0 : 0);
   return [occ(0), Math.max(tucked, occ(1)), Math.max(tucked, occ(2))];
