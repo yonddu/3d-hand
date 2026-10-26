@@ -19,6 +19,10 @@
 //   asnap  the forearm turning more than 20 deg in one frame with the wrist still
 //   topen  (marks only, for regress.mjs issues) frames where the thumb looks open
 //   wdis   (marks only) frames whose palm faces the other way from MediaPipe's world reading
+//   bentpic (marks only) fingers straight and full length in the picture but bent
+//          past 60 deg (middle + end joints) in the solved hand: a bend the picture rules out
+//   openpic (marks only) fingers whose tip lies back past the knuckle toward the wrist in
+//          the picture but bent under 60 deg (middle + end joints): only a folded finger does that
 //   unsure frames the tracker had to guess, by reason, each kept with where the
 //          hand was so the guesses say what data to collect next (--unsure):
 //            facing   both mirror poses of the palm fit and no rule decided (lift.js)
@@ -50,6 +54,37 @@ const F_JUMP = 15;
 const F_FLIP = 45;
 const A_SNAP = 20;
 const A_STILL = 0.03;
+const BENT_PIC = 60; // degrees of middle + end joint bend a finger straight in the picture cannot have
+const STRAIGHT = 0.95; // picture chain this close to a line...
+const FULL = 0.8; // ...and this long against the palm (not pointing at the camera)
+const FINGERS4 = { index: [5, 6, 7, 8], middle: [9, 10, 11, 12], ring: [13, 14, 15, 16], pinky: [17, 18, 19, 20] };
+// Fingers the picture shows straight: [finger, 1] for each.
+function straightInPicture(lm, aspect) {
+  const p = (i) => [lm[i].x * aspect, lm[i].y];
+  const d = (a, b) => Math.hypot(p(a)[0] - p(b)[0], p(a)[1] - p(b)[1]);
+  const palm = d(0, 9);
+  const out = [];
+  for (const [key, c] of Object.entries(FINGERS4)) {
+    const path = d(c[0], c[1]) + d(c[1], c[2]) + d(c[2], c[3]);
+    const line = d(c[0], c[3]);
+    if (line > STRAIGHT * path && line > FULL * palm) out.push([key, 1]);
+  }
+  return out;
+}
+const BEHIND = 0.05; // palm lengths the tip must lie back past the knuckle
+// Fingers the picture shows folded: the tip back past the knuckle, toward the wrist.
+function foldedInPicture(lm, aspect) {
+  const p = (i) => [lm[i].x * aspect, lm[i].y];
+  const palm = Math.hypot(p(9)[0] - p(0)[0], p(9)[1] - p(0)[1]);
+  const out = [];
+  for (const [key, c] of Object.entries(FINGERS4)) {
+    const a = [p(c[0])[0] - p(0)[0], p(c[0])[1] - p(0)[1]];
+    const la = Math.hypot(...a) || 1;
+    const s = ((p(c[3])[0] - p(c[0])[0]) * a[0] + (p(c[3])[1] - p(c[0])[1]) * a[1]) / la;
+    if (la > 0.5 * palm && s < -BEHIND * palm) out.push(key);
+  }
+  return out;
+}
 const ARM_TRUST = 0.1; // arm-pose prior trust below this, with no elbow seen, is a guess
 const GRASP = new GraspPrior();
 
@@ -163,6 +198,7 @@ function pass(take, plans, logs = null, keep = false) {
       if (before && before.side !== h.side) {
         out.swap++;
         out.events.push(`${t.toFixed(2)}s swap ${before.side}->${h.side}`);
+        out.marks.push({ t, side: h.side, kind: 'swap', n: 1 });
       }
     }
     const seen = new Set();
@@ -225,6 +261,14 @@ function pass(take, plans, logs = null, keep = false) {
       if (!logs && raw.mirror && raw.mirror.unsure) guess(t, side, 'facing', `${where(anchor)}, ${facing(palmN)} or ${facing([palmN[0], palmN[1], -palmN[2]])}`);
       if (!logs && !elbow && arms[side].priorTrust < ARM_TRUST) guess(t, side, 'arm', `${where(anchor)}, ${facing(palmN)}`);
       made[fi].hands[side] = { wrist: anchor.toArray(), handQ: rig.wrist.quaternion.toArray(), upperQ: m.upperArmQuat, foreQ: m.forearmQuat, elbow: m.elbow, shoulder: m.shoulder, fingers: rig.getPose().bones, cup: [rig.cup || 0] };
+      for (const [key, n] of straightInPicture(h.landmarks, take.aspect)) {
+        const a = res.angles[key];
+        if (a[1].flex + a[2].flex > BENT_PIC) out.marks.push({ t, side, kind: 'bentpic', n });
+      }
+      for (const key of foldedInPicture(h.landmarks, take.aspect)) {
+        const a = res.angles[key];
+        if (a[1].flex + a[2].flex < BENT_PIC) out.marks.push({ t, side, kind: 'openpic', n: 1 });
+      }
       const q = handFrameQuat(P, side);
       const flex = [];
       for (const key of Object.keys(res.angles)) for (const a of res.angles[key]) flex.push(a.flex);

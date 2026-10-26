@@ -214,5 +214,14 @@
   "fjump": 105,
   "fflip": 0,
   "asnap": 3
+ },
+ "clasp_same_14-10.glb": {
+  "swap": 7,
+  "flip": 29,
+  "jump": 375,
+  "gsw": 32,
+  "fjump": 108,
+  "fflip": 0,
+  "asnap": 1
  }
 }
