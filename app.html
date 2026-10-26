@@ -196,14 +196,15 @@
     .dock { bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
     .rec-btn { width: 60px; height: 60px; }
   }
-  /* Covers the frame-by-frame pass after filming: the half-finished hands are not worth watching. */
-  .busy { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 0 16px; background: var(--bg); color: var(--ink); text-align: center; }
+  /* Progress of the frame-by-frame pass after filming, over the bottom of the stage. */
+  .busy { position: fixed; left: 50%; bottom: calc(124px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 50; width: min(420px, calc(100vw - 32px)); display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 4px 10px; padding: 10px 14px; border-radius: var(--r); background: color-mix(in srgb, var(--surface) 92%, transparent); border: 1px solid var(--line); color: var(--ink); box-shadow: 0 4px 16px rgb(0 0 0 / 0.18); }
   .busy[hidden] { display: none; }
-  .busy .spin { width: 44px; height: 44px; border-radius: 50%; border: 4px solid var(--line); border-top-color: var(--accent); animation: busy-spin 0.9s linear infinite; }
-  .busy b { font-size: 17px; }
-  .busy .bar { width: min(260px, 70vw); height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+  .busy .spin { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--accent); animation: busy-spin 0.9s linear infinite; }
+  .busy b { font-size: 14px; }
+  .busy .pct { font-family: var(--font-mono); font-size: 14px; font-variant-numeric: tabular-nums; }
+  .busy .bar { grid-column: 1 / -1; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
   .busy .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.3s; }
-  .busy small { color: var(--muted); font-size: 13px; }
+  .busy small { grid-column: 1 / -1; color: var(--muted); font-size: 12px; }
   @keyframes busy-spin { to { transform: rotate(360deg); } }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
@@ -227,8 +228,9 @@
     <div class="busy" id="busy" role="status" aria-live="polite" hidden>
       <div class="spin" aria-hidden="true"></div>
       <b>결과 영상을 만드는 중</b>
+      <span class="pct" id="busy-pct">0%</span>
       <div class="bar"><i id="busy-bar"></i></div>
-      <small id="busy-text">0%</small>
+      <small id="busy-text" hidden></small>
     </div>
 
     <div class="dock" id="dock">

@@ -787,9 +787,12 @@ function tick(now) {
   syncAr();
   // Recording a video file steps through it frame by frame on video time.
   const offline = rec.on && rec.offline;
-  const t = offline ? video.currentTime : now / 1000;
+  const t = offline ? rec.frameTime : now / 1000;
   if (offline && !rec.frameReady) {
-    // waiting for the next frame to seek
+    // Waiting for the next frame. A phone that put the page in the background
+    // drops the video's decoder, and a seek asked for then never lands; ask
+    // again so the pass picks up where it was instead of stalling.
+    if (now - rec.seekAt > SEEK_RETRY) seekFrame(rec.seekTo);
   } else if (!state.frozen) {
     if (state.source === 'demo') {
       const inputs = demo.frame(t);
@@ -818,7 +821,7 @@ function tick(now) {
       }
       let hands = null;
       try {
-        hands = tracker.detect(video, now, { swapHandedness: state.swap, rightOnImageRight: !facingUser(), firstPerson: (state.source === 'camera' && !facingUser()) || (state.source === 'video' && $('video-fp').checked), trackMs: offline ? video.currentTime * 1000 : now });
+        hands = tracker.detect(video, now, { swapHandedness: state.swap, rightOnImageRight: !facingUser(), firstPerson: (state.source === 'camera' && !facingUser()) || (state.source === 'video' && $('video-fp').checked), trackMs: offline ? rec.frameTime * 1000 : now });
       } catch (err) {
         console.error(err);
         fallbackToCPU('추적 오류');
@@ -921,7 +924,42 @@ document.addEventListener('visibilitychange', () => {
 // off freezes the page), and show its progress in the tab title.
 let wakeLock = null;
 const TITLE = document.title;
+// Phones freeze a page that is out of view unless it is playing sound, so
+// the pass plays a tone far below hearing (20 Hz, -60 dB) while it runs.
+// The audio has to be unlocked by a tap: the record button does that.
+let keepAlive = null;
+function unlockAudio() {
+  try {
+    if (!keepAlive) {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.frequency.value = 20;
+      gain.gain.value = 0;
+      osc.connect(gain).connect(ctx.destination);
+      osc.start();
+      keepAlive = { ctx, gain };
+    }
+    keepAlive.ctx.resume();
+  } catch {
+    keepAlive = null;
+  }
+}
+function playKeepAlive(on) {
+  if (!keepAlive) return;
+  keepAlive.gain.gain.value = on ? 0.001 : 0;
+  if (on && keepAlive.ctx.state === 'suspended') keepAlive.ctx.resume().catch(() => {});
+  else if (!on && keepAlive.ctx.state === 'running') keepAlive.ctx.suspend().catch(() => {});
+  if ('mediaSession' in navigator && on && !keepAlive.titled) {
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({ title: '결과 영상 만드는 중', artist: 'Hand Motion Studio' });
+      keepAlive.titled = true;
+    } catch {}
+  }
+}
+
 async function holdAwake(on) {
+  playKeepAlive(on);
   try {
     if (on && !wakeLock && navigator.wakeLock) {
       wakeLock = await navigator.wakeLock.request('screen');
@@ -1295,7 +1333,8 @@ $('export-all').onclick = () => {
 
 const REC_FPS = 30;
 const takes = []; // this session's recordings, newest first
-const rec = { on: false, offline: false, frameReady: false, frames: [], raw: [], rawMeta: null, lastAt: -1e9, name: '' };
+const rec = { on: false, offline: false, frameReady: false, frames: [], raw: [], rawMeta: null, lastAt: -1e9, name: '', seekTo: 0, seekAt: 0, frameTime: 0, stepId: 0 };
+const SEEK_RETRY = 1500; // ms before a seek that has not landed is asked again
 
 function handIsLive(side, t) {
   if (!rigs[side].group.visible) return false;
@@ -1325,19 +1364,56 @@ function sampleRecording(now) {
   if (rec.frames.length % 15 === 0) updateRecInfo();
 }
 
-// Video file: pause, then seek through it at REC_FPS, one tracked frame per step.
+// Video file: step through it at REC_FPS, one tracked frame per step. A
+// seek decodes from the last keyframe before it, which made every step slow
+// on phones (their recordings have few keyframes), so where the browser can
+// report each shown frame the video instead plays on to the next step and
+// pauses there: frames are decoded in order, once. A page out of view gets
+// no frame reports, so it falls back to seeking.
+const PLAY_STEP = 'requestVideoFrameCallback' in HTMLVideoElement.prototype;
+const STEP_RATE = 0.25;
 function stepOffline() {
-  const t = video.currentTime;
+  const t = rec.frameTime;
   rec.frames.push({ t, hands: liveFrame(t) });
   if (rec.frames.length % 10 === 0) updateRecInfo();
-  const next = t + 1 / REC_FPS;
-  rec.frameReady = false;
   const end = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : rec.endTime || 0;
+  const next = t + 1 / REC_FPS;
   if (next >= end) return stopRecording();
+  goToFrame(next);
+}
+function goToFrame(next) {
+  rec.frameReady = false;
+  rec.seekTo = next;
+  rec.seekAt = performance.now();
+  const id = ++rec.stepId;
+  if (PLAY_STEP && !document.hidden) {
+    const onFrame = (_, meta) => {
+      if (id !== rec.stepId || !rec.on || !rec.offline) return;
+      if (meta.mediaTime < next - 0.5 / REC_FPS) return void video.requestVideoFrameCallback(onFrame);
+      video.pause();
+      rec.frameTime = meta.mediaTime;
+      rec.frameReady = true;
+    };
+    video.requestVideoFrameCallback(onFrame);
+    // Slow, so the pause lands on the next frame and none is played past.
+    video.playbackRate = STEP_RATE;
+    video.play().catch(() => seekFrame(next));
+  } else seekFrame(next);
+}
+function seekFrame(next) {
+  rec.stepId++;
+  video.pause();
+  rec.seekTo = next;
+  rec.seekAt = performance.now();
   video.currentTime = next;
 }
 video.addEventListener('seeked', () => {
-  if (rec.on && rec.offline) rec.frameReady = true;
+  if (!rec.on || !rec.offline) return;
+  rec.frameTime = video.currentTime;
+  rec.frameReady = true;
+});
+video.addEventListener('ended', () => {
+  if (rec.on && rec.offline && !rec.frameReady) stopRecording();
 });
 
 function updateRecInfo() {
@@ -1366,9 +1442,11 @@ function startRecording() {
   rec.frameReady = false;
   if (rec.offline) {
     video.pause();
+    video.loop = false; // the pass ends at the clip's end
     resetTracking();
+    rec.frameTime = 0;
     if (video.currentTime === 0) rec.frameReady = true;
-    else video.currentTime = 0;
+    else seekFrame(0);
   }
   updateRecInfo();
 }
@@ -1380,6 +1458,9 @@ function stopRecording() {
   holdAwake(false);
   if (rec.offline) {
     rec.offline = false;
+    rec.stepId++;
+    video.loop = true;
+    video.playbackRate = 1;
     resetTracking();
     video.play().catch(() => {});
   }
@@ -1405,6 +1486,7 @@ function stopRecording() {
 }
 
 $('rec').onclick = () => {
+  unlockAudio();
   if (state.source === 'camera' && !state.liveTrack) return camRec.on ? stopFilming() : startFilming();
   return rec.on ? stopRecording() : startRecording();
 };
@@ -1475,14 +1557,16 @@ function backToCamera() {
 }
 
 function updateGuide() {
-  // The frame-by-frame pass hides behind a loading screen; only the finished result is shown.
+  // The frame-by-frame pass shows as it goes, with its progress in a bar at the bottom.
   const busy = rec.on && rec.offline;
   $('busy').hidden = !busy;
   if (busy) {
     const end = rec.endTime || video.duration || 1;
     const pct = Math.min(99, Math.round((video.currentTime / end) * 100));
     $('busy-bar').style.width = `${pct}%`;
-    $('busy-text').textContent = camRec.processing ? `${pct}% · 다른 앱으로 가도 계속 만들고, 끝나면 결과 영상이 바로 열립니다` : `${pct}%`;
+    $('busy-pct').textContent = `${pct}%`;
+    $('busy-text').hidden = !camRec.processing;
+    $('busy-text').textContent = '끝나면 결과 영상이 바로 열립니다';
     document.title = `${pct}% 결과 영상 만드는 중 · ${TITLE}`;
   } else if (document.title !== TITLE) document.title = TITLE;
   holdAwake(busy);
