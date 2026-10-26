@@ -156,7 +156,19 @@ export function clampWrist(flex, dev) {
   return r <= 0.98 ? [flex, dev] : [(flex * 0.98) / r, (dev * 0.98) / r];
 }
 
-export const ARM_POSES = RAW.map(([id, name, category, hand, sFlex, sAbd, hRot, elbow, pron, wFlex, wDev, note]) => {
+// A pose within this many degrees on every joint of an earlier one with the
+// same hand shape adds nothing (movements often pass through the same
+// posture): it is left out, so the dictionary has no repeats.
+const SAME = 3;
+const kept = [];
+const RAW_UNIQUE = RAW.filter((r) => {
+  const same = kept.some((k) => k[3] === r[3] && k.slice(4, 11).every((v, i) => Math.abs(v - r[4 + i]) <= SAME));
+  if (!same) kept.push(r);
+  return !same;
+});
+export const RAW_ARM_COUNT = RAW.length;
+
+export const ARM_POSES = RAW_UNIQUE.map(([id, name, category, hand, sFlex, sAbd, hRot, elbow, pron, wFlex, wDev, note]) => {
   const [f, d] = clampWrist(clamp(wFlex, ARM_ROM.wFlex), clamp(wDev, ARM_ROM.wDev));
   const arm = {
     sFlex: clamp(sFlex, ARM_ROM.sFlex), sAbd: clamp(sAbd, ARM_ROM.sAbd), hRot: clamp(hRot, ARM_ROM.hRot),
