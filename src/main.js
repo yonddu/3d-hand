@@ -16,6 +16,8 @@ import { GESTURES, CATEGORIES, applyGesture, gestureData } from './gestures.js';
 import { ARM_POSES, ARM_CATEGORIES, armPoseJoints, armPoseData } from './armPoses.js';
 import { liftToPicture } from './lift.js';
 import { cleanTake, lerpHand } from './cleanTake.js';
+import { replanGrips } from './gripPass.js';
+import { objectSize } from './gripPrior.js';
 import { initRomPanel } from './romPanel.js';
 import { ForearmFinder } from './forearm.js';
 
@@ -128,6 +130,7 @@ const state = {
   swap: false,
   lastSeen: { left: -1, right: -1 },
   lastSolve: { left: null, right: null },
+  solveIn: { left: null, right: null }, // solver input of the last frame, kept for a filmed take (gripPass.js)
   rawLandmarks: { left: null, right: null },
   tableSide: 'right',
   detections: [],
@@ -617,7 +620,10 @@ function feed(inputs, t) {
     const rig = rigs[side];
     rig.group.visible = true;
     rig.group.position.set(anc[0], anc[1], anc[2]);
-    state.lastSolve[side] = solvers[side].solve(smooth, { limits: state.limits, fit: state.fit, occluded: input.occluded, cup: input.cup || 0, held: input.vision ? input.vision.shape : null, smoothing: !rec.offline });
+    const solveOpts = { limits: state.limits, fit: state.fit, occluded: input.occluded, cup: input.cup || 0, held: input.vision ? input.vision.shape : null, heldSize: objectSize(input.vision), smoothing: !rec.offline };
+    state.lastSolve[side] = solvers[side].solve(smooth, solveOpts);
+    // A filmed take is solved again once the whole clip is known (gripPass.js).
+    state.solveIn[side] = rec.offline && state.fit ? { P: smooth.map((p) => p.toArray()), opts: solveOpts } : null;
     if (realHands[side]) {
       realHands[side].setProportions(smooth);
       realHands[side].setPinches(smooth);
@@ -1347,6 +1353,7 @@ function liveFrame(t) {
   const hands = {};
   for (const side of SIDES) {
     hands[side] = handIsLive(side, t) ? frameFromLive(side, rigs[side], arms[side], grasps[side]) : null;
+    if (hands[side] && rec.offline && state.solveIn[side]) hands[side].solveIn = state.solveIn[side];
     // The raw tracked points ride along in the take JSON,
     // so a recorded motion can be replayed through the solver when tuning it.
     if (hands[side] && state.rawLandmarks[side]) {
@@ -1466,7 +1473,9 @@ function stopRecording() {
   }
   // The whole clip is known now: misread frames are fixed from their
   // neighbours and the motion smoothed both ways (see cleanTake.js).
-  const frames = cleanTake(trimFrames(rec.frames));
+  // Hidden fingers are read again with the frames before and after them
+  // known (gripPass.js), then the clip is cleaned.
+  const frames = cleanTake(replanGrips(trimFrames(rec.frames)));
   const filmed = camRec.processing;
   camRec.processing = false;
   if (frames.length) {

@@ -22,6 +22,8 @@ const SEEN_MIN = 6; // seen angles (weighted) needed to tell grips apart
 const FIT_MAX = 16; // degrees (RMS over seen angles) for a grip to count
 const SWITCH = 0.7; // a new grip must fit this much better than the held one
 const HOLD = 6; // for this many frames in a row
+const SIZE_TOL = 0.25; // log size ratio between grip and object that counts as one unit of mismatch
+const SIZE_UNKNOWN = 0.5; // what a grip without a size pays when the object's size is known
 
 // Every real hand shape in the dictionary takes part, not only the grips:
 // hidden fingers in a sign or a gesture are filled the same way. Over the
@@ -42,6 +44,31 @@ const FAMILY_IDS = {
 // The size-graded grips (gestures.js v53) join their family by id prefix.
 const FAMILY_PREFIX = { cylinder: ['cyl-', 'mug-'], sphere: ['sph-'], box: ['box-'], rod: ['rod-'] };
 export const FAMILIES = Object.fromEntries(Object.entries(FAMILY_IDS).map(([k, ids]) => [k, GRIPS.filter((g) => ids.includes(g.id) || FAMILY_PREFIX[k].some((p) => g.id.startsWith(p)))]));
+
+// The size a grip was made for, in mm, from its id: cyl-50-*, sph-70-*, rod-15-*,
+// mug-*, box-<width>-<thickness>. null for grips not graded by size.
+export function gripSize(g) {
+  const m = /^(cyl|sph|rod|box)-(\d+)/.exec(g.id);
+  return m ? Number(m[2]) : null;
+}
+
+// The held object's size in mm (objects.js measure): a diameter for round
+// things, the width for a box.
+export function objectSize(vision) {
+  if (!vision) return null;
+  if (vision.shape === 'box') return vision.size ? vision.size[0] * 1000 : null;
+  return vision.radius ? vision.radius * 2000 : null;
+}
+
+// How badly a grip's size suits the object, in units of FIT_MAX squared.
+// A hand closes around what it holds: a 70 mm cup is not held in a 30 mm grip
+// however alike the seen fingers look.
+function sizeCost(g, size) {
+  if (!size) return 0;
+  const d = gripSize(g);
+  if (!d) return SIZE_UNKNOWN;
+  return Math.min(4, (Math.log(d / size) / SIZE_TOL) ** 2 * 0.5);
+}
 
 export class GraspPrior {
   constructor(shapes = GRASPS) {
@@ -76,23 +103,24 @@ export class GraspPrior {
   // reading/hidden: per finger, angles as fit.js lays them out and how hidden
   // each joint is (0..1). Returns per-finger target angles for the hidden
   // joints, or null when nothing is hidden or no grip fits.
-  // shape: the held object's shape (objects.js), when the camera names one.
-  update(reading, hidden, shape = null) {
+  // shape: the held object's shape (objects.js), when the camera names one;
+  // size: its size in mm (objectSize), when measured.
+  update(reading, hidden, shape = null, size = null) {
     if (!KEYS.some((k) => Math.max(...hidden[k]) >= HIDDEN_MIN)) {
       this.reset();
       return null;
     }
-    const family = shape && this.shapes === GRASPS && FAMILIES[shape] && FAMILIES[shape].length ? FAMILIES[shape] : this.shapes;
+    const family = this.family(shape);
     let best = null;
     let bestFit = Infinity;
     for (const g of family) {
-      const f = this.misfit(g, reading, hidden);
+      const f = Math.sqrt(this.misfit(g, reading, hidden) ** 2 + FIT_MAX ** 2 * sizeCost(g, size));
       if (f < bestFit) {
         bestFit = f;
         best = g;
       }
     }
-    const held = this.current ? this.misfit(this.current, reading, hidden) : Infinity;
+    const held = this.current ? Math.sqrt(this.misfit(this.current, reading, hidden) ** 2 + FIT_MAX ** 2 * sizeCost(this.current, size)) : Infinity;
     if (held > FIT_MAX * 1.5) this.current = null; // the hand left that grip
     if (!this.current) {
       this.current = bestFit <= FIT_MAX ? best : null;
@@ -110,8 +138,15 @@ export class GraspPrior {
       this.next = null;
       this.count = 0;
     }
-    if (!this.current) return null;
-    const g = this.current;
+    return this.current ? this.targets(this.current, reading) : null;
+  }
+
+  family(shape) {
+    return shape && this.shapes === GRASPS && FAMILIES[shape] && FAMILIES[shape].length ? FAMILIES[shape] : this.shapes;
+  }
+
+  // Target angles a grip gives each finger.
+  targets(g, reading) {
     const out = {};
     for (const key of KEYS) {
       // Side bend stays as read (spread is seen well even on hidden fingers).
@@ -119,4 +154,101 @@ export class GraspPrior {
     }
     return out;
   }
+}
+
+// Grips for a whole recorded take, chosen with every frame known.
+//
+// Live, a grip is chosen from the frames so far and held against change, so
+// the first frames of a hold get a late or wrong grip, and a grip can switch
+// halfway through and back. Once the clip is filmed, the hold can be read
+// backward as well: the hand closed on that object, so the grip that fits the
+// whole hold (and the object's size) is the one it was making from the first
+// frame. The path through the frames that fits best, paying for every switch,
+// is found by dynamic programming (Viterbi); the frames just before a hold get
+// the same grip, since the hand was already shaping for it on the way in.
+// log: per frame { reading, hidden, shape, size } or null (hand not seen).
+// Returns per frame the grip to use, or null.
+const RUN_GAP = 3; // frames with nothing hidden that do not break a hold
+const SWITCH_COST = 32; // a switch costs as much as this many frames at the fit limit
+// No grip costs as much as the worst fit counted, so hidden joints always get
+// the nearest real hand shape rather than the tracker's guess. Over the 20
+// recorded takes, 32 and this cut finger jumps 11% (5384 -> 4793) and grip
+// changes 829 -> 137; 4 to 128 and 1 to 8 were tried.
+const NONE_COST = 4;
+const APPROACH = 8; // frames before a hold that already shape for its grip
+export function planGrips(log, prior = new GraspPrior()) {
+  const plan = log.map(() => null);
+  const isHidden = (e) => e && KEYS.some((k) => Math.max(...e.hidden[k]) >= HIDDEN_MIN);
+  let i = 0;
+  while (i < log.length) {
+    if (!isHidden(log[i])) {
+      i++;
+      continue;
+    }
+    let e = i;
+    for (let j = i + 1; j < log.length && log[j]; j++) {
+      if (isHidden(log[j])) e = j;
+      else if (j - e > RUN_GAP) break;
+    }
+    planRun(log, plan, i, e, prior);
+    i = e + 1;
+  }
+  return plan;
+}
+
+function planRun(log, plan, s, e, prior) {
+  // The object seen in most frames of the hold picks the grip family.
+  const votes = {};
+  const sizes = [];
+  for (let i = s; i <= e; i++) {
+    if (log[i].shape) votes[log[i].shape] = (votes[log[i].shape] || 0) + 1;
+    if (log[i].size) sizes.push(log[i].size);
+  }
+  const shape = Object.keys(votes).sort((a, b) => votes[b] - votes[a])[0] || null;
+  const size = sizes.length ? sizes.sort((a, b) => a - b)[sizes.length >> 1] : null;
+  const C = prior.family(shape);
+  const S = C.length + 1; // the last state: no grip
+  const T = e - s + 1;
+  const back = new Int32Array(T * S);
+  let best = new Float64Array(S);
+  let next = new Float64Array(S);
+  const sc = C.map((g) => sizeCost(g, size));
+  for (let t = 0; t < T; t++) {
+    const f = log[s + t];
+    let m = Infinity;
+    let mi = 0;
+    if (t > 0) for (let k = 0; k < S; k++) if (best[k] < m) [m, mi] = [best[k], k];
+    for (let k = 0; k < S; k++) {
+      let c = NONE_COST;
+      if (k < C.length) {
+        const fit = f && KEYS.some((key) => Math.max(...f.hidden[key]) >= HIDDEN_MIN) ? prior.misfit(C[k], f.reading, f.hidden) : Infinity;
+        c = (Number.isFinite(fit) ? Math.min(fit, 2 * FIT_MAX) ** 2 / FIT_MAX ** 2 : 1) + sc[k];
+      }
+      if (t === 0) {
+        next[k] = c;
+        continue;
+      }
+      const stay = best[k];
+      const move = m + (k === C.length || mi === C.length ? SWITCH_COST / 2 : SWITCH_COST);
+      if (stay <= move) {
+        next[k] = stay + c;
+        back[t * S + k] = k;
+      } else {
+        next[k] = move + c;
+        back[t * S + k] = mi;
+      }
+    }
+    [best, next] = [next, best];
+  }
+  let k = 0;
+  for (let j = 1; j < S; j++) if (best[j] < best[k]) k = j;
+  for (let t = T - 1; t >= 0; t--) {
+    plan[s + t] = k < C.length ? C[k] : null;
+    if (t > 0) k = back[t * S + k];
+  }
+  // The hand shapes for the grip on the way in and opens out of it on the way out.
+  const first = plan[s];
+  if (first) for (let i = s - 1; i >= Math.max(0, s - APPROACH) && log[i] && !plan[i]; i--) plan[i] = first;
+  const last = plan[e];
+  if (last) for (let i = e + 1; i <= Math.min(log.length - 1, e + APPROACH) && log[i] && !plan[i]; i++) plan[i] = last;
 }

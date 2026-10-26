@@ -19,6 +19,7 @@ const TOL_EXT = 5; // degrees of bending backward past the limit still followed
 const MAX_ROLL = (12 * Math.PI) / 180; // knuckle axial rotation allowed
 const TOL_ABD = 4; // degrees past a knuckle's side-bend limit still followed
 
+const anyHidden = (hidden) => Object.values(hidden).some((h) => Math.max(...h) >= 0.05);
 const _q = new THREE.Quaternion();
 const _qi = new THREE.Quaternion();
 const _d = new THREE.Vector3();
@@ -42,7 +43,7 @@ export class HandSolver {
 
   // P: 21 THREE.Vector3 in rig orientation (any origin, meters).
   // Returns per-bone angles and confidences and writes rotations to the rig.
-  solve(P, { limits = true, smoothing = true, synergy = true, fit = false, occluded = null, cup = 0, held = null } = {}) {
+  solve(P, { limits = true, smoothing = true, synergy = true, fit = false, occluded = null, cup = 0, held = null, heldSize = null, plan } = {}) {
     const rig = this.rig;
     const side = rig.side;
     const wristQ = handFrameQuat(P, side);
@@ -123,13 +124,16 @@ export class HandSolver {
       });
     }
     rig.cup = fit ? cup : 0;
-    if (fit) this.fitHand(P, wristQ, angles, confidence, { limits, smoothing, occluded, held });
+    if (fit) this.fitHand(P, wristQ, angles, confidence, { limits, smoothing, occluded, held, heldSize, plan });
     return { angles, confidence };
   }
 
   // Fit each finger of the hand model to the points (see fit.js), seeded by
   // the last frame or, the first time, by the per-bone reading.
-  fitHand(P, wristQ, angles, confidence, { limits, smoothing, occluded, held }) {
+  // plan: a grip chosen for this frame with the whole take known
+  // (gripPrior.js planGrips), or null for none; left out, the grip is chosen
+  // live from the frames so far.
+  fitHand(P, wristQ, angles, confidence, { limits, smoothing, occluded, held, heldSize, plan }) {
     const rig = this.rig;
     const palm = P[0].distanceTo(P[9]);
     const starts = {};
@@ -145,8 +149,15 @@ export class HandSolver {
       hidden[finger.key] = hiddenJoints(finger, P, frames[finger.key], occluded);
     }
     // The grip the seen fingers point to, for the hidden ones (gripPrior.js).
-    const grip = this.grasp.update(starts, hidden, held);
-    this.gripName = this.grasp.current ? this.grasp.current.name : '';
+    this.gripIn = { reading: starts, hidden, shape: held, size: heldSize };
+    let grip;
+    if (plan === undefined) {
+      grip = this.grasp.update(starts, hidden, held, heldSize);
+      this.gripName = this.grasp.current ? this.grasp.current.name : '';
+    } else {
+      grip = plan && anyHidden(hidden) ? this.grasp.targets(plan, starts) : null;
+      this.gripName = grip ? plan.name : '';
+    }
     for (const finger of FINGERS) {
       const start = starts[finger.key];
       const prev = this.fitPrev[finger.key] || null;

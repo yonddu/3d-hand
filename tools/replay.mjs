@@ -2,7 +2,7 @@
 // failures the user sees in the review video, so a fix can be judged on every
 // take at once instead of one GLB at a time.
 //
-//   node tools/replay.mjs <take.glb | take.json | folder> ... [--json] [--frames]
+//   node tools/replay.mjs <take.glb | take.json | folder> ... [--json] [--frames] [--live]
 //
 // Inputs: a GLB saved by the app (v53+ carries the tracker's raw readings in
 // its scene extras), a take JSON, or an older raw dump ([{t, hands:[{side, lm, world}]}]).
@@ -11,6 +11,10 @@
 //   flip   the palm turning more than 45 deg in one frame (1/30 s): a misread, not a motion
 //   jump   finger joints bending more than 30 deg in one frame
 //   grip   frames where hidden fingers were filled from a grip shape
+//   gsw    times the grip changed (to another grip, or on/off) from one frame to the next
+// --live replays with the grip chosen frame by frame only, as the live view does;
+// by default the take is replayed twice, the second time with the grips chosen
+// over the whole take (gripPrior.js planGrips), as a filmed take is.
 import fs from 'fs';
 import path from 'path';
 import * as THREE from 'three';
@@ -19,6 +23,7 @@ import { liftToPicture } from '../src/lift.js';
 import { objectForHand, objectOcclusion } from '../src/objects.js';
 import { HandRig, handFrameQuat } from '../src/handRig.js';
 import { HandSolver } from '../src/solver.js';
+import { planGrips, objectSize } from '../src/gripPrior.js';
 
 const FLIP = (45 * Math.PI) / 180;
 const JUMP = 30;
@@ -56,15 +61,23 @@ const points = (flat, dims = 3) => {
   return out;
 };
 
-export function replay(take) {
+export function replay(take, { live = false } = {}) {
+  if (live) return pass(take, null);
+  const logs = { left: [], right: [] };
+  pass(take, null, logs);
+  const plans = { left: planGrips(logs.left), right: planGrips(logs.right) };
+  return pass(take, plans);
+}
+
+function pass(take, plans, logs = null) {
   const tracker = Object.create(HandTracker.prototype);
   tracker.tracks = [];
   const solvers = { left: new HandSolver(new HandRig('left')), right: new HandSolver(new HandRig('right')) };
   const memory = { left: {}, right: {} };
   const last = { left: null, right: null };
-  const out = { frames: 0, swap: 0, flip: 0, jump: 0, grip: 0, events: [] };
+  const out = { frames: 0, swap: 0, flip: 0, jump: 0, grip: 0, gsw: 0, gjump: 0, events: [] };
   let prevHands = [];
-  for (const f of take.frames) {
+  take.frames.forEach((f, fi) => {
     const t = f.t;
     const hands = f.hands.map((h) => ({
       side: h.label,
@@ -96,7 +109,10 @@ export function replay(take) {
       const occluded = vision && vision.box ? objectOcclusion(h.landmarks, vision.box, raw.occluded) : raw.occluded || null;
       const prev = last[side];
       if (!prev || t - prev.t > 0.6) solvers[side].reset();
-      const res = solvers[side].solve(P, { limits: true, fit: true, occluded, cup: raw.cup || 0, held: vision ? vision.shape : null, smoothing: false });
+      const opts = { limits: true, fit: true, occluded, cup: raw.cup || 0, held: vision ? vision.shape : null, heldSize: objectSize(vision), smoothing: false };
+      if (plans) opts.plan = plans[side][fi] || null;
+      const res = solvers[side].solve(P, opts);
+      if (logs) logs[side][fi] = solvers[side].gripIn;
       const q = handFrameQuat(P, side);
       const flex = [];
       for (const key of Object.keys(res.angles)) for (const a of res.angles[key]) flex.push(a.flex);
@@ -108,13 +124,17 @@ export function replay(take) {
         }
         const jumped = flex.filter((v, i) => Math.abs(v - prev.flex[i]) > JUMP).length;
         out.jump += jumped;
+        if (solvers[side].gripName || prev.grip) out.gjump += jumped;
         if (jumped >= 3) out.events.push(`${t.toFixed(2)}s jump ${side} ${jumped} joints`);
       }
-      if (solvers[side].gripName) out.grip++;
-      last[side] = { t, q, flex };
+      const grip = solvers[side].gripName;
+      if (grip) out.grip++;
+      if (prev && t - prev.t < 0.1 && grip !== prev.grip) out.gsw++;
+      last[side] = { t, q, flex, grip };
     }
     prevHands = hands.map((h) => ({ x: h.landmarks[0].x, y: h.landmarks[0].y, side: h.side }));
-  }
+  });
+  if (logs) for (const side of ['left', 'right']) for (let i = 0; i < take.frames.length; i++) logs[side][i] ||= null;
   return out;
 }
 
@@ -131,7 +151,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(im
   const args = process.argv.slice(2);
   const asJson = args.includes('--json');
   const showEvents = args.includes('--frames');
-  const total = { takes: 0, frames: 0, swap: 0, flip: 0, jump: 0, grip: 0 };
+  const live = args.includes('--live');
+  const total = { takes: 0, frames: 0, swap: 0, flip: 0, jump: 0, grip: 0, gsw: 0, gjump: 0 };
   const rows = [];
   for (const file of files(args.filter((a) => !a.startsWith('--')))) {
     const take = readTake(file);
@@ -139,15 +160,15 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(im
       if (!asJson) console.log(`${path.basename(file)}: no raw readings (saved before v53)`);
       continue;
     }
-    const r = replay(take);
+    const r = replay(take, { live });
     rows.push({ file: path.basename(file), ...r });
     total.takes++;
-    for (const k of ['frames', 'swap', 'flip', 'jump', 'grip']) total[k] += r[k];
+    for (const k of ['frames', 'swap', 'flip', 'jump', 'grip', 'gsw', 'gjump']) total[k] += r[k];
     if (!asJson) {
-      console.log(`${path.basename(file).padEnd(28)} frames ${String(r.frames).padStart(5)}  swap ${String(r.swap).padStart(3)}  flip ${String(r.flip).padStart(4)}  jump ${String(r.jump).padStart(5)}  grip ${String(r.grip).padStart(4)}`);
+      console.log(`${path.basename(file).padEnd(28)} frames ${String(r.frames).padStart(5)}  swap ${String(r.swap).padStart(3)}  flip ${String(r.flip).padStart(4)}  jump ${String(r.jump).padStart(5)}  grip ${String(r.grip).padStart(4)}  gsw ${String(r.gsw).padStart(4)}  gjump ${String(r.gjump).padStart(4)}`);
       if (showEvents) for (const e of r.events) console.log(`    ${e}`);
     }
   }
   if (asJson) console.log(JSON.stringify({ total, rows: rows.map(({ events, ...r }) => r) }, null, 1));
-  else console.log(`TOTAL ${total.takes} takes  frames ${total.frames}  swap ${total.swap}  flip ${total.flip}  jump ${total.jump}  grip ${total.grip}`);
+  else console.log(`TOTAL ${total.takes} takes  frames ${total.frames}  swap ${total.swap}  flip ${total.flip}  jump ${total.jump}  grip ${total.grip}  gsw ${total.gsw}  gjump ${total.gjump}`);
 }
