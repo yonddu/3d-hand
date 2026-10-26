@@ -8,7 +8,8 @@
     "build": "node build.mjs",
     "start": "npx --yes http-server -p 8080 -c-1 .",
     "check": "node tools/check-data.mjs",
-    "replay": "node tools/replay.mjs"
+    "replay": "node tools/replay.mjs",
+    "regress": "node tools/regress.mjs"
   },
   "devDependencies": {
     "@mediapipe/tasks-vision": "0.10.21",

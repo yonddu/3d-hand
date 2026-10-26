@@ -12,6 +12,11 @@
 //   jump   finger joints bending more than 30 deg in one frame
 //   grip   frames where hidden fingers were filled from a grip shape
 //   gsw    times the grip changed (to another grip, or on/off) from one frame to the next
+// And on the finished motion (arm added, both-way grips, cleanTake), what
+// ends up in the saved GLB:
+//   fjump  finger bones turning more than 15 deg in one frame
+//   fflip  the hand turning more than 45 deg in one frame
+//   asnap  the forearm turning more than 20 deg in one frame with the wrist still
 // --live replays with the grip chosen frame by frame only, as the live view does;
 // by default the take is replayed twice, the second time with the grips chosen
 // over the whole take (gripPrior.js planGrips), as a filmed take is.
@@ -23,13 +28,41 @@ import { liftToPicture } from '../src/lift.js';
 import { objectForHand, objectOcclusion, HeldObject } from '../src/objects.js';
 import { HandRig, handFrameQuat } from '../src/handRig.js';
 import { HandSolver } from '../src/solver.js';
+import { ArmRig } from '../src/arm.js';
+import { cleanTake } from '../src/cleanTake.js';
+import { restLandmarks } from '../src/skeleton.js';
 import { planGrips, objectSize, heldFamily } from '../src/gripPrior.js';
 
 const FLIP = (45 * Math.PI) / 180;
 const JUMP = 30;
 const NEAR = 0.15; // wrist distance in the picture that still counts as the same hand
+const F_JUMP = 15;
+const F_FLIP = 45;
+const A_SNAP = 20;
+const A_STILL = 0.03;
 
-function readTake(file) {
+// Where the app puts the wrist in first person (main.js fromMediaPipe, AR):
+// on its camera ray, at the distance where the model's palm covers the hand.
+const LONG_FOV = (66 * Math.PI) / 180;
+const focalW = (aspect) => (Math.max(1, 1 / aspect) * 0.5) / Math.tan(LONG_FOV / 2);
+const SEGS = [[0, 5], [0, 9], [0, 17], [5, 17], [5, 9], [9, 17]];
+const REST = restLandmarks('right');
+const MODEL_PALM = Object.fromEntries(SEGS.map(([i, j]) => [`${i}-${j}`, Math.hypot(...[0, 1, 2].map((c) => REST[i][c] - REST[j][c]))]));
+function anchorOf(h, aspect) {
+  const F = focalW(aspect);
+  let z = Infinity;
+  for (const [i, j] of SEGS) {
+    const a = h.landmarks[i];
+    const c = h.landmarks[j];
+    z = Math.min(z, (F * MODEL_PALM[`${i}-${j}`]) / Math.max(Math.hypot(c.x - a.x, (c.y - a.y) / aspect), 1e-3));
+  }
+  z = THREE.MathUtils.clamp(z, 0.18, 1.2);
+  const a = h.landmarks[0];
+  return new THREE.Vector3((a.x - 0.5) / F, -((a.y - 0.5) / aspect) / F, -1).multiplyScalar(z);
+}
+const qangle = (a, b) => (2 * Math.acos(Math.min(1, Math.abs(a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3])))) * (180 / Math.PI);
+
+export function readTake(file) {
   const buf = fs.readFileSync(file);
   let data;
   if (buf.readUInt32LE(0) === 0x46546c67) {
@@ -76,7 +109,10 @@ function pass(take, plans, logs = null) {
   const memory = { left: {}, right: {} };
   const held = { left: new HeldObject(), right: new HeldObject() };
   const last = { left: null, right: null };
-  const out = { frames: 0, swap: 0, flip: 0, jump: 0, grip: 0, gsw: 0, gjump: 0, events: [] };
+  const arms = { left: new ArmRig('left'), right: new ArmRig('right') };
+  arms.left.follow = arms.right.follow = true;
+  const made = take.frames.map((f) => ({ t: f.t, hands: { left: null, right: null } }));
+  const out = { frames: 0, swap: 0, flip: 0, jump: 0, grip: 0, gsw: 0, gjump: 0, fjump: 0, fflip: 0, asnap: 0, events: [], marks: [] };
   let prevHands = [];
   take.frames.forEach((f, fi) => {
     const t = f.t;
@@ -114,6 +150,12 @@ function pass(take, plans, logs = null) {
       if (plans) opts.plan = plans[side][fi] || null;
       const res = solvers[side].solve(P, opts);
       if (logs) logs[side][fi] = solvers[side].gripIn;
+      const rig = solvers[side].rig;
+      const anchor = anchorOf(h, take.aspect);
+      rig.group.position.copy(anchor);
+      arms[side].update(anchor, rig.wrist.quaternion, null);
+      const m = arms[side].measure(rig.wrist.quaternion);
+      made[fi].hands[side] = { wrist: anchor.toArray(), handQ: rig.wrist.quaternion.toArray(), upperQ: m.upperArmQuat, foreQ: m.forearmQuat, elbow: m.elbow, shoulder: m.shoulder, fingers: rig.getPose().bones, cup: [rig.cup || 0] };
       const q = handFrameQuat(P, side);
       const flex = [];
       for (const key of Object.keys(res.angles)) for (const a of res.angles[key]) flex.push(a.flex);
@@ -136,10 +178,37 @@ function pass(take, plans, logs = null) {
     prevHands = hands.map((h) => ({ x: h.landmarks[0].x, y: h.landmarks[0].y, side: h.side }));
   });
   if (logs) for (const side of ['left', 'right']) for (let i = 0; i < take.frames.length; i++) logs[side][i] ||= null;
+  else finished(cleanTake(made), out);
   return out;
 }
 
-function files(args) {
+// Counts on the finished motion; each event is also kept with its time (marks)
+// so a known problem can be checked in its own stretch of a take (regress.mjs).
+function finished(frames, out) {
+  for (let i = 1; i < frames.length; i++) {
+    for (const side of ['left', 'right']) {
+      const a = frames[i - 1].hands[side];
+      const b = frames[i].hands[side];
+      if (!a || !b) continue;
+      const t = frames[i].t;
+      let n = 0;
+      for (const k of Object.keys(b.fingers)) if (a.fingers[k] && qangle(a.fingers[k], b.fingers[k]) > F_JUMP) n++;
+      if (n) out.marks.push({ t, side, kind: 'fjump', n });
+      out.fjump += n;
+      if (qangle(a.handQ, b.handQ) > F_FLIP) {
+        out.fflip++;
+        out.marks.push({ t, side, kind: 'fflip', n: 1 });
+      }
+      const still = Math.hypot(...a.wrist.map((v, c) => v - b.wrist[c])) < A_STILL;
+      if (still && Math.max(qangle(a.foreQ, b.foreQ), qangle(a.upperQ, b.upperQ)) > A_SNAP) {
+        out.asnap++;
+        out.marks.push({ t, side, kind: 'asnap', n: 1 });
+      }
+    }
+  }
+}
+
+export function files(args) {
   const list = [];
   for (const a of args) {
     if (fs.statSync(a).isDirectory()) list.push(...fs.readdirSync(a).filter((f) => /\.(glb|json)$/.test(f)).sort().map((f) => path.join(a, f)));
@@ -153,7 +222,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(im
   const asJson = args.includes('--json');
   const showEvents = args.includes('--frames');
   const live = args.includes('--live');
-  const total = { takes: 0, frames: 0, swap: 0, flip: 0, jump: 0, grip: 0, gsw: 0, gjump: 0 };
+  const total = { takes: 0, frames: 0, swap: 0, flip: 0, jump: 0, grip: 0, gsw: 0, gjump: 0, fjump: 0, fflip: 0, asnap: 0 };
   const rows = [];
   for (const file of files(args.filter((a) => !a.startsWith('--')))) {
     const take = readTake(file);
@@ -164,12 +233,12 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(im
     const r = replay(take, { live });
     rows.push({ file: path.basename(file), ...r });
     total.takes++;
-    for (const k of ['frames', 'swap', 'flip', 'jump', 'grip', 'gsw', 'gjump']) total[k] += r[k];
+    for (const k of ['frames', 'swap', 'flip', 'jump', 'grip', 'gsw', 'gjump', 'fjump', 'fflip', 'asnap']) total[k] += r[k];
     if (!asJson) {
-      console.log(`${path.basename(file).padEnd(28)} frames ${String(r.frames).padStart(5)}  swap ${String(r.swap).padStart(3)}  flip ${String(r.flip).padStart(4)}  jump ${String(r.jump).padStart(5)}  grip ${String(r.grip).padStart(4)}  gsw ${String(r.gsw).padStart(4)}  gjump ${String(r.gjump).padStart(4)}`);
+      console.log(`${path.basename(file).padEnd(28)} frames ${String(r.frames).padStart(5)}  swap ${String(r.swap).padStart(3)}  flip ${String(r.flip).padStart(4)}  jump ${String(r.jump).padStart(5)}  grip ${String(r.grip).padStart(4)}  gsw ${String(r.gsw).padStart(4)}  gjump ${String(r.gjump).padStart(4)} | out fjump ${String(r.fjump).padStart(5)}  fflip ${String(r.fflip).padStart(3)}  asnap ${String(r.asnap).padStart(3)}`);
       if (showEvents) for (const e of r.events) console.log(`    ${e}`);
     }
   }
-  if (asJson) console.log(JSON.stringify({ total, rows: rows.map(({ events, ...r }) => r) }, null, 1));
-  else console.log(`TOTAL ${total.takes} takes  frames ${total.frames}  swap ${total.swap}  flip ${total.flip}  jump ${total.jump}  grip ${total.grip}  gsw ${total.gsw}  gjump ${total.gjump}`);
+  if (asJson) console.log(JSON.stringify({ total, rows: rows.map(({ events, marks, ...r }) => r) }, null, 1));
+  else console.log(`TOTAL ${total.takes} takes  frames ${total.frames}  swap ${total.swap}  flip ${total.flip}  jump ${total.jump}  grip ${total.grip}  gsw ${total.gsw}  gjump ${total.gjump} | out fjump ${total.fjump}  fflip ${total.fflip}  asnap ${total.asnap}`);
 }

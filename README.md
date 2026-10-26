@@ -182,3 +182,16 @@ Head                         눈 = 폰 위치, 원점. 애니메이션 없음
 ### 손모양 검증 (tools/hagrid)
 
 실제 사람 손 사진 데이터셋 HaGRID(제스처 33종, MediaPipe 관절 좌표, CC BY-SA 4.0 변형 라이선스)로 사전 각도를 **검증만** 합니다. 앱에는 그 데이터를 넣지 않습니다. `download.sh`로 주석 파일을 받고, `dict-landmarks.cjs`로 사전 손모양의 관절 위치를 뽑은 뒤 `validate.py`가 손가락별 펴짐 정도와 엄지 끝 위치를 보는 방향과 상관없는 값으로 비교해서, 실제 손과 차이가 큰 항목을 표로 냅니다.
+
+## Keeping fixed problems fixed
+
+Every take the user sends goes into `/mnt/project-files/hand-motion-studio/takes/`
+(GLBs saved by the app carry the tracker's raw readings). `npm run regress`
+replays them all and fails when any count gets worse than
+`tools/regress-baseline.json`, or when a problem listed in
+`tools/regress-issues.json` comes back. The pre-push hook runs it
+(`git config core.hooksPath .githooks`).
+
+When the user reports a problem in a take: add the take to the folder, add an
+entry to `regress-issues.json` (take, stretch of time, which count, its limit),
+fix it, then `npm run regress -- --update` so the baseline only moves down.

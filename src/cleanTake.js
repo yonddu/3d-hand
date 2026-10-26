@@ -24,7 +24,8 @@ const BURST_LONG = 36; // up to 1.2 s when it also snaps back faster than a wris
 const BURST_BACK = 30; // degrees: back where it was before the burst
 const ARM_SNAP = 20; // degrees of arm turn in one frame
 const ARM_STILL = 0.03; // metres of wrist travel in that frame that count as still
-const ARM_EASE = 8; // frames on each side the change is spread over
+const ARM_EASE = 8; // frames on each side the change is spread over, at least
+const ARM_RATE = 10; // degrees per frame, at most, once spread
 const BONE_WIN = 3;
 const BONE_SPIKE = 30; // degrees
 const SIGMA = { wrist: 1.6, bone: 1.3, pos: 2.5 }; // smoothing, in frames
@@ -220,8 +221,10 @@ function cleanSide(hands, swapped) {
       if (!Array.isArray(a.foreQ) || !Array.isArray(b.foreQ)) continue;
       const turn = Math.max(qangle(a.foreQ, b.foreQ), Array.isArray(a.upperQ) && Array.isArray(b.upperQ) ? qangle(a.upperQ, b.upperQ) : 0);
       if (turn < ARM_SNAP || dist(a.wrist, b.wrist) > ARM_STILL) continue;
-      const i0 = Math.max(s, i - 1 - ARM_EASE);
-      const i1 = Math.min(e, i + ARM_EASE);
+      // Wide enough that no frame turns more than ARM_RATE.
+      const k = Math.max(ARM_EASE, Math.ceil(turn / ARM_RATE / 2));
+      const i0 = Math.max(s, i - 1 - k);
+      const i1 = Math.min(e, i + k);
       const h0 = cloneHand(hands[i0]);
       const h1 = cloneHand(hands[i1]);
       for (let j = i0 + 1; j < i1; j++) {

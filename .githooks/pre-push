@@ -1,0 +1,12 @@
+#!/bin/sh
+# Before anything reaches the site: the data check, and every recorded take
+# replayed against its baseline and the known-issue list (tools/regress.mjs).
+# Takes live outside the repo; a machine without them skips the replay.
+set -e
+npm run --silent check
+TAKES=/mnt/project-files/hand-motion-studio/takes/
+if [ -d "$TAKES" ]; then
+  node tools/regress.mjs "$TAKES"
+else
+  echo "pre-push: no takes at $TAKES, replay skipped"
+fi
