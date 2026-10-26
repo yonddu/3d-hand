@@ -1,6 +1,6 @@
 // Checks the hand shape and arm pose dictionaries before new entries go in:
 //   node tools/check-data.mjs
-// Fails (exit 1) on a duplicate id, a movement using a hand shape that does
+// Fails (exit 1) on a duplicate id or name, a movement repeating another, a movement using a hand shape that does
 // not exist, or a movement key outside the joint ranges (the dictionary would
 // clamp it silently, distorting the pose). Reports hand shapes that repeat
 // another shape exactly without saying so ({ ref }), and arm poses the
@@ -28,6 +28,24 @@ const dup = (list, what) => {
 dup(GESTURES.map((g) => g.id), 'hand shape');
 dup(MOTIONS.map((m) => m[0]), 'movement');
 dup(ARM_POSES.map((p) => p.id), 'arm pose');
+// The same thing twice under another id (2026-10-26: 41 movements and 2
+// hand shapes had been added again under new ids): names must be unique, and
+// no movement may follow another one within NEAR_MOVE degrees on every key.
+const dupName = (list, what) => {
+  const seen = new Map();
+  for (const [id, name] of list) {
+    if (seen.has(name)) errors.push(`${what}: "${name}" is both ${seen.get(name)} and ${id}`);
+    else seen.set(name, id);
+  }
+};
+dupName(GESTURES.map((g) => [g.id, g.name]), 'hand shape');
+dupName(MOTIONS.map((m) => [m[0], m[1]]), 'movement');
+const NEAR_MOVE = 8;
+for (let i = 0; i < MOTIONS.length; i++) for (let j = 0; j < i; j++) {
+  const a = MOTIONS[i][4];
+  const b = MOTIONS[j][4];
+  if (a.length === b.length && a.every((k, n) => k.every((v, c) => Math.abs(v - b[n][c]) <= NEAR_MOVE))) errors.push(`movement ${MOTIONS[i][0]} repeats ${MOTIONS[j][0]} (every key within ${NEAR_MOVE} deg)`);
+}
 
 const shapes = new Set(GESTURES.map((g) => g.id));
 for (const [id, , , hand, keys] of MOTIONS) {
