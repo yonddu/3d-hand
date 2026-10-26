@@ -47,6 +47,9 @@ const catOf = Object.fromEntries(GESTURES.map((g) => [g.id, g.category]));
 const solvers = { left: new HandSolver(new HandRig('left')), right: new HandSolver(new HandRig('right')) };
 const sum = { n: 0, found: 0, label: 0, bend: 0, bendN: 0, raw: 0, face: [], rawFace: [], flips: 0, rawFlips: 0, unsure: 0, unsureFlips: 0 };
 const perJoint = {};
+// Finger middle and end joints by how bent they truly are: does the
+// pipeline open curled fingers or curl straight ones?
+const byBend = [0, 1, 2, 3, 4].map(() => ({ n: 0, bias: 0, e: 0 }));
 const perCat = {};
 const rows = [];
 for (const s of lines) {
@@ -85,7 +88,14 @@ for (const s of lines) {
       e += d;
       eRaw += Math.abs(bM[k][i] - v);
       const key = `${k}${i}`;
-      (perJoint[key] ||= { e: 0, raw: 0, n: 0 }).e += d;
+      (perJoint[key] ||= { e: 0, raw: 0, n: 0, bias: 0 }).e += d;
+      perJoint[key].bias += bO[k][i] - v;
+      if (i > 0 && k !== 'thumb') {
+        const b = byBend[Math.min(4, Math.floor(v / 20))];
+        b.n++;
+        b.bias += bO[k][i] - v;
+        b.e += d;
+      }
       perJoint[key].raw += Math.abs(bM[k][i] - v);
       perJoint[key].n++;
     });
@@ -123,8 +133,12 @@ console.log(`samples ${sum.n}, MediaPipe found the hand in ${sum.found} (${f1((1
 console.log(`joint bend error  pipeline ${f1(sum.bend / sum.bendN)} deg   raw MediaPipe world ${f1(sum.raw / sum.bendN)} deg   (mean over 15 joints)`);
 console.log(`palm facing error pipeline median ${f1(med(sum.face))} deg, turned over (>${FLIP}) ${sum.flips}   raw MediaPipe median ${f1(med(sum.rawFace))} deg, turned over ${sum.rawFlips}`);
 console.log(`frames marked unsure (facing) ${sum.unsure}, of them turned over ${sum.unsureFlips}; turned over without the mark ${sum.flips - sum.unsureFlips}`);
-console.log('per joint (pipeline / raw):');
-for (const k of ['thumb', 'index', 'middle', 'ring', 'pinky']) console.log(`  ${k.padEnd(7)} ${[0, 1, 2].map((i) => { const j = perJoint[`${k}${i}`]; return j ? `${f1(j.e / j.n)}/${f1(j.raw / j.n)}` : '-'; }).join('  ')}`);
+// bias: the mean signed error (+ bent more than true); a large one at the
+// knuckles can also come from where each side puts the wrist and knuckles.
+console.log('per joint, base to tip (pipeline / raw MediaPipe, pipeline bias):');
+for (const k of ['thumb', 'index', 'middle', 'ring', 'pinky']) console.log(`  ${k.padEnd(7)} ${[0, 1, 2].map((i) => { const j = perJoint[`${k}${i}`]; return j ? `${f1(j.e / j.n)}/${f1(j.raw / j.n)} (${j.bias >= 0 ? '+' : ''}${f1(j.bias / j.n)})` : '-'; }).join('  ')}`);
+console.log('finger middle/end joints by true bend (error, bias):');
+byBend.forEach((b, i) => b.n && console.log(`  ${String(i * 20).padStart(2)}-${i * 20 + 20} deg  n ${String(b.n).padStart(5)}  ${f1(b.e / b.n)} deg  (${b.bias >= 0 ? '+' : ''}${f1(b.bias / b.n)})`));
 console.log('per hand shape category (bend error, turned over):');
 for (const [k, c] of Object.entries(perCat).sort((a, b) => b[1].e / b[1].n - a[1].e / a[1].n)) console.log(`  ${k.padEnd(12)} n ${String(c.n).padStart(4)}  ${f1(c.e / c.n)} deg  ${c.flips}`);
 if (worstN) {
