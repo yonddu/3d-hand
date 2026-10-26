@@ -17,6 +17,7 @@
 //   fjump  finger bones turning more than 15 deg in one frame
 //   fflip  the hand turning more than 45 deg in one frame
 //   asnap  the forearm turning more than 20 deg in one frame with the wrist still
+//   topen  (marks only, for regress.mjs issues) frames where the thumb looks open
 // --live replays with the grip chosen frame by frame only, as the live view does;
 // by default the take is replayed twice, the second time with the grips chosen
 // over the whole take (gripPrior.js planGrips), as a filmed take is.
@@ -95,15 +96,15 @@ const points = (flat, dims = 3) => {
   return out;
 };
 
-export function replay(take, { live = false } = {}) {
-  if (live) return pass(take, null);
+export function replay(take, { live = false, keep = false } = {}) {
+  if (live) return pass(take, null, null, keep);
   const logs = { left: [], right: [] };
   pass(take, null, logs);
   const plans = { left: planGrips(logs.left), right: planGrips(logs.right) };
-  return pass(take, plans);
+  return pass(take, plans, null, keep);
 }
 
-function pass(take, plans, logs = null) {
+function pass(take, plans, logs = null, keep = false) {
   const tracker = Object.create(HandTracker.prototype);
   tracker.tracks = [];
   const solvers = { left: new HandSolver(new HandRig('left')), right: new HandSolver(new HandRig('right')) };
@@ -182,13 +183,32 @@ function pass(take, plans, logs = null) {
     prevHands = hands.map((h) => ({ x: h.landmarks[0].x, y: h.landmarks[0].y, side: h.side }));
   });
   if (logs) for (const side of ['left', 'right']) for (let i = 0; i < take.frames.length; i++) logs[side][i] ||= null;
-  else finished(cleanTake(made), out);
+  else {
+    const motion = cleanTake(made);
+    finished(motion, out);
+    if (keep) out.motion = motion; // the finished frames, for a closer look at one take
+  }
   return out;
 }
 
 // Counts on the finished motion; each event is also kept with its time (marks)
 // so a known problem can be checked in its own stretch of a take (regress.mjs).
+const T_OPEN = 0.45; // thumb tip this many palm lengths off the index knuckle looks open
+const thumbRigs = {};
+function thumbGap(side, fingers) {
+  const rig = (thumbRigs[side] ||= new HandRig(side));
+  for (const chain of Object.values(rig.chains)) for (const l of chain) if (fingers[l.bone.name]) l.bone.quaternion.fromArray(fingers[l.bone.name]);
+  const L = rig.landmarkPositions();
+  return L[4].distanceTo(L[5]) / L[0].distanceTo(L[9]);
+}
+
 function finished(frames, out) {
+  // topen (marks only): frames whose thumb looks open, for issues about a
+  // folded thumb shown open in one stretch of a take.
+  for (const f of frames) for (const side of ['left', 'right']) {
+    const h = f.hands[side];
+    if (h && thumbGap(side, h.fingers) > T_OPEN) out.marks.push({ t: f.t, side, kind: 'topen', n: 1 });
+  }
   for (let i = 1; i < frames.length; i++) {
     for (const side of ['left', 'right']) {
       const a = frames[i - 1].hands[side];

@@ -27,6 +27,8 @@ const W_TIME = 0.03; // stay near the last frame, lightly (the point filters alr
 const W_CLOSE = 0.8; // hidden joints follow the natural closing path
 const W_SHAPE = 0.7; // hidden joints take the nearest basic shape
 const RESEED = 30; // degrees between seeds before both are tried
+const BENT_THUMB = 40; // degrees at the thumb's MCP and IP for the bent start
+const BENT_GAIN = 0.2; // the bent fit must cost this much less to win (0.6 shook a thumb pinching a book)
 const PIP_PER_MCP = 1.1; // closing a fist: PIP bends a little more than the knuckle
 const DIP_PER_PIP = 0.67;
 const IP_PER_MCP = 0.9;
@@ -219,14 +221,29 @@ export function fitFinger({ finger, chain, side, P, wristQ, conf, palm, prev, st
   // end better: after a one-frame glitch the last frame can sit in a curled
   // pose the solver cannot climb out of (fingers stayed curled for several
   // frames after a bad reading while the palm turned).
+  // Measured from where the fit ended, not where it began: two near seeds can
+  // still slide into the other answer, and checking only the seeds let the
+  // thumb swap between a folded and an open fit every other frame (v67, user
+  // take thumb_fold_07-33: folded thumb shown opening).
   const other = seed === start ? prev : start;
-  if (other && Math.max(...other.map((v, i) => Math.abs(v - seed[i]))) > RESEED) {
+  if (other && Math.max(...other.map((v, i) => Math.abs(v - theta[i]))) > RESEED) {
     const alt = minimise(other.slice(), ctx);
     // The two can fit the picture equally (a finger curled toward the camera
     // looks like a straight one leaning away); the depth the points were
     // lifted with (lift.js chose it from the hand's shape) settles it.
     const full = (x) => residuals(x, { ...ctx, depthW: 1 }).reduce((t, v) => t + v * v, 0);
     if (full(alt) < full(theta)) theta = alt;
+  }
+  // A straight thumb and a thumb bent at both joints can sit in two separate
+  // dips of the fit, and both seeds (last frame, fresh reading) may start in
+  // the straight one: the fresh reading's thumb angles stay near zero on a
+  // folded thumb seen from above. Try the bent start too and keep it when it
+  // clearly fits better (v67, user take thumb_fold_07-33).
+  if (finger.key === 'thumb' && theta[3] + theta[6] < BENT_THUMB) {
+    const bent = theta.slice();
+    bent[3] = bent[6] = BENT_THUMB;
+    const alt = minimise(bent, ctx);
+    if (cost(alt) < BENT_GAIN * cost(theta)) theta = alt;
   }
   // Hard walls after the soft fit (limits) and the roll range.
   theta = theta.map((v, i) => {

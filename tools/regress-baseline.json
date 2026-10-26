@@ -2,8 +2,8 @@
  "book_floor_06-37.glb": {
   "swap": 0,
   "flip": 7,
-  "jump": 93,
-  "gsw": 7,
+  "jump": 90,
+  "gsw": 6,
   "fjump": 17,
   "fflip": 0,
   "asnap": 0
@@ -11,7 +11,7 @@
  "cup_drag_02-50.glb": {
   "swap": 0,
   "flip": 2,
-  "jump": 204,
+  "jump": 197,
   "gsw": 18,
   "fjump": 117,
   "fflip": 0,
@@ -20,7 +20,7 @@
  "raw_take10.json": {
   "swap": 0,
   "flip": 3,
-  "jump": 261,
+  "jump": 251,
   "gsw": 5,
   "fjump": 246,
   "fflip": 0,
@@ -29,25 +29,25 @@
  "raw_take11.json": {
   "swap": 0,
   "flip": 3,
-  "jump": 264,
+  "jump": 253,
   "gsw": 5,
-  "fjump": 241,
+  "fjump": 236,
   "fflip": 0,
   "asnap": 6
  },
  "raw_take12.json": {
   "swap": 0,
   "flip": 3,
-  "jump": 232,
+  "jump": 224,
   "gsw": 5,
-  "fjump": 242,
+  "fjump": 236,
   "fflip": 0,
   "asnap": 6
  },
  "raw_take13.json": {
   "swap": 0,
   "flip": 3,
-  "jump": 261,
+  "jump": 251,
   "gsw": 5,
   "fjump": 269,
   "fflip": 0,
@@ -56,16 +56,16 @@
  "raw_take14.json": {
   "swap": 0,
   "flip": 3,
-  "jump": 233,
+  "jump": 226,
   "gsw": 5,
-  "fjump": 220,
+  "fjump": 215,
   "fflip": 0,
   "asnap": 6
  },
  "raw_take15.json": {
   "swap": 0,
   "flip": 3,
-  "jump": 261,
+  "jump": 251,
   "gsw": 5,
   "fjump": 250,
   "fflip": 0,
@@ -74,7 +74,7 @@
  "raw_take16.json": {
   "swap": 0,
   "flip": 3,
-  "jump": 261,
+  "jump": 251,
   "gsw": 5,
   "fjump": 246,
   "fflip": 0,
@@ -83,7 +83,7 @@
  "raw_take17.json": {
   "swap": 0,
   "flip": 3,
-  "jump": 265,
+  "jump": 263,
   "gsw": 5,
   "fjump": 245,
   "fflip": 0,
@@ -92,7 +92,7 @@
  "raw_take2.json": {
   "swap": 0,
   "flip": 3,
-  "jump": 261,
+  "jump": 251,
   "gsw": 5,
   "fjump": 246,
   "fflip": 0,
@@ -101,7 +101,7 @@
  "raw_take3.json": {
   "swap": 0,
   "flip": 3,
-  "jump": 262,
+  "jump": 252,
   "gsw": 5,
   "fjump": 246,
   "fflip": 0,
@@ -110,7 +110,7 @@
  "raw_take4.json": {
   "swap": 0,
   "flip": 3,
-  "jump": 261,
+  "jump": 251,
   "gsw": 5,
   "fjump": 261,
   "fflip": 0,
@@ -119,16 +119,16 @@
  "raw_take5.json": {
   "swap": 1,
   "flip": 3,
-  "jump": 230,
+  "jump": 229,
   "gsw": 5,
-  "fjump": 237,
+  "fjump": 235,
   "fflip": 0,
   "asnap": 6
  },
  "raw_take6.json": {
   "swap": 2,
   "flip": 3,
-  "jump": 261,
+  "jump": 251,
   "gsw": 5,
   "fjump": 259,
   "fflip": 0,
@@ -137,7 +137,7 @@
  "raw_take7.json": {
   "swap": 0,
   "flip": 3,
-  "jump": 262,
+  "jump": 252,
   "gsw": 5,
   "fjump": 246,
   "fflip": 0,
@@ -146,46 +146,55 @@
  "raw_take8.json": {
   "swap": 2,
   "flip": 3,
-  "jump": 262,
+  "jump": 256,
   "gsw": 5,
-  "fjump": 265,
+  "fjump": 262,
   "fflip": 0,
   "asnap": 6
  },
  "raw_take9.json": {
   "swap": 0,
   "flip": 3,
-  "jump": 221,
+  "jump": 213,
   "gsw": 5,
-  "fjump": 228,
+  "fjump": 226,
   "fflip": 0,
   "asnap": 6
  },
  "raw_w2take2.json": {
   "swap": 0,
   "flip": 4,
-  "jump": 153,
+  "jump": 141,
   "gsw": 10,
-  "fjump": 102,
+  "fjump": 101,
   "fflip": 0,
   "asnap": 0
  },
  "raw_w2take3.json": {
   "swap": 0,
   "flip": 5,
-  "jump": 169,
+  "jump": 162,
   "gsw": 12,
-  "fjump": 100,
+  "fjump": 97,
   "fflip": 0,
   "asnap": 0
  },
  "v53_user1.glb": {
   "swap": 0,
   "flip": 8,
-  "jump": 213,
-  "gsw": 18,
-  "fjump": 114,
+  "jump": 208,
+  "gsw": 17,
+  "fjump": 113,
   "fflip": 0,
   "asnap": 1
+ },
+ "thumb_fold_07-33.glb": {
+  "swap": 0,
+  "flip": 5,
+  "jump": 158,
+  "gsw": 11,
+  "fjump": 120,
+  "fflip": 0,
+  "asnap": 0
  }
 }

@@ -50,6 +50,8 @@ const LEAN_BEND = 20; // degrees of joint bend off the world reading's that cost
 const LEAN_WORLD = 1; // ...going against the world reading's clear lean on one bone,
 const LEAN_LAST = 0.3; // against last frame's lean on one bone
 const LEAN_KEEP = 4; // bonus for keeping the finger's lean from last frame (no flicker)
+const REACH_DRIFT = 0.04; // palm lengths per frame the reach may change unseen (along the line of sight)
+const LEAN_REACH = 0.5; // palm lengths of thumb tip reach off the world reading's that cost as much as LEAN_BEND
 // Standard palm in its own plane (along the middle finger, across), palm length 1.
 const PALM_SHAPE = [[0, 0], [0.92, -0.3], [1, 0], [0.9, 0.2], [0.77, 0.36]];
 const SAME_POSE = 25; // degrees between the two mirror poses: they are one pose
@@ -228,12 +230,32 @@ export function liftToPicture(world, image, aspect, side = null, memory = null, 
     const c = (a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) / ((Math.hypot(...a) * Math.hypot(...b)) || 1);
     return Math.acos(Math.max(-1, Math.min(1, c))) / (Math.PI / 180);
   };
+  // Where the thumb tip ends up against the index knuckle, in palm lengths:
+  // the world reading gets this right even when it gets the bones' lean
+  // wrong. Bends alone let a folded thumb be lifted as an open one, its tip
+  // half a palm off the index, and the keep bonus then held it there (v67,
+  // user take thumb_fold_07-33).
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+  const wPalm = dist(world[0], world[9]) || 1;
+  const oPalm = dist(out[0], out[9]) || 1;
   if (memory && !memory.combo) memory.combo = [];
   CHAINS.forEach((chain, ci) => {
     const bones = chain.slice(1); // the knuckle (or thumb base) is placed above
     const root = chain[0];
     const grand = PARENT[root];
     const want = bones.map((i) => angle(wv(PARENT[i], PARENT[PARENT[i]]), wv(i, PARENT[i])));
+    // Thumb only: the other fingers' reach in the world reading is noisy
+    // enough that following it shook them (all takes: finger jumps 5101 -> 8064).
+    // It may change only as fast as the picture shows: a reach that jumps
+    // while the tip holds still in the picture is a depth misread.
+    let reach = null;
+    if (ci === 0) {
+      reach = dist(world[4], world[5]) / wPalm;
+      const flat = (d2(4, 5) * k) / oPalm;
+      const last = memory && memory.reach;
+      if (last) reach = Math.min(Math.max(reach, last.reach - Math.abs(flat - last.flat) - REACH_DRIFT), last.reach + Math.abs(flat - last.flat) + REACH_DRIFT);
+      if (memory) memory.reach = { reach, flat };
+    }
     let best = null;
     let bestCost = Infinity;
     let bestM = 0;
@@ -255,6 +277,7 @@ export function liftToPicture(world, image, aspect, side = null, memory = null, 
         pos.push({ q, from: prev, sign, room: b.room, L: b.L });
         prev = q;
       });
+      if (reach !== null) cost += ((dist(pos[2].q, out[5]) / oPalm - reach) / LEAN_REACH) ** 2;
       if (memory && memory.combo[ci] === m) cost -= LEAN_KEEP;
       if (cost < bestCost) {
         bestCost = cost;

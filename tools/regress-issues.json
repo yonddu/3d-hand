@@ -3,5 +3,6 @@
  { "id": "book-grip-switch", "date": "2026-10-26", "take": "book_floor_06-37.glb", "metric": "gsw", "max": 9, "note": "바닥 책 집기: 손모양 자주 바뀜 (v63 고침, 17 -> 7)" },
  { "id": "book-arm-snap", "date": "2026-10-26", "take": "book_floor_06-37.glb", "from": 14, "to": 19, "metric": "asnap", "max": 0, "note": "바닥 책 집기: 손목 그대로인데 팔뚝 한 프레임에 꺾임 (v63 고침)" },
  { "id": "cup-drag-scramble", "date": "2026-10-26", "take": "cup_drag_02-50.glb", "metric": "jump", "max": 215, "note": "컵 끌고 올 때 손가락 흐트러짐 (v55 고침)" },
- { "id": "user1-side-swap", "date": "2026-10-26", "take": "v53_user1.glb", "metric": "swap", "max": 0, "note": "오른손이 왼손으로 바뀜 (v53 고침)" }
+ { "id": "user1-side-swap", "date": "2026-10-26", "take": "v53_user1.glb", "metric": "swap", "max": 0, "note": "오른손이 왼손으로 바뀜 (v53 고침)" },
+ { "id": "thumb-fold-open", "date": "2026-10-26", "take": "thumb_fold_07-33.glb", "from": 2.79, "to": 5.29, "metric": "topen", "max": 2, "note": "접은 엄지가 펴진 것으로 나옴, 영상 0.7-3.2초 (v67 고침, 26 -> 0)" }
 ]
