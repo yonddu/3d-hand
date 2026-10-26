@@ -76,7 +76,7 @@ export function objectForHand(detections, hand, aspect) {
   const mpu = real / Math.max(pix, 1e-3);
   const mw = best.w * mpu;
   const mh = (best.h / aspect) * mpu;
-  return { category: best.category, score: best.score, ...measure(best.tpl, Math.max(mw, mh), Math.min(mw, mh)) };
+  return { category: best.category, score: best.score, box: { x: best.x, y: best.y, w: best.w, h: best.h }, ...measure(best.tpl, Math.max(mw, mh), Math.min(mw, mh)) };
 }
 
 // Template + measured long/short extent -> concrete dimensions.
@@ -97,4 +97,23 @@ export function measure(tpl, long, short) {
 export function manualObject(shape) {
   const tpl = MANUAL[shape];
   return tpl ? { category: shape, score: 1, ...measure(tpl, 0, 0) } : null;
+}
+
+// Fingers on a held object: the outer finger joints inside the object's box
+// are behind it (wrapped around a cup, the fingertips reach its far side), so
+// the tracker's points for them are guesses and are marked fully hidden; the
+// grip prior (gripPrior.js) then shapes them. The first finger bone stays on
+// the near side, so the knuckle bend is still read from the camera and tells
+// the grips apart; the thumb usually stays in view. On the grip shapes with
+// the true grip left out, this took hidden-joint error from 43 to 8 degrees
+// for cylinders (t150).
+const WRAP_JOINTS = [7, 8, 11, 12, 15, 16, 19, 20];
+export function objectOcclusion(landmarks, box, occluded = null, level = 1) {
+  const out = occluded ? occluded.slice() : new Array(21).fill(0);
+  const m = 0.1 * Math.min(box.w, box.h);
+  for (const j of WRAP_JOINTS) {
+    const p = landmarks[j];
+    if (p.x > box.x - m && p.x < box.x + box.w + m && p.y > box.y - m && p.y < box.y + box.h + m) out[j] = Math.max(out[j] || 0, level);
+  }
+  return out;
 }

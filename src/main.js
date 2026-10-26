@@ -7,7 +7,7 @@ import { PointSetFilter } from './filters.js';
 import { DemoSource } from './demo.js';
 import { loadHandGLB, RealHand, questMaterial } from './realHand.js';
 import { GraspEstimator, OBJECT_LABEL, handFeatures } from './grasp.js';
-import { objectForHand, manualObject } from './objects.js';
+import { objectForHand, manualObject, objectOcclusion } from './objects.js';
 import { ArmRig } from './arm.js';
 import { wristLoop } from './armMesh.js';
 import { exportGlb, frameFromLive, frameFromPoseHand, zipFiles } from './exportGlb.js';
@@ -236,6 +236,7 @@ function resetTracking() {
     if (typeof grasps !== 'undefined') grasps[side].reset();
     state.lastSeen[side] = -1;
   }
+  if (tracker) tracker.tracks = [];
 }
 
 async function setSource(src) {
@@ -448,7 +449,6 @@ function fromMediaPipe(hand) {
   // guess is often turned against what the camera shows.
   const raw = state.lift ? liftToPicture(hand.world, hand.landmarks, aspect, hand.side, liftMemory[hand.side], (state.source === 'camera' && !facingUser()) || (state.source === 'video' && $('video-fp').checked)) : hand.world;
   const world = raw.map((p) => new THREE.Vector3(p.x, -p.y, -p.z));
-  const occluded = raw.occluded || null;
   const cup = raw.cup || 0;
   const a = hand.landmarks[0];
   const FOCAL = focalW(aspect);
@@ -464,6 +464,9 @@ function fromMediaPipe(hand) {
   }
   z = THREE.MathUtils.clamp(z, 0.18, 1.2);
   const vision = objectForHand(state.detections, hand, aspect);
+  // Fingers wrapped around a detected object are partly behind it: their
+  // points become guesses, and the grip prior (gripPrior.js) fills them.
+  const occluded = vision && vision.box ? objectOcclusion(hand.landmarks, vision.box, raw.occluded) : raw.occluded || null;
   if (state.ar) {
     // Passthrough: put the wrist on its own camera ray at its real distance,
     // so the 3D hand lands on top of the real one in the video.
@@ -610,7 +613,7 @@ function feed(inputs, t) {
     const rig = rigs[side];
     rig.group.visible = true;
     rig.group.position.set(anc[0], anc[1], anc[2]);
-    state.lastSolve[side] = solvers[side].solve(smooth, { limits: state.limits, fit: state.fit, occluded: input.occluded, cup: input.cup || 0, smoothing: !rec.offline });
+    state.lastSolve[side] = solvers[side].solve(smooth, { limits: state.limits, fit: state.fit, occluded: input.occluded, cup: input.cup || 0, held: input.vision ? input.vision.shape : null, smoothing: !rec.offline });
     if (realHands[side]) {
       realHands[side].setProportions(smooth);
       realHands[side].setPinches(smooth);
@@ -811,12 +814,18 @@ function tick(now) {
       }
       let hands = null;
       try {
-        hands = tracker.detect(video, now, { swapHandedness: state.swap, rightOnImageRight: !facingUser(), firstPerson: (state.source === 'camera' && !facingUser()) || (state.source === 'video' && $('video-fp').checked) });
+        hands = tracker.detect(video, now, { swapHandedness: state.swap, rightOnImageRight: !facingUser(), firstPerson: (state.source === 'camera' && !facingUser()) || (state.source === 'video' && $('video-fp').checked), trackMs: offline ? video.currentTime * 1000 : now });
       } catch (err) {
         console.error(err);
         fallbackToCPU('추적 오류');
       }
       if (hands) watchGpu(hands.length, now);
+      if (hands && rec.on) {
+        const r3 = (v) => Math.round(v * 1000) / 1000;
+        const objects = (state.detections || []).map((d) => ({ category: d.category, score: r3(d.score), x: r3(d.x), y: r3(d.y), w: r3(d.w), h: r3(d.h) }));
+        rec.raw.push({ t: r3(t), hands: tracker.lastRaw, ...(objects.length ? { objects } : {}) });
+        rec.rawMeta = { aspect: video.videoWidth / video.videoHeight, firstPerson: (state.source === 'camera' && !facingUser()) || (state.source === 'video' && $('video-fp').checked), swap: state.swap, rightOnImageRight: !facingUser(), offline };
+      }
       if (hands) {
         drawOverlay(hands);
         feed(hands.map(fromMediaPipe), t);
@@ -1239,7 +1248,7 @@ $('export-all').onclick = () => {
 
 const REC_FPS = 30;
 const takes = []; // this session's recordings, newest first
-const rec = { on: false, offline: false, frameReady: false, frames: [], lastAt: -1e9, name: '' };
+const rec = { on: false, offline: false, frameReady: false, frames: [], raw: [], rawMeta: null, lastAt: -1e9, name: '' };
 
 function handIsLive(side, t) {
   if (!rigs[side].group.visible) return false;
@@ -1302,6 +1311,8 @@ function startRecording() {
   exitFrozen();
   rec.on = true;
   rec.frames = [];
+  rec.raw = [];
+  rec.rawMeta = null;
   rec.lastAt = -1e9;
   rec.name = $('pose-name').value.trim() || `motion_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}`;
   rec.offline = state.source === 'video' && !!video.src;
@@ -1328,7 +1339,7 @@ function stopRecording() {
   const filmed = camRec.processing;
   camRec.processing = false;
   if (frames.length) {
-    const take = { id: Date.now().toString(36), name: rec.name, frames, createdAt: new Date(), videoUrl: filmed ? video.src : null };
+    const take = { id: Date.now().toString(36), name: rec.name, frames, raw: rec.rawMeta ? { ...rec.rawMeta, frames: rec.raw } : null, createdAt: new Date(), videoUrl: filmed ? video.src : null };
     takes.unshift(take);
     if (filmed) {
       video.pause();
@@ -1439,9 +1450,9 @@ function exportSkins() {
   return skins;
 }
 
-async function saveGlb(frames, name) {
+async function saveGlb(frames, name, raw = null) {
   try {
-    const glb = await exportGlb({ frames, skins: exportSkins(), name, includeObjects: $('rec-object').checked });
+    const glb = await exportGlb({ frames, skins: exportSkins(), name, includeObjects: $('rec-object').checked, raw });
     await saveBinary(glb, `${slug(name)}.glb`);
     return glb;
   } catch (err) {
@@ -1598,7 +1609,7 @@ $('rv-take').onchange = (e) => {
 $('rv-glb').onclick = async () => {
   const take = review.take;
   if (!take) return;
-  const glb = await saveGlb(take.frames, take.name);
+  const glb = await saveGlb(take.frames, take.name, take.raw);
   if (glb && take.videoUrl) {
     take.saved = true;
     toast('저장했습니다. 다음 동작을 녹화하세요.');

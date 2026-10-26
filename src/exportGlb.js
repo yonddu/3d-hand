@@ -284,7 +284,7 @@ function completeFrame(side, f) {
 // frames: [{ t: seconds, hands: { left: frame|null, right: frame|null } }]
 // skins: { left, right } from RealHand/HandRig.exportSkin()
 // Returns an ArrayBuffer (binary glTF).
-export async function exportGlb({ frames, skins, name = 'HMS_Motion', includeObjects = true }) {
+export async function exportGlb({ frames, skins, name = 'HMS_Motion', includeObjects = true, raw = null }) {
   const sides = SIDES.filter((s) => frames.some((fr) => fr.hands[s]));
   if (!sides.length) throw new Error('내보낼 손 데이터가 없습니다.');
 
@@ -390,6 +390,9 @@ export async function exportGlb({ frames, skins, name = 'HMS_Motion', includeObj
     fps: frames.length > 1 ? +((frames.length - 1) / (times[times.length - 1] || 1)).toFixed(2) : 0,
     bind: 'arms straight forward (-Z), palms down, fingers relaxed',
   };
+  // The tracker's raw readings (tracker.js lastRaw), so a sent-in file can be
+  // replayed and measured (tools/replay.mjs). Not needed to play the motion.
+  if (raw && raw.frames && raw.frames.length) root.userData.raw = raw;
 
   const exporter = new GLTFExporter();
   return exporter.parseAsync(root, { binary: true, animations: [clip], onlyVisible: false });

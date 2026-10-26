@@ -42,7 +42,7 @@ export class HandSolver {
 
   // P: 21 THREE.Vector3 in rig orientation (any origin, meters).
   // Returns per-bone angles and confidences and writes rotations to the rig.
-  solve(P, { limits = true, smoothing = true, synergy = true, fit = false, occluded = null, cup = 0 } = {}) {
+  solve(P, { limits = true, smoothing = true, synergy = true, fit = false, occluded = null, cup = 0, held = null } = {}) {
     const rig = this.rig;
     const side = rig.side;
     const wristQ = handFrameQuat(P, side);
@@ -123,13 +123,13 @@ export class HandSolver {
       });
     }
     rig.cup = fit ? cup : 0;
-    if (fit) this.fitHand(P, wristQ, angles, confidence, { limits, smoothing, occluded });
+    if (fit) this.fitHand(P, wristQ, angles, confidence, { limits, smoothing, occluded, held });
     return { angles, confidence };
   }
 
   // Fit each finger of the hand model to the points (see fit.js), seeded by
   // the last frame or, the first time, by the per-bone reading.
-  fitHand(P, wristQ, angles, confidence, { limits, smoothing, occluded }) {
+  fitHand(P, wristQ, angles, confidence, { limits, smoothing, occluded, held }) {
     const rig = this.rig;
     const palm = P[0].distanceTo(P[9]);
     const starts = {};
@@ -145,7 +145,7 @@ export class HandSolver {
       hidden[finger.key] = hiddenJoints(finger, P, frames[finger.key], occluded);
     }
     // The grip the seen fingers point to, for the hidden ones (gripPrior.js).
-    const grip = this.grasp.update(starts, hidden);
+    const grip = this.grasp.update(starts, hidden, held);
     this.gripName = this.grasp.current ? this.grasp.current.name : '';
     for (const finger of FINGERS) {
       const start = starts[finger.key];

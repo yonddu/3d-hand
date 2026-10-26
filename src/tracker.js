@@ -136,7 +136,9 @@ export class HandTracker {
   }
 
   // Returns null when the frame was already processed.
-  detect(video, nowMs, { swapHandedness = false, rightOnImageRight = true, firstPerson = false } = {}) {
+  // trackMs is the clock tracks expire by: the video's own time when a file
+  // is processed frame by frame, so a slow phone does not drop the tracks.
+  detect(video, nowMs, { swapHandedness = false, rightOnImageRight = true, firstPerson = false, trackMs = nowMs } = {}) {
     if (!this.landmarker || video.readyState < 2 || !video.videoWidth) return null;
     if (video.srcObject) {
       if (this.rvfc) {
@@ -159,7 +161,16 @@ export class HandTracker {
     });
     dedupe(hands);
     this.lastHands = hands;
-    return resolveSides(this.keepSides(hands, nowMs, swapHandedness, firstPerson ? video.videoWidth / video.videoHeight : 0), rightOnImageRight !== swapHandedness);
+    // What the model saw, before sides are kept or depth mirrored: recordings
+    // carry it so a take can be replayed through the whole pipeline (tools/replay.mjs).
+    const r4 = (v) => Math.round(v * 1e4) / 1e4;
+    this.lastRaw = hands.map((h) => ({
+      label: h.side,
+      score: r4(h.score),
+      lm: h.landmarks.flatMap((p) => [r4(p.x), r4(p.y), r4(p.z)]),
+      world: h.world.flatMap((p) => [r4(p.x), r4(p.y), r4(p.z)]),
+    }));
+    return resolveSides(this.keepSides(hands, trackMs, swapHandedness, firstPerson ? video.videoWidth / video.videoHeight : 0), rightOnImageRight !== swapHandedness);
   }
 
   // Left or right. Seen from behind (first person), the back of a left hand and
@@ -174,7 +185,7 @@ export class HandTracker {
   // holds for several frames. In first person a hand keeps the side the arm
   // gave it for as long as it is tracked.
   keepSides(hands, nowMs, swap = false, aspect = 0) {
-    const prev = (this.tracks || []).filter((k) => nowMs - k.t < 400);
+    const prev = (this.tracks || []).filter((k) => nowMs - k.t < 400 && nowMs >= k.t);
     this.tracks = hands.map((h) => {
       const x = h.landmarks[0].x;
       const y = h.landmarks[0].y;
@@ -323,7 +334,7 @@ export function chirality(W) {
 // other hand the opposite side, by where each hand is in the image. A camera
 // behind the hands (looking the way the person looks) has the right hand on
 // the image right; a camera facing the person has it on the image left.
-function resolveSides(hands, rightOnImageRight) {
+export function resolveSides(hands, rightOnImageRight) {
   if (hands.length === 2 && hands[0].side === hands[1].side) {
     const [a, b] = hands;
     const aLeftInImage = a.landmarks[0].x < b.landmarks[0].x;
