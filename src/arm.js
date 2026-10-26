@@ -42,7 +42,7 @@ export function pivotLoop(loop) {
 // but seen from the eyes a straight forearm-hand line reads as right.
 const REST_EXT = (5 * Math.PI) / 180;
 const BEND_SIDES = [[0, 1], [0, -1], [1, 0], [-1, 0]]; // (x, z) in the forearm's frame
-const BEND_BULGE = 0.012; // m of outward push on the inside of a right-angle wrist bend
+const BEND_BULGE = 0.004; // m of outward push on the inside of a right-angle wrist bend (1.2 cm stood out as a ridge, user)
 const WRIST_FLEX = (75 * Math.PI) / 180;
 const WRIST_EXT = (65 * Math.PI) / 180;
 const WRIST_DEV = (30 * Math.PI) / 180;

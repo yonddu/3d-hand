@@ -13,8 +13,9 @@ export const FORE = 0.26; // elbow -> wrist
 const WRIST_A = UPPER + FORE;
 // The wrist bends over this much skin, ending at the hand's border, which
 // sits on the wrist pivot (the carpal bones). Real skin creases within ~3 cm
-// of the wrist; a longer blend moved the visible bend down onto the forearm.
-const WRIST_BEND = 0.025;
+// of the wrist; 2.5 cm folded it like paper (user), a much longer blend moved
+// the visible bend down onto the forearm.
+const WRIST_BEND = 0.035;
 
 // Cross-section [width across the hand (x), thickness (z)] by distance from the shoulder.
 const PROFILE = [
