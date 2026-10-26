@@ -7,7 +7,7 @@ import { PointSetFilter } from './filters.js';
 import { DemoSource } from './demo.js';
 import { loadHandGLB, RealHand, questMaterial } from './realHand.js';
 import { GraspEstimator, OBJECT_LABEL, handFeatures } from './grasp.js';
-import { objectForHand, manualObject, objectOcclusion } from './objects.js';
+import { objectForHand, manualObject, objectOcclusion, HeldObject } from './objects.js';
 import { ArmRig } from './arm.js';
 import { wristLoop } from './armMesh.js';
 import { exportGlb, frameFromLive, frameFromPoseHand, zipFiles } from './exportGlb.js';
@@ -233,10 +233,12 @@ function stopStream() {
 
 // What the picture lift remembers of each hand between frames (see lift.js).
 const liftMemory = { left: {}, right: {} };
+const heldObjects = { left: new HeldObject(), right: new HeldObject() };
 
 function resetTracking() {
   for (const side of SIDES) {
     liftMemory[side] = {};
+    heldObjects[side].reset();
     filters[side].reset();
     anchorFilters[side].reset();
     solvers[side].reset();
@@ -470,7 +472,7 @@ function fromMediaPipe(hand) {
     z = Math.min(z, (FOCAL * MODEL_PALM[`${i}-${j}`]) / Math.max(pix, 1e-3));
   }
   z = THREE.MathUtils.clamp(z, 0.18, 1.2);
-  const vision = objectForHand(state.detections, hand, aspect);
+  const vision = heldObjects[hand.side].update(objectForHand(state.detections, hand, aspect), rec.on && rec.offline ? rec.frameTime : performance.now() / 1000);
   // Fingers wrapped around a detected object are partly behind it: their
   // points become guesses, and the grip prior (gripPrior.js) fills them.
   const occluded = vision && vision.box ? objectOcclusion(hand.landmarks, vision.box, raw.occluded) : raw.occluded || null;

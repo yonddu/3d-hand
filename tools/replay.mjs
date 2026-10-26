@@ -20,7 +20,7 @@ import path from 'path';
 import * as THREE from 'three';
 import { HandTracker, chirality, resolveSides } from '../src/tracker.js';
 import { liftToPicture } from '../src/lift.js';
-import { objectForHand, objectOcclusion } from '../src/objects.js';
+import { objectForHand, objectOcclusion, HeldObject } from '../src/objects.js';
 import { HandRig, handFrameQuat } from '../src/handRig.js';
 import { HandSolver } from '../src/solver.js';
 import { planGrips, objectSize, heldFamily } from '../src/gripPrior.js';
@@ -74,6 +74,7 @@ function pass(take, plans, logs = null) {
   tracker.tracks = [];
   const solvers = { left: new HandSolver(new HandRig('left')), right: new HandSolver(new HandRig('right')) };
   const memory = { left: {}, right: {} };
+  const held = { left: new HeldObject(), right: new HeldObject() };
   const last = { left: null, right: null };
   const out = { frames: 0, swap: 0, flip: 0, jump: 0, grip: 0, gsw: 0, gjump: 0, events: [] };
   let prevHands = [];
@@ -105,7 +106,7 @@ function pass(take, plans, logs = null) {
       const raw = liftToPicture(h.world, h.landmarks, take.aspect, side, memory[side], take.firstPerson);
       const P = raw.map((p) => new THREE.Vector3(p.x, -p.y, -p.z));
       // The same object handling as main.js fromMediaPipe.
-      const vision = objectForHand(f.objects, h, take.aspect);
+      const vision = held[side].update(objectForHand(f.objects, h, take.aspect), t);
       const occluded = vision && vision.box ? objectOcclusion(h.landmarks, vision.box, raw.occluded) : raw.occluded || null;
       const prev = last[side];
       if (!prev || t - prev.t > 0.6) solvers[side].reset();

@@ -117,3 +117,37 @@ export function objectOcclusion(landmarks, box, occluded = null, level = 1) {
   }
   return out;
 }
+
+// The object in a hand, steady over time. The detector finds an object in
+// one frame and loses it in the next (the book in take book_floor_06-37 came
+// and went every few frames), and each change switched the hidden fingers'
+// grip family. A new object is taken once it has been seen twice within
+// ADOPT seconds; a held one is kept through gaps up to KEEP seconds.
+const ADOPT = 0.3;
+const KEEP = 0.6;
+export class HeldObject {
+  constructor() {
+    this.reset();
+  }
+
+  reset() {
+    this.held = null; // { vision, t }
+    this.cand = null; // { category, t }
+  }
+
+  // vision: objectForHand's result this frame (or null); t: seconds.
+  update(vision, t) {
+    if (vision) {
+      if (this.held && this.held.vision.category === vision.category) {
+        this.held = { vision, t };
+      } else if (this.cand && this.cand.category === vision.category && t - this.cand.t <= ADOPT) {
+        this.held = { vision, t };
+        this.cand = null;
+      } else {
+        this.cand = { category: vision.category, t };
+      }
+    }
+    if (this.held && t - this.held.t > KEEP) this.held = null;
+    return this.held ? this.held.vision : null;
+  }
+}

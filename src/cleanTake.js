@@ -22,6 +22,9 @@ const BURST_STEP = 25; // degrees in one frame: faster than a wrist turns (~750 
 const BURST_MAX = 15; // a palm misread for up to this many frames (0.5 s)
 const BURST_LONG = 36; // up to 1.2 s when it also snaps back faster than a wrist turns
 const BURST_BACK = 30; // degrees: back where it was before the burst
+const ARM_SNAP = 20; // degrees of arm turn in one frame
+const ARM_STILL = 0.03; // metres of wrist travel in that frame that count as still
+const ARM_EASE = 8; // frames on each side the change is spread over
 const BONE_WIN = 3;
 const BONE_SPIKE = 30; // degrees
 const SIGMA = { wrist: 1.6, bone: 1.3, pos: 2.5 }; // smoothing, in frames
@@ -205,6 +208,28 @@ function cleanSide(hands, swapped) {
         const med = qmedoid(win);
         if (qangle(orig[i], med) > BONE_SPIKE) hands[i].fingers[n] = med.slice();
       }
+    }
+
+    // 3b. The arm snapping while the wrist stays: the forearm turned 118 deg
+    // in one frame with the wrist nearly still (user GLB book_floor_06-37,
+    // the arm solver starting afresh on the hand's line). A forearm cannot do
+    // that, so the change is spread over the frames around it.
+    for (let i = s + 1; i <= e; i++) {
+      const a = hands[i - 1];
+      const b = hands[i];
+      if (!Array.isArray(a.foreQ) || !Array.isArray(b.foreQ)) continue;
+      const turn = Math.max(qangle(a.foreQ, b.foreQ), Array.isArray(a.upperQ) && Array.isArray(b.upperQ) ? qangle(a.upperQ, b.upperQ) : 0);
+      if (turn < ARM_SNAP || dist(a.wrist, b.wrist) > ARM_STILL) continue;
+      const i0 = Math.max(s, i - 1 - ARM_EASE);
+      const i1 = Math.min(e, i + ARM_EASE);
+      const h0 = cloneHand(hands[i0]);
+      const h1 = cloneHand(hands[i1]);
+      for (let j = i0 + 1; j < i1; j++) {
+        const u = (j - i0) / (i1 - i0);
+        for (const k of ['upperQ', 'foreQ']) if (Array.isArray(h0[k]) && Array.isArray(h1[k])) hands[j][k] = qslerp(h0[k], h1[k], u);
+        for (const k of ['elbow', 'shoulder']) if (Array.isArray(h0[k]) && Array.isArray(h1[k])) hands[j][k] = vlerp(h0[k], h1[k], u);
+      }
+      i = i1;
     }
 
     // 4. Smoothing, forward and backward (no lag): a short Gaussian window.
