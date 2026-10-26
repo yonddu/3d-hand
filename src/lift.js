@@ -46,6 +46,10 @@ const PALM_REF = [0.07, 0.1]; // metres, wrist to middle knuckle
 // the last frame had is kept (motion is continuous), unless the palm passes
 // edge-on or flat, where the two meet and the world reading may switch it.
 const PALM_PTS = [0, 5, 9, 13, 17];
+const LEAN_BEND = 20; // degrees of joint bend off the world reading's that cost as much as...
+const LEAN_WORLD = 1; // ...going against the world reading's clear lean on one bone,
+const LEAN_LAST = 0.3; // against last frame's lean on one bone
+const LEAN_KEEP = 4; // bonus for keeping the finger's lean from last frame (no flicker)
 // Standard palm in its own plane (along the middle finger, across), palm length 1.
 const PALM_SHAPE = [[0, 0], [0.92, -0.3], [1, 0], [0.9, 0.2], [0.77, 0.36]];
 const SAME_POSE = 25; // degrees between the two mirror poses: they are one pose
@@ -182,42 +186,88 @@ export function liftToPicture(world, image, aspect, side = null, memory = null, 
   if (memory && !memory.signs) memory.signs = [];
   // Each finger bone: its picture offset, plus a depth offset that keeps the
   // bone at its world length. Depth is the one thing a picture cannot tell:
-  // the bone leans toward or away from the camera. The world reading decides
-  // when it clearly leans one way; otherwise the bone keeps last frame's lean.
+  // the bone leans toward or away from the camera.
   const out = new Array(21);
   out[0] = { x: 0, y: 0, z: 0 };
-  for (const i of ORDER) {
-    const p = PARENT[i];
+  const lean = (i, parent) => {
     const x = (u[i][0] - u[0][0]) * k;
     const y = (u[i][1] - u[0][1]) * k;
+    const dx = x - parent.x;
+    const dy = y - parent.y;
+    const L = boneLen(i);
+    if (memory && i !== 1) {
+      // A bone is at least as long as it looks: learn this hand's fingers.
+      const seen = Math.min(Math.hypot(dx, dy) / (palm * CANON[i]), GROW_MAX);
+      const g = memory.grow[i] || 1;
+      if (seen > g) memory.grow[i] = g + (seen - g) * 0.2;
+    }
+    return { x, y, L, room: Math.sqrt(Math.max(L * L - dx * dx - dy * dy, 0)), wz: world[i].z - world[PARENT[i]].z };
+  };
+  // Palm points from the palm fit; the thumb's base by the world reading's lean.
+  for (const i of [1, 5, 9, 13, 17]) {
     const palmIdx = palmZ ? PALM_PTS.indexOf(i) : -1;
-    if (palmIdx > 0) {
-      out[i] = { x, y, z: palmZ[palmIdx] };
-    } else {
-      const dx = x - out[p].x;
-      const dy = y - out[p].y;
-      const L = boneLen(i);
-      if (memory && i !== 1) {
-        // A bone is at least as long as it looks: learn this hand's fingers.
-        const seen = Math.min(Math.hypot(dx, dy) / (palm * CANON[i]), GROW_MAX);
-        const g = memory.grow[i] || 1;
-        if (seen > g) memory.grow[i] = g + (seen - g) * 0.2;
-      }
-      const room = Math.sqrt(Math.max(L * L - dx * dx - dy * dy, 0));
-      const wz = world[i].z - world[p].z;
-      let sign = wz >= 0 ? 1 : -1;
+    const b = lean(i, out[0]);
+    if (palmIdx > 0) out[i] = { x: b.x, y: b.y, z: palmZ[palmIdx] };
+    else {
+      let sign = b.wz >= 0 ? 1 : -1;
       const last = memory && memory.signs[i];
-      if (last && Math.abs(wz) < 0.3 * L) sign = last;
-      // The lean is the world reading's, even when it bends a joint backward
-      // (the fit's joint limits straighten that). Flipping such a lean to
-      // bend the joint toward the palm instead turned a few millimetres of
-      // depth noise on a straight finger into a finger curled 100 degrees
-      // (user GLB 2026-10-26, fingers curling while the palm turned); on the
-      // earlier raw takes it doubled the joints read past 100 degrees.
-      if (memory && room > 0.25 * L) memory.signs[i] = sign;
-      out[i] = { x, y, z: out[p].z + sign * room };
+      if (last && Math.abs(b.wz) < 0.3 * b.L) sign = last;
+      if (memory && b.room > 0.25 * b.L) memory.signs[i] = sign;
+      out[i] = { x: b.x, y: b.y, z: sign * b.room };
     }
   }
+  // The three bones of a finger lean together: of the eight ways to lean
+  // them, take the one whose joint bends match the world reading's (its 3D
+  // finger shape is sound even where its depth is not), then the world
+  // reading's own lean, then last frame's. Choosing each bone's lean alone
+  // (v51) zigzagged fingers pointing along the line of sight into 90-120
+  // degree curls the world reading did not have (user GLB 2026-10-26,
+  // dragging a cup).
+  const wv = (a, b) => [world[a].x - world[b].x, world[a].y - world[b].y, world[a].z - world[b].z];
+  const angle = (a, b) => {
+    const c = (a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) / ((Math.hypot(...a) * Math.hypot(...b)) || 1);
+    return Math.acos(Math.max(-1, Math.min(1, c))) / (Math.PI / 180);
+  };
+  if (memory && !memory.combo) memory.combo = [];
+  CHAINS.forEach((chain, ci) => {
+    const bones = chain.slice(1); // the knuckle (or thumb base) is placed above
+    const root = chain[0];
+    const grand = PARENT[root];
+    const want = bones.map((i) => angle(wv(PARENT[i], PARENT[PARENT[i]]), wv(i, PARENT[i])));
+    let best = null;
+    let bestCost = Infinity;
+    let bestM = 0;
+    for (let m = 0; m < 8; m++) {
+      const pos = [];
+      let prev = out[root];
+      let cost = 0;
+      bones.forEach((i, n) => {
+        const b = lean(i, prev);
+        const sign = (m >> n) & 1 ? 1 : -1;
+        const q = { x: b.x, y: b.y, z: prev.z + sign * b.room };
+        const back = n === 0 ? out[grand] : pos[n - 1].from;
+        const bend = angle([prev.x - back.x, prev.y - back.y, prev.z - back.z], [q.x - prev.x, q.y - prev.y, q.z - prev.z]);
+        cost += ((bend - want[n]) / LEAN_BEND) ** 2;
+        const clear = Math.min(Math.abs(b.wz) / (0.3 * b.L), 1);
+        if ((b.wz >= 0 ? 1 : -1) !== sign) cost += LEAN_WORLD * clear;
+        const last = memory && memory.signs[i];
+        if (last && last !== sign) cost += LEAN_LAST;
+        pos.push({ q, from: prev, sign, room: b.room, L: b.L });
+        prev = q;
+      });
+      if (memory && memory.combo[ci] === m) cost -= LEAN_KEEP;
+      if (cost < bestCost) {
+        bestCost = cost;
+        best = pos;
+        bestM = m;
+      }
+    }
+    if (memory) memory.combo[ci] = bestM;
+    bones.forEach((i, n) => {
+      out[i] = best[n].q;
+      if (memory && best[n].room > 0.25 * best[n].L) memory.signs[i] = best[n].sign;
+    });
+  });
   out.cup = palmCup(world, side, memory);
   out.occluded = occlusion(out);
   if (memory) {

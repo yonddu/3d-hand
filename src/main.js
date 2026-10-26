@@ -198,8 +198,12 @@ async function ensureTracker() {
       const t = new HandTracker(CONFIG);
       await t.init((s) => setStatus(s));
       tracker = t;
-      // Held-object recognition is switched off (the user asked for no virtual
-      // objects in the hand); only the pose model loads, for the elbows.
+      // No virtual object goes in the hand (the user asked for none): the
+      // object detector only tells which fingers a held object hides and what
+      // kind of grip to expect (objects.js objectOcclusion, gripPrior.js).
+      // The pose model gives the elbows.
+      t.initObjects()
+        .catch((err) => console.warn('object model unavailable', err));
       t.initPose()
         .then(() => t.pose && setStatus(`추적 + 팔꿈치 인식 준비됨 (${t.delegate})`))
         .catch((err) => console.warn('pose model unavailable; elbows use IK only', err));
@@ -856,7 +860,7 @@ function tick(now) {
   // The heel of the hand shares the wrist's bend with the arm skin (only
   // when the arm is shown; a hand ending at the wrist keeps its own shape).
   for (const side of SIDES) if (realHands[side]) realHands[side].syncBend(!(arms[side].group.visible && $('show-arm').checked));
-  renderer.render(scene, camera);
+  if (!document.hidden) renderer.render(scene, camera);
 
   frames++;
   if (now - fpsT > 500) {
@@ -882,7 +886,50 @@ function tick(now) {
     tableT = now;
     renderTable();
   }
-  requestAnimationFrame(tick);
+  schedule();
+}
+
+// Next frame. The screen's frame clock stops while the page is in the
+// background, so during the analysis pass a hidden page steps on message
+// ticks instead (timers are throttled to once a second there), waiting for
+// each seek to land; the pass then keeps going until the window is closed.
+let loopId = 0;
+const ticker = new MessageChannel();
+function schedule() {
+  const id = ++loopId;
+  const run = () => id === loopId && tick(performance.now());
+  if (!(document.hidden && rec.on && rec.offline)) requestAnimationFrame((now) => id === loopId && tick(now));
+  else if (rec.frameReady) {
+    ticker.port1.onmessage = run;
+    ticker.port2.postMessage(0);
+  } else {
+    const onSeek = () => setTimeout(run, 0);
+    video.addEventListener('seeked', onSeek, { once: true });
+    // A seek that never reports back (rare) must not stall the pass.
+    setTimeout(() => {
+      video.removeEventListener('seeked', onSeek);
+      run();
+    }, 1000);
+  }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && rec.on && rec.offline) schedule();
+  else if (!document.hidden) schedule();
+});
+
+// Keep the phone's screen on through the analysis pass (a screen that turns
+// off freezes the page), and show its progress in the tab title.
+let wakeLock = null;
+const TITLE = document.title;
+async function holdAwake(on) {
+  try {
+    if (on && !wakeLock && navigator.wakeLock) {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => (wakeLock = null));
+    } else if (!on && wakeLock) await wakeLock.release();
+  } catch {
+    wakeLock = null;
+  }
 }
 
 const SOURCE_LABEL = { camera: '카메라 인식', demo: '데모 인식', hand: '손 모양 추정', manual: '직접 선택' };
@@ -1329,6 +1376,8 @@ function startRecording() {
 function stopRecording() {
   rec.on = false;
   $('busy').hidden = true;
+  document.title = TITLE;
+  holdAwake(false);
   if (rec.offline) {
     rec.offline = false;
     resetTracking();
@@ -1433,8 +1482,10 @@ function updateGuide() {
     const end = rec.endTime || video.duration || 1;
     const pct = Math.min(99, Math.round((video.currentTime / end) * 100));
     $('busy-bar').style.width = `${pct}%`;
-    $('busy-text').textContent = camRec.processing ? `${pct}% · 끝나면 결과 영상이 바로 열립니다` : `${pct}%`;
-  }
+    $('busy-text').textContent = camRec.processing ? `${pct}% · 다른 앱으로 가도 계속 만들고, 끝나면 결과 영상이 바로 열립니다` : `${pct}%`;
+    document.title = `${pct}% 결과 영상 만드는 중 · ${TITLE}`;
+  } else if (document.title !== TITLE) document.title = TITLE;
+  holdAwake(busy);
   const g = $('guide');
   let html = '';
   if (review.take && review.take.videoUrl) {

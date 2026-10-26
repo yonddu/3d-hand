@@ -106,7 +106,9 @@ export function replay(take) {
           out.flip++;
           out.events.push(`${t.toFixed(2)}s flip ${side} ${Math.round((turn * 180) / Math.PI)}deg`);
         }
-        out.jump += flex.filter((v, i) => Math.abs(v - prev.flex[i]) > JUMP).length;
+        const jumped = flex.filter((v, i) => Math.abs(v - prev.flex[i]) > JUMP).length;
+        out.jump += jumped;
+        if (jumped >= 3) out.events.push(`${t.toFixed(2)}s jump ${side} ${jumped} joints`);
       }
       if (solvers[side].gripName) out.grip++;
       last[side] = { t, q, flex };
