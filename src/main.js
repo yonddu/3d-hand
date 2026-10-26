@@ -17,6 +17,7 @@ import { ARM_POSES, ARM_CATEGORIES, armPoseJoints, armPoseData } from './armPose
 import { liftToPicture } from './lift.js';
 import { cleanTake, lerpHand } from './cleanTake.js';
 import { replanGrips } from './gripPass.js';
+import { POSE_ARM, compactPose, poseElbowAR, lineElbow } from './elbowHint.js';
 import { objectSize, heldFamily } from './gripPrior.js';
 import { initRomPanel } from './romPanel.js';
 import { ForearmFinder } from './forearm.js';
@@ -481,7 +482,7 @@ function fromMediaPipe(hand) {
     // so the 3D hand lands on top of the real one in the video.
     const ray = (p) => new THREE.Vector3((p.x - 0.5) / FOCAL, -((p.y - 0.5) / aspect) / FOCAL, -1);
     const anchor = ray(a).multiplyScalar(z);
-    const elbow = elbowFromPoseAR(hand, z, ray) || elbowFromPicture(hand, world, anchor, ray, aspect);
+    const elbow = poseElbowAR(state.pose, hand, z, ray) || elbowFromPicture(hand, world, anchor, ray, aspect);
     // Facing the camera, the body (and so the shoulders) is behind the hands.
     const sgn = hand.side === 'right' ? 1 : -1;
     const shoulder = facingUser() ? new THREE.Vector3(-0.18 * sgn, anchor.y - 0.12, Math.min(anchor.z - 0.3, -0.5)) : null;
@@ -503,7 +504,6 @@ function fromMediaPipe(hand) {
 }
 
 // Elbow seen by the pose model, placed relative to this hand's wrist.
-const POSE_ARM = { left: { elbow: 13, wrist: 15 }, right: { elbow: 14, wrist: 16 } };
 function elbowFromPose(hand, anchor, aspect, k) {
   const pose = state.pose;
   if (!pose || !pose.landmarks) return null;
@@ -522,57 +522,15 @@ function elbowFromPose(hand, anchor, aspect, k) {
   );
 }
 
-// First person: the forearm's line in the picture (forearm.js) fixes the
-// forearm to a plane through the camera; within it, the depth slant is taken
-// from the usual reach back toward the shoulder.
+// First person, no pose elbow: the forearm's line in the picture (elbowHint.js).
 const forearmFinder = new ForearmFinder();
-const WRIST_REST_EXT = 5; // degrees of wrist extension held without thinking (arm.js REST_EXT)
-const HAND_LINE = 1; // share of the forearm direction kept from the forearm's own line (rest: toward the shoulder)
 function elbowFromPicture(hand, world, anchor, ray, aspect) {
   if (!tracker || !forearmFinder.grab(video, tracker.lastDetectAt)) return null;
   const f = forearmFinder.find(hand.landmarks);
   forearmFinder.last = { side: hand.side, ...(f || {}) };
-  if (!f || f.confidence < 0.45) return null;
-  const a = hand.landmarks[0];
-  const along = ray(a).normalize();
-  const next = ray({ x: a.x + f.dir[0] * 0.05, y: a.y + f.dir[1] * 0.05 * aspect }).normalize();
-  const n = new THREE.Vector3().crossVectors(along, next).normalize();
-  const across = new THREE.Vector3().crossVectors(n, along).normalize(); // in the picture, toward the arm
-  if (across.dot(next.clone().sub(along)) < 0) across.negate();
-  const guess = arms[hand.side].homeShoulder.clone().sub(anchor).normalize();
-  const reach = along.clone().multiplyScalar(guess.dot(along)).addScaledVector(across, Math.max(guess.dot(across), 0.35)).normalize();
-  // The picture fixes the plane the forearm lies in, not where in it. Within
-  // the plane keep the forearm where it already is: taking the hand's line
-  // here (v40-v41) pulled the forearm after every wrist bend, so a bent wrist
-  // never showed (user GLB: wrist flexion stuck at -5 deg).
-  const held = arms[hand.side].elbow.clone().sub(anchor);
-  let pref;
-  if (held.length() > 0.13 && held.length() < 0.39) pref = held.normalize();
-  else {
-    const q = handFrameQuat(world, hand.side);
-    const ext = THREE.MathUtils.degToRad(WRIST_REST_EXT);
-    pref = new THREE.Vector3(0, -Math.cos(ext), -Math.sin(ext)).applyQuaternion(q);
-  }
-  pref.addScaledVector(n, -pref.dot(n));
-  const a1 = Math.min(pref.dot(along), 0.2); // the elbow is not much farther away than the wrist
-  const c1 = Math.max(pref.dot(across), 0.35); // and runs toward the arm in the picture
-  const lineDir = along.clone().multiplyScalar(a1).addScaledVector(across, c1).normalize();
-  const dir = reach.lerp(lineDir, HAND_LINE).normalize();
-  return anchor.clone().addScaledVector(dir, 0.26);
-}
-
-function elbowFromPoseAR(hand, wristDist, ray) {
-  const pose = state.pose;
-  if (!pose || !pose.landmarks) return null;
-  const ids = POSE_ARM[hand.side];
-  const e = pose.landmarks[ids.elbow];
-  const w = pose.landmarks[ids.wrist];
-  const hw = hand.landmarks[0];
-  if ((e.visibility ?? 0) < 0.5 || Math.hypot(w.x - hw.x, w.y - hw.y) > 0.2) return null;
-  // The elbow's place in the picture is reliable; its depth from a single
-  // camera is not, so keep it near the wrist's distance.
-  const dz = THREE.MathUtils.clamp(pose.world[ids.elbow].z - pose.world[ids.wrist].z, -0.08, 0.08);
-  return ray(e).multiplyScalar(Math.max(0.1, wristDist + dz));
+  // Kept with the recording, so a take's arm can be replayed (tools/replay.mjs).
+  if (f && rec.on && rec.lastRaw) (rec.lastRaw.lines ||= {})[hand.side] = { dir: f.dir.map((v) => Math.round(v * 1000) / 1000), confidence: Math.round(f.confidence * 100) / 100 };
+  return lineElbow(f, hand, world, anchor, ray, aspect, arms[hand.side]);
 }
 
 const JUMP_ANGLE = (75 * Math.PI) / 180;
@@ -838,7 +796,9 @@ function tick(now) {
       if (hands && rec.on) {
         const r3 = (v) => Math.round(v * 1000) / 1000;
         const objects = (state.detections || []).map((d) => ({ category: d.category, score: r3(d.score), x: r3(d.x), y: r3(d.y), w: r3(d.w), h: r3(d.h) }));
-        rec.raw.push({ t: r3(t), hands: tracker.lastRaw, ...(objects.length ? { objects } : {}) });
+        const pose = compactPose(state.pose);
+        rec.lastRaw = { t: r3(t), hands: tracker.lastRaw, ...(objects.length ? { objects } : {}), ...(pose ? { pose } : {}) };
+        rec.raw.push(rec.lastRaw);
         rec.rawMeta = { aspect: video.videoWidth / video.videoHeight, firstPerson: (state.source === 'camera' && !facingUser()) || (state.source === 'video' && $('video-fp').checked), swap: state.swap, rightOnImageRight: !facingUser(), offline };
       }
       if (hands) {
@@ -1341,7 +1301,7 @@ $('export-all').onclick = () => {
 
 const REC_FPS = 30;
 const takes = []; // this session's recordings, newest first
-const rec = { on: false, finishing: null, offline: false, frameReady: false, frames: [], raw: [], rawMeta: null, lastAt: -1e9, name: '', seekTo: 0, seekAt: 0, frameTime: 0, stepId: 0 };
+const rec = { on: false, finishing: null, lastRaw: null, offline: false, frameReady: false, frames: [], raw: [], rawMeta: null, lastAt: -1e9, name: '', seekTo: 0, seekAt: 0, frameTime: 0, stepId: 0 };
 const SEEK_RETRY = 1500; // ms before a seek that has not landed is asked again
 
 function handIsLive(side, t) {
@@ -1444,6 +1404,7 @@ function startRecording() {
   rec.on = true;
   rec.frames = [];
   rec.raw = [];
+  rec.lastRaw = null;
   rec.rawMeta = null;
   rec.lastAt = -1e9;
   rec.name = $('pose-name').value.trim() || `motion_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}`;

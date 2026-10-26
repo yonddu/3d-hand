@@ -31,6 +31,7 @@ import { HandSolver } from '../src/solver.js';
 import { ArmRig } from '../src/arm.js';
 import { cleanTake } from '../src/cleanTake.js';
 import { restLandmarks } from '../src/skeleton.js';
+import { expandPose, poseElbowAR, lineElbow } from '../src/elbowHint.js';
 import { planGrips, objectSize, heldFamily } from '../src/gripPrior.js';
 
 const FLIP = (45 * Math.PI) / 180;
@@ -57,8 +58,8 @@ function anchorOf(h, aspect) {
     z = Math.min(z, (F * MODEL_PALM[`${i}-${j}`]) / Math.max(Math.hypot(c.x - a.x, (c.y - a.y) / aspect), 1e-3));
   }
   z = THREE.MathUtils.clamp(z, 0.18, 1.2);
-  const a = h.landmarks[0];
-  return new THREE.Vector3((a.x - 0.5) / F, -((a.y - 0.5) / aspect) / F, -1).multiplyScalar(z);
+  const ray = (p) => new THREE.Vector3((p.x - 0.5) / F, -((p.y - 0.5) / aspect) / F, -1);
+  return { anchor: ray(h.landmarks[0]).multiplyScalar(z), z, ray };
 }
 const qangle = (a, b) => (2 * Math.acos(Math.min(1, Math.abs(a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3])))) * (180 / Math.PI);
 
@@ -151,9 +152,12 @@ function pass(take, plans, logs = null) {
       const res = solvers[side].solve(P, opts);
       if (logs) logs[side][fi] = solvers[side].gripIn;
       const rig = solvers[side].rig;
-      const anchor = anchorOf(h, take.aspect);
+      const { anchor, z, ray } = anchorOf(h, take.aspect);
       rig.group.position.copy(anchor);
-      arms[side].update(anchor, rig.wrist.quaternion, null);
+      // The elbow the app saw: pose model, else the forearm's line (takes from v65 keep both).
+      const lines = f.lines && f.lines[side];
+      const elbow = poseElbowAR(expandPose(f.pose), h, z, ray) || (lines ? lineElbow(lines, h, P, anchor, ray, take.aspect, arms[side]) : null);
+      arms[side].update(anchor, rig.wrist.quaternion, elbow);
       const m = arms[side].measure(rig.wrist.quaternion);
       made[fi].hands[side] = { wrist: anchor.toArray(), handQ: rig.wrist.quaternion.toArray(), upperQ: m.upperArmQuat, foreQ: m.forearmQuat, elbow: m.elbow, shoulder: m.shoulder, fingers: rig.getPose().bones, cup: [rig.cup || 0] };
       const q = handFrameQuat(P, side);
