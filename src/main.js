@@ -21,7 +21,8 @@ import { POSE_ARM, compactPose, poseElbowAR, lineElbow } from './elbowHint.js';
 import { objectSize, heldFamily } from './gripPrior.js';
 import { initRomPanel } from './romPanel.js';
 import { ForearmFinder } from './forearm.js';
-import { cropJpeg } from './palmFace.js';
+import { cropJpeg, cutHand } from './palmFace.js';
+import { loadFingerCurl, fingerCurl } from './fingerCurl.js';
 
 const CONFIG = window.HMS_CONFIG || {};
 // The large files stay on the phone between visits (sw.js).
@@ -214,6 +215,8 @@ async function ensureTracker() {
       // The pose model gives the elbows.
       t.initObjects()
         .catch((err) => console.warn('object model unavailable', err));
+      // Finger curl from the pixels, for filmed takes (151 KB).
+      loadFingerCurl().catch((err) => console.warn('finger curl model unavailable', err));
       t.initPose()
         .then(() => t.pose && setStatus(`추적 + 팔꿈치 인식 준비됨 (${t.delegate})`))
         .catch((err) => console.warn('pose model unavailable; elbows use IK only', err));
@@ -486,6 +489,10 @@ function fromMediaPipe(hand) {
   // Fingers wrapped around a detected object are partly behind it: their
   // points become guesses, and the grip prior (gripPrior.js) fills them.
   const occluded = vision && vision.box ? objectOcclusion(hand.landmarks, vision.box, raw.occluded) : raw.occluded || null;
+  // The fingers' bends read from the hand's own pixels (fingerCurl.js), for
+  // the analysis of a filmed take only: about 5 ms a hand on a PC, too much
+  // for every live frame on a phone.
+  const picture = rec.offline && state.fit ? fingerCurl(cutHand(video, hand.landmarks, video.videoWidth, video.videoHeight)) : null;
   if (state.ar) {
     // Passthrough: put the wrist on its own camera ray at its real distance,
     // so the 3D hand lands on top of the real one in the video.
@@ -495,7 +502,7 @@ function fromMediaPipe(hand) {
     // Facing the camera, the body (and so the shoulders) is behind the hands.
     const sgn = hand.side === 'right' ? 1 : -1;
     const shoulder = facingUser() ? new THREE.Vector3(-0.18 * sgn, anchor.y - 0.12, Math.min(anchor.z - 0.3, -0.5)) : null;
-    return { side: hand.side, world, occluded, cup, anchor, vision, elbow, shoulder, ray, image: { x: a.x, y: a.y }, depth: z, relift };
+    return { side: hand.side, world, occluded, cup, anchor, vision, elbow, shoulder, ray, image: { x: a.x, y: a.y }, depth: z, relift, picture };
   }
   // Lay hands out on a work plane at WORK_DEPTH so they stay in frame; real
   // depth changes still move the hand, at half strength.
@@ -509,7 +516,7 @@ function fromMediaPipe(hand) {
     anchor.set(-anchor.x, anchor.y, -2 * WORK_DEPTH - anchor.z);
     if (elbow) elbow.set(-elbow.x, elbow.y, -2 * WORK_DEPTH - elbow.z);
   }
-  return { side: hand.side, world, occluded, cup, anchor, vision, elbow, relift };
+  return { side: hand.side, world, occluded, cup, anchor, vision, elbow, relift, picture };
 }
 
 // Elbow seen by the pose model, placed relative to this hand's wrist.
@@ -589,7 +596,7 @@ function feed(inputs, t) {
     const rig = rigs[side];
     rig.group.visible = true;
     rig.group.position.set(anc[0], anc[1], anc[2]);
-    const solveOpts = { limits: state.limits, fit: state.fit, occluded: input.occluded, cup: input.cup || 0, held: heldFamily(input.vision), heldSize: objectSize(input.vision), smoothing: !rec.offline };
+    const solveOpts = { limits: state.limits, fit: state.fit, occluded: input.occluded, cup: input.cup || 0, held: heldFamily(input.vision), heldSize: objectSize(input.vision), smoothing: !rec.offline, picture: input.picture || null };
     state.lastSolve[side] = solvers[side].solve(smooth, solveOpts);
     // A filmed take is solved again once the whole clip is known (gripPass.js).
     state.solveIn[side] = rec.offline && state.fit
