@@ -3,12 +3,14 @@
 # tools/palm/crops.py). Weights go to vendor/models/palm_face.bin, which the
 # app runs in plain JS (src/palmFace.js).
 #
-#   python3 -I tools/palm/train.py <train.npz> <score-only.npz> [out.bin]
+#   python3 -I tools/palm/train.py <train.npz[,more.npz]> <score-only.npz[,more.npz]> [out.bin] [steps]
 #
 # The score-only crops (regress-split.json syntheticHoldout) only report the
 # final accuracy; nothing is chosen on them.
 import sys, json, time
+import io
 import numpy as np
+from PIL import Image
 import jax, jax.numpy as jnp
 
 LAYERS = [(3, 16), (16, 32), (32, 48), (48, 64)]  # 3x3, stride 2: 64 -> 4
@@ -51,6 +53,26 @@ def augment(rng, x):
     pad = np.pad(x, ((0, 0), (4, 4), (4, 4), (0, 0)), mode='edge')
     dx, dy = rng.integers(0, 9, n), rng.integers(0, 9, n)
     x = np.stack([pad[i, dy[i]:dy[i] + 64, dx[i]:dx[i] + 64] for i in range(n)])
+    # Out of focus, motion smear (a moving hand at phone shutter speeds), and
+    # phone video compression, each on some of the crops.
+    for i in range(n):
+        r = rng.random()
+        if r < 0.25:
+            k = int(rng.integers(1, 3))
+            for _ in range(k):  # box blur passes ~ gaussian
+                x[i] = (x[i] + np.roll(x[i], 1, 0) + np.roll(x[i], -1, 0)) / 3
+                x[i] = (x[i] + np.roll(x[i], 1, 1) + np.roll(x[i], -1, 1)) / 3
+        elif r < 0.5:
+            a = rng.uniform(0, np.pi)
+            L = int(rng.integers(2, 7))
+            acc = np.zeros_like(x[i])
+            for j in range(L):
+                acc += np.roll(x[i], (int(round(j * np.sin(a))), int(round(j * np.cos(a)))), (0, 1))
+            x[i] = acc / L
+        if rng.random() < 0.4:
+            buf = io.BytesIO()
+            Image.fromarray((np.clip(x[i], 0, 1) * 255).astype(np.uint8)).save(buf, 'JPEG', quality=int(rng.integers(30, 85)))
+            x[i] = np.asarray(Image.open(buf), np.float32) / 255
     # Light, colour, contrast, sensor noise.
     gain = rng.uniform(0.6, 1.4, (n, 1, 1, 1)) * rng.uniform(0.85, 1.15, (n, 1, 1, 3))
     mean = x.mean(axis=(1, 2, 3), keepdims=True)
@@ -86,8 +108,9 @@ def report(p, d, name):
 
 
 if __name__ == '__main__':
-    tr = np.load(sys.argv[1])
-    sc = np.load(sys.argv[2])
+    parts = [np.load(p) for p in sys.argv[1].split(',')]
+    tr = {k: np.concatenate([p[k] for p in parts]) for k in ('x', 'y')}
+    scores = [(p, np.load(p)) for p in sys.argv[2].split(',')]
     out = sys.argv[3] if len(sys.argv) > 3 else 'vendor/models/palm_face.bin'
     rng = np.random.default_rng(1)
     # Hold back a tenth of the training crops to watch overfitting (not the score).
@@ -110,7 +133,8 @@ if __name__ == '__main__':
         if t % 1000 == 0:
             print(f'step {t} loss {float(l):.3f} ({time.time() - t0:.0f} s)')
             report(p, val, '  held back')
-    report(p, sc, 'SCORE-ONLY')
+    for name, sc in scores:
+        report(p, sc, f'SCORE-ONLY {name.split("/")[-1]}')
     # float16, layer by layer: conv weights HWIO then bias, then the last layer.
     flat = np.concatenate([np.asarray(a, np.float32).ravel() for wb in p for a in wb]).astype(np.float16)
     flat.tofile(out)

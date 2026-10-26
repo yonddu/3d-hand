@@ -30,6 +30,9 @@ const SEED = +process.argv[4] || 1;
 const W = 360;
 const H = 640;
 const URL = process.env.SYNTH_URL || 'http://localhost:8090/index.html';
+// SYNTH_EXTRAS=1: also rings, watches, bracelets and patterned backgrounds
+// (things common in real video). Off keeps older seeds as they were drawn.
+const EXTRAS = process.env.SYNTH_EXTRAS === '1';
 
 fs.mkdirSync(path.join(OUT, 'img'), { recursive: true });
 const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader'] });
@@ -40,7 +43,7 @@ await page.waitForTimeout(2000);
 await page.click('#start-demo');
 await page.waitForTimeout(2500);
 await page.addStyleTag({ content: `header,.topbar,.stage-foot,#pose-banner,.status,.hud,button,#overlay{display:none!important} canvas#viewport{position:fixed!important;left:0;top:0;width:${W}px!important;height:${H}px!important;z-index:9999}` });
-await page.evaluate(async ([seed, W, H]) => {
+await page.evaluate(async ([seed, W, H, EXTRAS]) => {
   const THREE = await import('three');
   const { armPoseJoints } = await import('./src/armPoses.js');
   const { paintHand } = await import('./tools/synthSkin.js');
@@ -61,6 +64,83 @@ await page.evaluate(async ([seed, W, H]) => {
   look.value = 'skin';
   look.dispatchEvent(new Event('change'));
   const paint = { left: paintHand(S.realHands.left), right: paintHand(S.realHands.right) };
+  // Extras: worn things and busy backgrounds, placed fresh for every sample.
+  const METAL = [0xd4af37, 0xc0c0c0, 0xb87333, 0x2a2a2a, 0xe8e8e8];
+  const metal = () => new THREE.MeshStandardMaterial({ color: pick(METAL), metalness: 0.9, roughness: 0.2 + 0.4 * rnd() });
+  const extras = new THREE.Group();
+  S.scene.add(extras);
+  const bgCanvas = document.createElement('canvas');
+  bgCanvas.width = bgCanvas.height = 256;
+  const bgTex = new THREE.CanvasTexture(bgCanvas);
+  bgTex.colorSpace = THREE.SRGBColorSpace;
+  const hsl = () => `hsl(${Math.floor(360 * rnd())},${Math.floor(10 + 50 * rnd())}%,${Math.floor(15 + 70 * rnd())}%)`;
+  function patternBackground() {
+    const g = bgCanvas.getContext('2d');
+    g.fillStyle = hsl();
+    g.fillRect(0, 0, 256, 256);
+    const kind = Math.floor(rnd() * 4);
+    for (let i = 0; i < 40; i++) {
+      g.fillStyle = hsl();
+      g.strokeStyle = hsl();
+      g.lineWidth = 2 + 10 * rnd();
+      if (kind === 0) g.fillRect((i % 8) * 32, Math.floor(i / 8) * 64 + ((i % 2) * 32), 32, 32); // checks
+      else if (kind === 1) { g.beginPath(); g.moveTo(rnd() * 256, 0); g.lineTo(rnd() * 256, 256); g.stroke(); } // stripes
+      else if (kind === 2) { g.beginPath(); g.arc(rnd() * 256, rnd() * 256, 5 + 40 * rnd(), 0, 7); g.fill(); } // blobs
+      else g.fillRect(rnd() * 256, rnd() * 256, 10 + 80 * rnd(), 10 + 80 * rnd()); // clutter
+    }
+    bgTex.needsUpdate = true;
+    return bgTex;
+  }
+  const ringGeo = new THREE.TorusGeometry(1, 0.17, 10, 28);
+  const bandGeo = new THREE.CylinderGeometry(1, 1, 1, 32, 1, true);
+  // A torus around the segment a->b (world points), radius r, at fraction t.
+  function ringOn(a, b, r, t, mat, width = 1) {
+    const m = new THREE.Mesh(ringGeo, mat);
+    m.position.copy(a).lerp(b, t);
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), b.clone().sub(a).normalize());
+    m.scale.set(r, r, r * width);
+    extras.add(m);
+    return m;
+  }
+  function wearThings(side, P, E) {
+    extras.clear();
+    // Rings on proximal phalanges: none, one or two.
+    const FING = [['index', 5, 6], ['middle', 9, 10], ['ring', 13, 14], ['pinky', 17, 18], ['thumb', 2, 3]];
+    const nRings = rnd() < 0.4 ? 0 : rnd() < 0.7 ? 1 : 2;
+    for (let i = 0; i < nRings; i++) {
+      const [, a, b] = rnd() < 0.5 ? FING[2] : pick(FING);
+      ringOn(P[a], P[b], (0.0085 + 0.002 * rnd()) * (a === 17 ? 0.85 : 1), 0.3 + 0.2 * rnd(), metal(), 0.8 + 1.5 * rnd());
+    }
+    // Watch or bracelet on the forearm, a little up from the wrist.
+    const k = rnd();
+    if (k < 0.55) {
+      const wrist = P[0];
+      const up = wrist.clone().sub(E).normalize();
+      const at = wrist.clone().addScaledVector(up, -(0.025 + 0.03 * rnd()));
+      // Back of the hand: away from the palm (see tools/palm/crops.py facing).
+      const n = P[5].clone().sub(wrist).cross(P[17].clone().sub(wrist)).normalize();
+      const back = side === 'right' ? n.clone().negate() : n;
+      const across = up.clone().cross(back).normalize();
+      const band = new THREE.Mesh(bandGeo, k < 0.4 ? new THREE.MeshStandardMaterial({ color: pick([0x1b1b1b, 0x5a3a22, 0x2b3d5a, 0xdddddd, 0x8a1c1c]), roughness: 0.7 }) : metal());
+      band.material.side = THREE.DoubleSide;
+      const basis = new THREE.Matrix4().makeBasis(across, up, back);
+      band.quaternion.setFromRotationMatrix(basis);
+      band.position.copy(at);
+      band.scale.set(0.035 + 0.006 * rnd(), k < 0.4 ? 0.02 : 0.006 + 0.01 * rnd(), 0.028 + 0.005 * rnd());
+      extras.add(band);
+      if (k < 0.4) {
+        // Watch face: on the back usually, sometimes worn on the palm side.
+        const face = new THREE.Mesh(rnd() < 0.5 ? new THREE.BoxGeometry(1, 1, 1) : new THREE.CylinderGeometry(0.5, 0.5, 1, 28), metal());
+        const onBack = rnd() < 0.85 ? 1 : -1;
+        face.quaternion.copy(band.quaternion);
+        if (face.geometry.type === 'CylinderGeometry') face.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2));
+        face.position.copy(at).addScaledVector(back, onBack * (0.031 + 0.004 * rnd()));
+        const d = 0.032 + 0.012 * rnd();
+        face.scale.set(d, face.geometry.type === 'CylinderGeometry' ? 0.01 : d, face.geometry.type === 'CylinderGeometry' ? d : 0.01);
+        extras.add(face);
+      }
+    }
+  }
   const camRig = (x, y) => {
     const c = S.camera;
     c.position.set(0, 0, 0);
@@ -116,7 +196,7 @@ await page.evaluate(async ([seed, W, H]) => {
       const skin = new THREE.Color(pick(SKIN));
       paint[side].vary(rnd, skin);
       if (S.arms[side].mesh) S.arms[side].mesh.material.color = rnd() < 0.5 ? skin : new THREE.Color(pick(SLEEVE));
-      S.scene.background = new THREE.Color().setHSL(rnd(), 0.1 + 0.4 * rnd(), 0.2 + 0.6 * rnd());
+      S.scene.background = EXTRAS && rnd() < 0.6 ? patternBackground() : new THREE.Color().setHSL(rnd(), 0.1 + 0.4 * rnd(), 0.2 + 0.6 * rnd());
       S.scene.children.forEach((c) => {
         if (c.isDirectionalLight) c.intensity = 0.4 + 1.6 * rnd();
         if (c.isHemisphereLight) c.intensity = 0.4 + 1.2 * rnd();
@@ -131,6 +211,8 @@ await page.evaluate(async ([seed, W, H]) => {
       for (const k of ['index', 'middle', 'ring', 'pinky']) XR[k] = ['phalanx-proximal', 'phalanx-intermediate', 'phalanx-distal', 'tip'].map((n) => `${k}-finger-${n}`).join(' ');
       const L = [rh.joints.wrist.getWorldPosition(new THREE.Vector3())];
       for (const k of Object.keys(XR)) for (const n of XR[k].split(' ')) L.push(rh.joints[n].getWorldPosition(new THREE.Vector3()));
+      if (EXTRAS) wearThings(side, L, J.E);
+      else extras.clear();
       const inv = S.camera.matrixWorldInverse;
       const cam = L.map((p) => p.clone().applyMatrix4(inv));
       const img = L.map((p) => {
@@ -150,7 +232,7 @@ await page.evaluate(async ([seed, W, H]) => {
       return r.landmarks.map((lm, i) => ({ label: r.handedness[i][0].categoryName, score: r.handedness[i][0].score, lm: lm.map((q) => [q.x, q.y, q.z]), world: r.worldLandmarks[i].map((q) => [q.x, q.y, q.z]) }));
     },
   };
-}, [SEED, W, H]);
+}, [SEED, W, H, EXTRAS]);
 
 const outFile = path.join(OUT, `synth_seed${SEED}.jsonl`);
 const stream = fs.createWriteStream(outFile, { flags: 'a' });
