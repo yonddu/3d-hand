@@ -9,6 +9,17 @@
 // a straight wrist, as far as the nearest poses agree with the reading.
 import * as THREE from 'three';
 import { ARM_POSES, armPoseJoints } from './armPoses.js';
+import { TWO_HAND_MOTIONS } from './twoHandMotions.js';
+
+const KEYS = ['sFlex', 'sAbd', 'hRot', 'elbow', 'pron', 'wFlex', 'wDev'];
+// Each arm of the two-hand movements (keys hold [right, left]): how an arm
+// is held while the hands work together, clasped, crossed or on one tool.
+function twoHandPoses(side) {
+  const k = side === 'right' ? 0 : 1;
+  const out = [];
+  for (const row of TWO_HAND_MOTIONS) row[6].forEach((key, i) => out.push({ id: `${row[0]}/${i}`, arm: Object.fromEntries(KEYS.map((n, j) => [n, key[k][j]])) }));
+  return out;
+}
 
 const POS_SIGMA = 0.12; // metres of wrist position that count as one unit of mismatch
 const ROT_SIGMA = (30 * Math.PI) / 180; // and of hand turn
@@ -16,7 +27,7 @@ const NEAREST = 12;
 const MAX_COST = 4; // a nearest pose further off than this says nothing
 
 export class ArmPrior {
-  constructor(side, shoulder, poses = ARM_POSES) {
+  constructor(side, shoulder, poses = ARM_POSES.concat(twoHandPoses(side))) {
     this.side = side;
     this.entries = poses.map((p) => {
       const j = armPoseJoints(p.arm, side, shoulder);

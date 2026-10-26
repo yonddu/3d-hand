@@ -201,6 +201,7 @@ function pass(take, plans, logs = null, keep = false) {
   if (logs) for (const side of ['left', 'right']) for (let i = 0; i < take.frames.length; i++) logs[side][i] ||= null;
   else {
     const motion = cleanTake(made);
+    out.together = motion.together;
     finished(motion, out);
     if (keep) out.motion = motion; // the finished frames, for a closer look at one take
   }

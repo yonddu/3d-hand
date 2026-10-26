@@ -10,6 +10,8 @@
 // dropouts are filled, and the motion is smoothed forward and backward so it
 // does not lag.
 
+import { fillTogether } from './togetherPass.js';
+
 const SIDES = ['left', 'right'];
 const MIN_RUN = 4; // a hand seen for fewer frames than this is a false find
 const MAX_GAP = 8; // dropouts up to this many frames are filled in
@@ -285,6 +287,8 @@ function cleanSide(hands, swapped) {
 // Returns new frames; the input is left as it was.
 export function cleanTake(frames) {
   const out = frames.map((f) => ({ ...f, hands: { ...f.hands } }));
+  // Two hands together where the camera saw only one (togetherPass.js).
+  const together = fillTogether(out, lerpHand);
   const swapped = { left: out.map(() => false), right: out.map(() => false) };
   // 0. The tracker sometimes names one hand as the other for a few frames:
   // a short run of one hand, alone in the frame, where the other hand was
@@ -314,5 +318,6 @@ export function cleanTake(frames) {
     const hands = cleanSide(out.map((f) => (f.hands[side] ? cloneHand(f.hands[side]) : null)), swapped[side]);
     hands.forEach((h, i) => (out[i].hands[side] = h));
   }
+  out.together = together; // counts, for replay.mjs
   return out;
 }
