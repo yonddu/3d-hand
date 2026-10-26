@@ -41,6 +41,8 @@ export function pivotLoop(loop) {
 // Wrist extension held without thinking. The dictionary median is 10 deg,
 // but seen from the eyes a straight forearm-hand line reads as right.
 const REST_EXT = (5 * Math.PI) / 180;
+const BEND_SIDES = [[0, 1], [0, -1], [1, 0], [-1, 0]]; // (x, z) in the forearm's frame
+const BEND_BULGE = 0.012; // m of outward push on the inside of a right-angle wrist bend
 const WRIST_FLEX = (75 * Math.PI) / 180;
 const WRIST_EXT = (65 * Math.PI) / 180;
 const WRIST_DEV = (30 * Math.PI) / 180;
@@ -268,6 +270,26 @@ export class ArmRig {
     g.setAttribute('skinWeight', new THREE.BufferAttribute(skinWeight, 4));
     g.setAttribute('wristFade', new THREE.BufferAttribute(new Float32Array(arm.fadeElbow), 1));
     g.setAttribute('skinDQ', new THREE.BufferAttribute(new Float32Array(n).fill(1), 1)); // dual quaternion skinning (realHand withWristFade)
+    // Wrist bend correctives: skin on the inside of the bend bunches outward
+    // instead of folding into the wrist (user: bending the hand back dented
+    // the back of the wrist). One target per side (+z palm, -z back, +x, -x),
+    // the push along the skin's normal peaking mid-bend-zone and zero at the
+    // hand's border, so the seam with the hand stays closed.
+    g.morphAttributes.position = BEND_SIDES.map((dir) => {
+      const d = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) {
+        const h = arm.weights[i * 3 + 2];
+        const zone = 4 * h * (1 - h);
+        if (zone <= 0) continue;
+        const nx = arm.normal[i * 3];
+        const nz = arm.normal[i * 3 + 2];
+        const l = Math.hypot(nx, nz) || 1;
+        const facing = Math.max(0, (nx * dir[0] + nz * dir[1]) / l) ** 1.5;
+        v.set(nx / l, 0, nz / l).multiplyScalar(BEND_BULGE * zone * facing).applyQuaternion(ARM_BIND).toArray(d, i * 3);
+      }
+      return new THREE.BufferAttribute(d, 3);
+    });
+    g.morphTargetsRelative = true;
     g.setIndex(new THREE.BufferAttribute(arm.index, 1));
 
     if (this.mesh) {
@@ -404,6 +426,13 @@ export class ArmRig {
     B.mid.quaternion.copy(twist(step)).multiply(half);
     B.hand.quaternion.copy(half).invert().multiply(L.hand);
     this.elbowDot.position.copy(L.E);
+    if (this.mesh && this.mesh.morphTargetInfluences) {
+      // The hand tips toward the inside of the bend.
+      const hy = Y.clone().applyQuaternion(L.hand);
+      const tip = Math.hypot(hy.x, hy.z) || 1;
+      const amount = Math.min(Math.acos(THREE.MathUtils.clamp(hy.y, -1, 1)) / (Math.PI / 2), 1.2);
+      BEND_SIDES.forEach((dir, k) => (this.mesh.morphTargetInfluences[k] = amount * Math.max(0, (hy.x * dir[0] + hy.z * dir[1]) / tip)));
+    }
     this.result = this.measure(handQuat);
     return this.result;
   }

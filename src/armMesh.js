@@ -177,7 +177,7 @@ export function buildArm(loop, { ringSize = 64 } = {}) {
   const aLoop = WRIST_A + cy;
   // The border sits at the wrist joint; the skin dips a little just past it
   // and the forearm widens again above.
-  const profile = [...PROFILE, [aLoop - 0.055, lx * 1.0, lz * 1.04], [aLoop - 0.015, lx * 0.95, lz * 0.99], [aLoop, lx, lz], [aLoop + 0.03, lx, lz]];
+  const profile = [...PROFILE, [aLoop - 0.055, lx * 1.0, lz * 1.04], [aLoop - 0.012, lx * 0.99, lz * 1.08], [aLoop, lx, lz], [aLoop + 0.03, lx, lz]];
 
   // Ring stations, dense near the wrist and the elbow.
   const stations = [aLoop];

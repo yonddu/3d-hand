@@ -18,6 +18,9 @@ const WRIST_FLIP = 50; // degrees from its neighbours: a misread palm
 const WRIST_JUMP = 0.08; // metres from its neighbours: a misread position
 const MAX_SWAP = 24; // a hand briefly read as the other hand, up to this many frames
 const SWAP_NEAR = 0.08; // metres: where the other hand just was
+const BURST_STEP = 25; // degrees in one frame: faster than a wrist turns (~750 deg/s)
+const BURST_MAX = 15; // a palm misread for up to this many frames (0.5 s)
+const BURST_BACK = 30; // degrees: back where it was before the burst
 const BONE_WIN = 3;
 const BONE_SPIKE = 30; // degrees
 const SIGMA = { wrist: 1.6, bone: 1.3, pos: 2.5 }; // smoothing, in frames
@@ -149,6 +152,20 @@ function cleanSide(hands, swapped) {
       const p = hands[i].wrist;
       const jumped = dist(p, pb) > WRIST_JUMP && dist(p, pa) > WRIST_JUMP && dist(pa, pb) < WRIST_JUMP;
       bad[i] = turned || jumped;
+    }
+    // A palm read mirrored for longer, up to half a second (side-on views
+    // are ambiguous): the hand snaps away faster than a wrist can turn and
+    // then comes back to where it was (user GLB: a 180 degree roll and back
+    // in 0.3 s while bending the wrist back). The frames in between are a
+    // misread, however much they agree with each other.
+    for (let i = s + 1; i <= e; i++) {
+      const q0 = hands[i - 1].handQ;
+      if (qangle(hands[i].handQ, q0) < BURST_STEP) continue;
+      let k = i + 1;
+      while (k <= Math.min(e, i + BURST_MAX) && qangle(hands[k].handQ, q0) > BURST_BACK) k++;
+      if (k > e || k > i + BURST_MAX) continue;
+      for (let j = i; j < k; j++) bad[j] = true;
+      i = k;
     }
     const good = [];
     for (let i = s; i <= e; i++) if (!bad[i]) good.push(i);
