@@ -18,6 +18,7 @@
 //   fflip  the hand turning more than 45 deg in one frame
 //   asnap  the forearm turning more than 20 deg in one frame with the wrist still
 //   topen  (marks only, for regress.mjs issues) frames where the thumb looks open
+//   wdis   (marks only) frames whose palm faces the other way from MediaPipe's world reading
 // --live replays with the grip chosen frame by frame only, as the live view does;
 // by default the take is replayed twice, the second time with the grips chosen
 // over the whole take (gripPrior.js planGrips), as a filmed take is.
@@ -143,6 +144,13 @@ function pass(take, plans, logs = null, keep = false) {
       seen.add(side);
       const raw = liftToPicture(h.world, h.landmarks, take.aspect, side, memory[side], take.firstPerson);
       const P = raw.map((p) => new THREE.Vector3(p.x, -p.y, -p.z));
+      // wdis (marks only): the palm placed facing the other way from the
+      // world reading, for issues about the palm bouncing back while it turns.
+      const wv = (i) => new THREE.Vector3(h.world[i].x, h.world[i].y, h.world[i].z);
+      const rv = (i) => new THREE.Vector3(raw[i].x, raw[i].y, raw[i].z);
+      const nW = wv(5).sub(wv(0)).cross(wv(17).sub(wv(0)));
+      const nR = rv(5).sub(rv(0)).cross(rv(17).sub(rv(0)));
+      if (nW.dot(nR) < 0) out.marks.push({ t, side, kind: 'wdis', n: 1 });
       // The same object handling as main.js fromMediaPipe.
       const vision = held[side].update(objectForHand(f.objects, h, take.aspect), t);
       const occluded = vision && vision.box ? objectOcclusion(h.landmarks, vision.box, raw.occluded) : raw.occluded || null;

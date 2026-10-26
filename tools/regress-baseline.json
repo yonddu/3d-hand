@@ -196,5 +196,14 @@
   "fjump": 120,
   "fflip": 0,
   "asnap": 0
+ },
+ "book_turn_08-19.glb": {
+  "swap": 0,
+  "flip": 15,
+  "jump": 226,
+  "gsw": 6,
+  "fjump": 76,
+  "fflip": 0,
+  "asnap": 0
  }
 }

@@ -131,6 +131,9 @@ const FP_LEAN = 0.6;
 // going on round through thumb-down.
 const LATERAL = 0.05;
 const MIDLINE_GAP = 0.3;
+const WORLD_STEADY = Math.cos((20 * Math.PI) / 180); // the world palm normal turning less than this per frame is smooth
+const WORLD_SURE = 0.8; // how much closer to one mirror pose than the other the world normal must be
+const WORLD_RUN = 12; // frames (0.4 s) of smooth, sure world readings before they beat the forearm rule (6 made other takes flip)
 
 export function liftToPicture(world, image, aspect, side = null, memory = null, firstPerson = false) {
   const len = (a, b) => Math.hypot(world[a].x - world[b].x, world[a].y - world[b].y, world[a].z - world[b].z);
@@ -163,7 +166,24 @@ export function liftToPicture(world, image, aspect, side = null, memory = null, 
     const reach = firstPerson && (side === 'right' || side === 'left') ? forearmReach(u, aspect, side) : null;
     const v0 = reach ? reach(p0.n) : 0;
     const v1 = reach ? reach(p1.n) : 0;
-    if (reach && apart > SAME_POSE && Math.min(v0, v1) < -LATERAL && Math.abs(v0 - v1) > MIDLINE_GAP) {
+    // A world reading that is sure which mirror pose it is and turns
+    // smoothly for a while is a real turn, even one the forearm alone could
+    // not make: the shoulder turns the arm too, and turning a book over to
+    // look at its back takes the palm well past facing the midline (v68,
+    // user take book_turn_08-19: the forearm rule bounced the palm back at
+    // edge-on every time). Following it at once, or on every smooth frame,
+    // made the other takes' palms flip (90 -> 389).
+    const sure = Math.abs(dotN(p0.n, palmFit.nWorld) - dotN(p1.n, palmFit.nWorld)) > WORLD_SURE;
+    const smooth = memory && memory.nW && dotN(palmFit.nWorld, memory.nW) > WORLD_STEADY;
+    if (memory) {
+      memory.sureRun = sure && smooth ? (memory.sureRun || 0) + 1 : 0;
+      memory.nW = palmFit.nWorld;
+    }
+    const steady = memory && memory.sureRun >= WORLD_RUN;
+    if (steady) {
+      pick = worldPick;
+      memory.votes = 0;
+    } else if (reach && apart > SAME_POSE && Math.min(v0, v1) < -LATERAL && Math.abs(v0 - v1) > MIDLINE_GAP) {
       pick = v0 > v1 ? 0 : 1;
       if (memory) memory.votes = 0;
     } else if (memory && memory.n && apart > SAME_POSE) {
