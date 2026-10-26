@@ -5,5 +5,6 @@
  { "id": "cup-drag-scramble", "date": "2026-10-26", "take": "cup_drag_02-50.glb", "metric": "jump", "max": 215, "note": "컵 끌고 올 때 손가락 흐트러짐 (v55 고침)" },
  { "id": "user1-side-swap", "date": "2026-10-26", "take": "v53_user1.glb", "metric": "swap", "max": 0, "note": "오른손이 왼손으로 바뀜 (v53 고침)" },
  { "id": "thumb-fold-open", "date": "2026-10-26", "take": "thumb_fold_07-33.glb", "from": 2.79, "to": 5.29, "metric": "topen", "max": 2, "note": "접은 엄지가 펴진 것으로 나옴, 영상 0.7-3.2초 (v67 고침, 26 -> 0)" },
- { "id": "book-turn-bounce", "date": "2026-10-26", "take": "book_turn_08-19.glb", "from": 21.77, "to": 29.2, "metric": "wdis", "max": 32, "note": "책 쥐고 뒤집기: 손바닥이 끝까지 안 돌고 반대로 튕김, 영상 20초~ (v68 113 -> 49, v69 영상 전체로 판단 -> 28)" }
+ { "id": "book-turn-bounce", "date": "2026-10-26", "take": "book_turn_08-19.glb", "from": 21.77, "to": 29.2, "metric": "wdis", "max": 32, "note": "책 쥐고 뒤집기: 손바닥이 끝까지 안 돌고 반대로 튕김, 영상 20초~ (v68 113 -> 49, v69 영상 전체로 판단 -> 28)" },
+ { "id": "clasp-lost-hand", "date": "2026-10-26", "take": "interlace_10-10.glb", "from": 19.5, "to": 31.5, "metric": "fjump", "max": 49, "note": "깍지/손 교차: 겹친 두 손 중 하나를 같은 손 중복으로 보고 버림 (v70 중복 판정 고침, 이 영상은 버린 뒤 저장돼 다시 찍어야 확인)" }
 ]

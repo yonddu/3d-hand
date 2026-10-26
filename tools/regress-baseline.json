@@ -205,5 +205,14 @@
   "fjump": 64,
   "fflip": 0,
   "asnap": 0
+ },
+ "interlace_10-10.glb": {
+  "swap": 1,
+  "flip": 25,
+  "jump": 402,
+  "gsw": 101,
+  "fjump": 217,
+  "fflip": 0,
+  "asnap": 3
  }
 }

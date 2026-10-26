@@ -25,7 +25,7 @@
 import fs from 'fs';
 import path from 'path';
 import * as THREE from 'three';
-import { HandTracker, chirality, resolveSides } from '../src/tracker.js';
+import { HandTracker, chirality, dedupe, resolveSides } from '../src/tracker.js';
 import { liftToPicture } from '../src/lift.js';
 import { objectForHand, objectOcclusion, HeldObject } from '../src/objects.js';
 import { HandRig, handFrameQuat } from '../src/handRig.js';
@@ -131,6 +131,7 @@ function pass(take, plans, logs = null, keep = false) {
       world: points(h.world),
     }));
     for (const h of hands) h.chiral = chirality(h.world);
+    dedupe(hands);
     tracker.keepSides(hands, t * 1000, take.swap, take.firstPerson ? take.aspect : 0);
     resolveSides(hands, take.rightOnImageRight !== take.swap);
     if (hands.length) out.frames++;

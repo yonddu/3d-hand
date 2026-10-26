@@ -159,10 +159,9 @@ export class HandTracker {
       if (swapHandedness) side = side === 'left' ? 'right' : 'left';
       return { side, score: cat.score, landmarks: lm, world: res.worldLandmarks[i], chiral: chirality(res.worldLandmarks[i]) };
     });
-    dedupe(hands);
-    this.lastHands = hands;
-    // What the model saw, before sides are kept or depth mirrored: recordings
-    // carry it so a take can be replayed through the whole pipeline (tools/replay.mjs).
+    // What the model saw, before duplicates are dropped, sides kept or depth
+    // mirrored: recordings carry it so a take can be replayed through the
+    // whole pipeline (tools/replay.mjs). Takes before v70 were saved after dedupe.
     const r4 = (v) => Math.round(v * 1e4) / 1e4;
     this.lastRaw = hands.map((h) => ({
       label: h.side,
@@ -170,6 +169,8 @@ export class HandTracker {
       lm: h.landmarks.flatMap((p) => [r4(p.x), r4(p.y), r4(p.z)]),
       world: h.world.flatMap((p) => [r4(p.x), r4(p.y), r4(p.z)]),
     }));
+    dedupe(hands);
+    this.lastHands = hands;
     return resolveSides(this.keepSides(hands, trackMs, swapHandedness, firstPerson ? video.videoWidth / video.videoHeight : 0), rightOnImageRight !== swapHandedness);
   }
 
@@ -275,32 +276,23 @@ const ARM_SWITCH = 90; // frames (3 s)
 const MIRROR_SURE = 0.3;
 const MIRROR_FRAMES = 3;
 
-// The model sometimes returns one hand twice. Two detections whose palms sit
-// on top of each other are the same hand: keep the more confident one.
-function dedupe(hands) {
-  const box = (L) => {
-    let x0 = 1, y0 = 1, x1 = 0, y1 = 0;
-    for (const p of L) {
-      x0 = Math.min(x0, p.x);
-      y0 = Math.min(y0, p.y);
-      x1 = Math.max(x1, p.x);
-      y1 = Math.max(y1, p.y);
-    }
-    return [x0, y0, x1, y1];
-  };
+// The model sometimes returns one hand twice. Two detections whose points lie
+// on top of each other, point by point, are the same hand: keep the more
+// confident one. Overlapping boxes alone are not enough: clasped or crossed
+// hands overlap in the picture with their fingers running opposite ways, and
+// dropping one of them lost a hand whenever the fingers interlaced (user GLB
+// 2026-10-26, hands clasped and crossed).
+const DUP_MEAN = 0.3; // mean point gap, in palm lengths, below which two detections are one hand
+
+export function dedupe(hands) {
   for (let i = hands.length - 1; i > 0; i--) {
     for (let j = 0; j < i; j++) {
-      const a = box(hands[i].landmarks);
-      const b = box(hands[j].landmarks);
-      const ix = Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0]));
-      const iy = Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
-      const inter = ix * iy;
-      const small = Math.min((a[2] - a[0]) * (a[3] - a[1]), (b[2] - b[0]) * (b[3] - b[1])) || 1e-6;
       const L = hands[i].landmarks;
       const M = hands[j].landmarks;
-      const wristGap = Math.hypot(L[0].x - M[0].x, L[0].y - M[0].y);
-      const palm = Math.hypot(L[0].x - L[9].x, L[0].y - L[9].y);
-      if (inter / small > 0.6 || wristGap < 0.5 * palm) {
+      const palm = Math.max(Math.hypot(L[0].x - L[9].x, L[0].y - L[9].y), Math.hypot(M[0].x - M[9].x, M[0].y - M[9].y)) || 1e-6;
+      let gap = 0;
+      for (let k = 0; k < L.length; k++) gap += Math.hypot(L[k].x - M[k].x, L[k].y - M[k].y);
+      if (gap / L.length < DUP_MEAN * palm) {
         if (hands[i].score > hands[j].score) hands[j] = hands[i];
         hands.splice(i, 1);
         break;
