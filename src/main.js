@@ -1427,7 +1427,7 @@ function updateGuide() {
     $('rec-time').textContent = `● ${sec.toFixed(1)}초`;
     html = `<b>● 녹화 중</b> · 다시 누르면 끝나고 바로 분석합니다`;
   } else if (state.source === 'camera' && !state.liveTrack && stream && !state.frozen) {
-    html = '빨간 버튼을 누르고 손 동작을 해 주세요.<br>손 전체가 화면 안에 보이게, 천천히 움직일수록 정확합니다.';
+    html = '빨간 버튼을 누르고 손 동작을 해 주세요.<br>지금 화면은 미리보기입니다. 녹화가 끝나면 영상을 한 프레임씩 다시 분석해 훨씬 정확하니, <b>결과물 영상</b>으로 확인하세요.';
   }
   g.hidden = !html;
   if (html && g.innerHTML !== html) g.innerHTML = html;
