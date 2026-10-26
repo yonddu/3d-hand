@@ -232,5 +232,14 @@
   "fjump": 50,
   "fflip": 0,
   "asnap": 0
+ },
+ "ref_23-01.glb": {
+  "swap": 7,
+  "flip": 4,
+  "jump": 139,
+  "gsw": 4,
+  "fjump": 50,
+  "fflip": 0,
+  "asnap": 0
  }
 }

@@ -33,6 +33,8 @@ const URL = process.env.SYNTH_URL || 'http://localhost:8090/index.html';
 // SYNTH_EXTRAS=1: also rings, watches, bracelets and patterned backgrounds
 // (things common in real video). Off keeps older seeds as they were drawn.
 const EXTRAS = process.env.SYNTH_EXTRAS === '1';
+// SYNTH_HOLD=1 (with SYNTH_EXTRAS): half the hands also hold a pencil, cup or book.
+const HOLD = process.env.SYNTH_HOLD === '1';
 
 fs.mkdirSync(path.join(OUT, 'img'), { recursive: true });
 const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader'] });
@@ -43,7 +45,7 @@ await page.waitForTimeout(2000);
 await page.click('#start-demo');
 await page.waitForTimeout(2500);
 await page.addStyleTag({ content: `header,.topbar,.stage-foot,#pose-banner,.status,.hud,button,#overlay{display:none!important} canvas#viewport{position:fixed!important;left:0;top:0;width:${W}px!important;height:${H}px!important;z-index:9999}` });
-await page.evaluate(async ([seed, W, H, EXTRAS]) => {
+await page.evaluate(async ([seed, W, H, EXTRAS, HOLD]) => {
   const THREE = await import('three');
   const { armPoseJoints } = await import('./src/armPoses.js');
   const { paintHand } = await import('./tools/synthSkin.js');
@@ -102,8 +104,41 @@ await page.evaluate(async ([seed, W, H, EXTRAS]) => {
     extras.add(m);
     return m;
   }
+  // Something held: a pencil between thumb and fingers, a cup or a book on the
+  // palm side. The hand's shape is not changed to fit it (its pose stays the
+  // truth); it hides parts of the hand the way held things do in real video.
+  function holdThing(side, P) {
+    const wrist = P[0];
+    const n = P[5].clone().sub(wrist).cross(P[17].clone().sub(wrist)).normalize();
+    const palm = side === 'right' ? n : n.clone().negate();
+    const up = P[9].clone().sub(wrist).normalize();
+    const across = up.clone().cross(palm).normalize();
+    const k = rnd();
+    let m;
+    if (k < 0.5) {
+      const L = 0.13 + 0.05 * rnd();
+      m = new THREE.Mesh(new THREE.CylinderGeometry(0.0035, 0.0035, L, 10), new THREE.MeshStandardMaterial({ color: pick([0xf2c230, 0x2a2a2a, 0x3366cc, 0xcc3333, 0xeeeeee, 0x7a5230]), roughness: 0.5 }));
+      // Between the thumb tip and the index or middle finger, tilted at random.
+      const at = P[4].clone().lerp(P[rnd() < 0.6 ? 7 : 11], 0.5);
+      const dir = across.clone().multiplyScalar(rnd() - 0.5).add(up.clone().multiplyScalar(0.3 + rnd())).add(palm.clone().multiplyScalar(rnd() - 0.5)).normalize();
+      m.position.copy(at).addScaledVector(dir, (rnd() - 0.3) * 0.05);
+      m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+    } else if (k < 0.8) {
+      const r = 0.035 + 0.012 * rnd();
+      m = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 0.9, 0.08 + 0.04 * rnd(), 24), new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(rnd(), 0.4 * rnd(), 0.3 + 0.6 * rnd()), roughness: 0.3 + 0.5 * rnd() }));
+      m.position.copy(wrist.clone().lerp(P[9], 0.75)).addScaledVector(palm, r + 0.012);
+      m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), across.clone().add(up.clone().multiplyScalar(0.3 * (rnd() - 0.5))).normalize());
+    } else {
+      m = new THREE.Mesh(new THREE.BoxGeometry(0.15 + 0.05 * rnd(), 0.21 + 0.04 * rnd(), 0.01 + 0.025 * rnd()), new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(rnd(), 0.5 * rnd(), 0.2 + 0.7 * rnd()), roughness: 0.7 }));
+      m.position.copy(P[9].clone().lerp(P[12], 0.5)).addScaledVector(palm, 0.02 + 0.02 * rnd());
+      m.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(across, palm.clone().cross(across).normalize(), palm));
+      m.rotateZ((rnd() - 0.5) * 1.2);
+    }
+    extras.add(m);
+  }
   function wearThings(side, P, E) {
     extras.clear();
+    if (HOLD && rnd() < 0.5) holdThing(side, P);
     // Rings on proximal phalanges: none, one or two.
     const FING = [['index', 5, 6], ['middle', 9, 10], ['ring', 13, 14], ['pinky', 17, 18], ['thumb', 2, 3]];
     const nRings = rnd() < 0.4 ? 0 : rnd() < 0.7 ? 1 : 2;
@@ -232,7 +267,7 @@ await page.evaluate(async ([seed, W, H, EXTRAS]) => {
       return r.landmarks.map((lm, i) => ({ label: r.handedness[i][0].categoryName, score: r.handedness[i][0].score, lm: lm.map((q) => [q.x, q.y, q.z]), world: r.worldLandmarks[i].map((q) => [q.x, q.y, q.z]) }));
     },
   };
-}, [SEED, W, H, EXTRAS]);
+}, [SEED, W, H, EXTRAS, HOLD]);
 
 const outFile = path.join(OUT, `synth_seed${SEED}.jsonl`);
 const stream = fs.createWriteStream(outFile, { flags: 'a' });

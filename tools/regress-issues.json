@@ -10,5 +10,6 @@
  { "id": "clasp2-one-hand", "date": "2026-10-26", "take": "clasp_same_14-10.glb", "from": 12.3, "to": 13, "metric": "swap", "max": 7, "note": "깍지: MediaPipe가 두 손을 한 손으로 봄(12.4~14.6초), 왼손/오른손 표시 0.5초에 7번 바뀜 (아직 못 고침, 지금 값이 상한)" },
  { "id": "same-pose-bent", "date": "2026-10-26", "take": "clasp_same_14-10.glb", "from": 2, "to": 20, "metric": "bentpic", "max": 102, "note": "양손 같은 자세(가운뎃손가락 등): 그림에선 곧은 손가락이 굽게 나옴, MediaPipe 3D가 틀림 (아직 못 고침, 지금 값이 상한)" },
  { "id": "pencil-pierce", "date": "2026-10-26", "take": "pencil_fidget_21-40.glb", "metric": "pierce", "max": 90, "note": "연필 쥐고 꼼지락: 엄지가 다른 손가락을 뚫고 지나감 (v78 손가락 캡슐 벽, 604 -> 85)" },
- { "id": "pencil-palm", "date": "2026-10-26", "take": "pencil_fidget_21-40.glb", "metric": "ppierce", "max": 1, "note": "손가락이 손바닥을 뚫고 들어감 (v78 손바닥 벽, 6 -> 0)" }
+ { "id": "pencil-palm", "date": "2026-10-26", "take": "pencil_fidget_21-40.glb", "metric": "ppierce", "max": 1, "note": "손가락이 손바닥을 뚫고 들어감 (v78 손바닥 벽, 6 -> 0)" },
+ { "id": "ref-pencil-swap", "date": "2026-10-26", "take": "ref_23-01.glb", "from": 6.2, "to": 6.5, "metric": "swap", "max": 7, "note": "연필 돌리기(참고 영상, 손 사진 있음): MediaPipe가 잠깐 손 두 개로 봐서 왼/오 표시 7번 바뀜 (아직 못 고침, 지금 값이 상한)" }
 ]

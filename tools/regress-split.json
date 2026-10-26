@@ -32,7 +32,8 @@
   "syntheticHoldout": [
     "synth_seed2.jsonl",
     "synth_seed4.jsonl",
-    "synth_seed6.jsonl"
+    "synth_seed6.jsonl",
+    "synth_seed8.jsonl"
   ],
   "syntheticHoldoutNote": "synthetic/skin/synth_seed4.jsonl: score-only crops for the palm/back model (tools/palm)"
 }
