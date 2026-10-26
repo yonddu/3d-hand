@@ -1674,6 +1674,25 @@ const RAW = [
   ['bk-look-high', '얇은 책 눈높이로 들어 살펴보기', 'objects', null, null, {custom: {index: [45, 20, 10], middle: [45, 20, 10], ring: [45, 20, 10], pinky: [45, 20, 10]}, thumb: [25, -10, 0, 0, -5, 0, 5]}],
   ['bk-look-claw', '책 위쪽 가장자리 손끝으로 걸쳐 잡기', 'objects', null, null, {custom: {index: [20, 55, 40], middle: [20, 55, 40], ring: [20, 55, 40], pinky: [20, 55, 40]}, thumb: [10, -20, 0, 10, 0, 0, 5]}],
   ['bk-look-back', '책 뒤를 손가락 세워 받치고 읽기', 'objects', null, null, {custom: {index: [55, 30, 20], middle: [55, 30, 20], ring: [55, 30, 20], pinky: [55, 30, 20]}, thumb: [20, 15, 0, 0, 0, 0, -5]}],
+  // --- 묶음 C (2026-10-26): 기기·활·펜싱·악기·작은 물건 손모양 ---
+  // Kept only shapes at least 6 deg (RMS over the joint angles) from every
+  // shape already listed; nearer ones add nothing a camera can tell apart.
+  ['dev-vrPointGrip', 'VR 컨트롤러 쥔 채 검지 펴기', 'objects', 'out', '', { thumb: [15, 5, 0, 10, 0, 0, 10], custom: { index: [5, 5, 0], middle: [65, 75, 50], ring: [68, 78, 50], pinky: [70, 80, 50] } }],
+  ['sp-archMed', '활 지중해식 당김 (세 손가락 걸기)', 'sport', 'tuck', '', { custom: { index: [15, 75, 45], middle: [15, 75, 45], ring: [20, 75, 45], pinky: [80, 95, 65] } }],
+  ['sp-archThumb', '엄지 당김 (각궁, 엄지 걸고 검지 덮기)', 'sport', 'out', '', { thumb: [30, -10, 0, 50, -5, 0, 60], custom: { index: [60, 85, 50], middle: [75, 95, 60], ring: [80, 95, 60], pinky: [82, 95, 60] } }],
+  ['sp-archLoose', '활 놓은 직후 풀린 손', 'sport', 'out', '', { thumb: [10, -5, 0, 10, 0, 0, 10], custom: { index: [15, 30, 15], middle: [15, 30, 15], ring: [20, 35, 20], pinky: [45, 60, 40] } }],
+  ['sp-fencePistol', '펜싱 피스톨 그립', 'sport', 'wrap', '', { custom: { index: [50, 60, 30], middle: [70, 85, 55], ring: [72, 88, 55], pinky: [75, 90, 55] } }],
+  ['sp-kendoTenouchi', '검도 쥠 (새끼·약지 조이고 검지 느슨)', 'sport', 'wrap', '', { custom: { index: [45, 45, 30], middle: [60, 65, 45], ring: [75, 85, 55], pinky: [80, 90, 60] } }],
+  ['ex-mono', '클라이밍 모노 포켓 (중지 하나 걸기)', 'exercise', 'across', '', { custom: { index: [70, 90, 60], middle: [15, 70, 40], ring: [75, 95, 60], pinky: [80, 95, 60] } }],
+  ['ex-pocket3', '클라이밍 세 손가락 포켓', 'exercise', 'across', '', { custom: { index: [15, 70, 40], middle: [15, 70, 40], ring: [15, 70, 40], pinky: [70, 90, 60] } }],
+  ['ex-openCrimp', '클라이밍 오픈 크림프 (둘째 마디만 굽힘)', 'exercise', 'out', '', { custom: { index: [20, 60, 20], middle: [20, 60, 20], ring: [22, 60, 20], pinky: [25, 60, 20] } }],
+  ['ex-thumbCatch', '클라이밍 엄지 캐치 (엄지로 모서리 누르기)', 'exercise', 'out', '', { thumb: [35, -20, 0, 30, -5, 0, 25], custom: { index: [35, 80, 40], middle: [35, 80, 40], ring: [38, 80, 40], pinky: [40, 80, 40] } }],
+  ['pl-celloLeft', '첼로 왼손 운지 (망치처럼 세운 손가락)', 'play', 'out', '', { thumb: [30, 5, 0, 20, 0, 0, 10], s: 1, custom: { index: [40, 85, 45], middle: [42, 85, 45], ring: [45, 85, 45], pinky: [48, 80, 40] } }],
+  ['ob-cubeTurn', '큐브 윗면 검지로 밀어 돌리기', 'objects', 'out', '', { thumb: [30, 20, 0, 10, 0, 0, 10], custom: { index: [20, 30, 20], middle: [50, 40, 30], ring: [52, 42, 30], pinky: [55, 45, 30] } }],
+  ['ob-tongs', '집게 손잡이 쥐어 누르기', 'objects', 'out', '', { thumb: [30, -15, 0, 15, 0, 0, 10], custom: { index: [30, 35, 20], middle: [45, 50, 30], ring: [55, 60, 40], pinky: [60, 65, 40] } }],
+  ['ob-cigStick', '막대 검지·중지 끝으로 끼워 들기', 'objects', 'across', '', { abd: { index: -4, middle: 4 }, custom: { index: [15, 15, 10], middle: [15, 15, 10], ring: [55, 70, 45], pinky: [60, 75, 45] } }],
+  ['ob-steerFingers', '핸들 위 손가락만 걸치기', 'objects', 'out', '', { thumb: [10, 10, 0, 5, 0, 0, 5], custom: { index: [20, 40, 20], middle: [22, 42, 20], ring: [25, 45, 22], pinky: [28, 45, 22] } }],
+  ['ob-spinnerFlick', '피젯 스피너 엄지·중지로 잡고 검지 튕기기', 'objects', 'touchM', '', { custom: { index: [20, 20, 10], middle: [45, 55, 35], ring: [65, 80, 50], pinky: [70, 85, 50] } }],
 ];
 
 // Every combination of straight and folded fingers (32), and the spread
