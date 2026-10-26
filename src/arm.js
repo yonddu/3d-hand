@@ -11,6 +11,7 @@ import * as THREE from 'three';
 import { sideSign } from './skeleton.js';
 import { UPPER, FORE, buildArm } from './armMesh.js';
 import { addDepthPrepass } from './prepass.js';
+import { ArmPrior } from './armPrior.js';
 
 export { UPPER, FORE };
 // The wrist is an ellipsoid (radiocarpal) joint: it flexes/extends and tilts
@@ -41,6 +42,7 @@ export function pivotLoop(loop) {
 // Wrist extension held without thinking. The dictionary median is 10 deg,
 // but seen from the eyes a straight forearm-hand line reads as right.
 const REST_EXT = (5 * Math.PI) / 180;
+const PRIOR_GAIN = 1.5; // how fast the arm-pose prior's trust reaches full weight
 const BEND_SIDES = [[0, 1], [0, -1], [1, 0], [-1, 0]]; // (x, z) in the forearm's frame
 const BEND_BULGE = 0.004; // m of outward push on the inside of a right-angle wrist bend (1.2 cm stood out as a ridge, user)
 const WRIST_FLEX = (75 * Math.PI) / 180;
@@ -337,6 +339,15 @@ export class ArmRig {
     // wrist bends like that").
     const palmN = new THREE.Vector3(0, 0, 1).applyQuaternion(handQuat);
     const back = handY.clone().multiplyScalar(-Math.cos(REST_EXT)).addScaledVector(palmN, -Math.sin(REST_EXT));
+    // Real arm poses with the hand here and turned this way say how the
+    // wrist is usually bent (armPrior.js): the forearm's resting line leans
+    // that way, as far as those poses agree. On held-out movements this
+    // halved the wrist-bend error of a straight wrist (t159: 26 -> 14 deg
+    // on bent wrists).
+    this.prior ||= new ArmPrior(this.side, this.homeShoulder);
+    const guess = this.prior.guess(pivot, handQuat);
+    this.priorIds = guess ? guess.ids : null;
+    if (guess) back.lerp(guess.dir.clone().applyQuaternion(handQuat), Math.min(1, guess.trust * PRIOR_GAIN)).normalize();
     if (this.follow) {
       target = this.followElbow(pivot, handQuat, back, elbowHint);
       this.source = elbowHint ? 'pose' : 'hand';
@@ -344,7 +355,7 @@ export class ArmRig {
       target = elbowHint.clone();
       this.source = 'pose';
     } else {
-      target = solveElbow(this.shoulder, pivot, pivot.clone().addScaledVector(handY, -FORE));
+      target = solveElbow(this.shoulder, pivot, pivot.clone().addScaledVector(back, FORE));
       this.source = 'ik';
     }
     // Live passthrough: the forearm lies on the seen line and the shoulder is free.

@@ -23,7 +23,12 @@ const FIT_MAX = 16; // degrees (RMS over seen angles) for a grip to count
 const SWITCH = 0.7; // a new grip must fit this much better than the held one
 const HOLD = 6; // for this many frames in a row
 
-export const GRASPS = GESTURES.filter((g) => CATS.has(g.category));
+// Every real hand shape in the dictionary takes part, not only the grips:
+// hidden fingers in a sign or a gesture are filled the same way. Over the
+// 20 recorded takes this covered 26% more frames and cut finger jumps 3%
+// (v58); the grip-only list (CATS) is kept for the object families below.
+export const GRASPS = GESTURES.slice();
+const GRIPS = GESTURES.filter((g) => CATS.has(g.category));
 
 // Grips that fit each object shape the detector can name (objects.js). With
 // an object in hand only its family is compared, so a cup is not taken for a
@@ -36,7 +41,7 @@ const FAMILY_IDS = {
 };
 // The size-graded grips (gestures.js v53) join their family by id prefix.
 const FAMILY_PREFIX = { cylinder: ['cyl-', 'mug-'], sphere: ['sph-'], box: ['box-'], rod: ['rod-'] };
-export const FAMILIES = Object.fromEntries(Object.entries(FAMILY_IDS).map(([k, ids]) => [k, GRASPS.filter((g) => ids.includes(g.id) || FAMILY_PREFIX[k].some((p) => g.id.startsWith(p)))]));
+export const FAMILIES = Object.fromEntries(Object.entries(FAMILY_IDS).map(([k, ids]) => [k, GRIPS.filter((g) => ids.includes(g.id) || FAMILY_PREFIX[k].some((p) => g.id.startsWith(p)))]));
 
 export class GraspPrior {
   constructor(shapes = GRASPS) {
