@@ -348,16 +348,38 @@ function occlusion(P) {
 // out of the palm for a right hand, out of the back for a left one), how far
 // the palm faces the body's midline across the guessed forearm line: 1 thumb
 // up, 0 palm down or up, -1 thumb down.
+//
+// The forearm is guessed to come from below the picture; when the hand points
+// well away from that line (more than the wrist can bend, HAND_OFF), the arm
+// comes in from elsewhere, from the side, and the hand's own line stands in
+// for it. A forearm lying across the picture toward the midline leaves no
+// "toward the midline" across it (the palm's neutral way then faces the body),
+// so no pose is ruled out (null). A user GLB (2026-10-26): forearm in from the
+// left, fingers pointing right; the guessed upright forearm made the rule force
+// palm up for the whole take.
+const HAND_OFF = 60; // degrees between the guessed forearm and the hand line
+const ACROSS = 0.5; // sine of the forearm's angle to the across-picture line, below which the rule is off
 function forearmReach(u, aspect, side) {
   const [ex, ey] = FP_ELBOW[side];
-  const dx = u[0][0] - ex * aspect;
-  const dy = u[0][1] - ey;
-  const f = [dx, dy, FP_LEAN * Math.hypot(dx, dy)];
+  let dx = u[0][0] - ex * aspect;
+  let dy = u[0][1] - ey;
+  const hx = u[9][0] - u[0][0];
+  const hy = u[9][1] - u[0][1];
+  const hl = Math.hypot(hx, hy);
+  const cos = (dx * hx + dy * hy) / ((Math.hypot(dx, dy) * hl) || 1);
+  let lean = FP_LEAN;
+  if (hl > 1e-4 && cos < Math.cos((HAND_OFF * Math.PI) / 180)) {
+    dx = hx;
+    dy = hy;
+    lean = 0; // its lean is not known
+  }
+  const f = [dx, dy, lean * Math.hypot(dx, dy)];
   const fl = Math.hypot(...f) || 1;
   const fu = f.map((v) => v / fl);
   const s = side === 'right' ? 1 : -1;
   // Midline: toward the other side of the picture, across the forearm.
   const m = [-s - fu[0] * -s * fu[0], -fu[1] * -s * fu[0], -fu[2] * -s * fu[0]];
   const ml = Math.hypot(...m) || 1;
+  if (ml < ACROSS) return null;
   return (n) => (s * (n[0] * m[0] + n[1] * m[1] + n[2] * m[2])) / ml;
 }
