@@ -26,6 +26,7 @@ const W_ROLL = 1.2; // knuckles barely turn about their length
 const W_TIME = 0.03; // stay near the last frame, lightly (the point filters already smooth)
 const W_CLOSE = 0.8; // hidden joints follow the natural closing path
 const W_SHAPE = 0.7; // hidden joints take the nearest basic shape
+const RESEED = 30; // degrees between seeds before both are tried
 const PIP_PER_MCP = 1.1; // closing a fist: PIP bends a little more than the knuckle
 const DIP_PER_PIP = 0.67;
 const IP_PER_MCP = 0.9;
@@ -81,7 +82,7 @@ function residuals(theta, ctx) {
   for (let k = 0; k < 3; k++) {
     const w = (W_DATA * ctx.conf[k] * (1 - 0.85 * ctx.hidden[k])) / ctx.palm;
     const d = pts[k].clone().sub(ctx.obs[k]);
-    r.push(d.x * w, d.y * w, d.z * w * W_DEPTH);
+    r.push(d.x * w, d.y * w, d.z * w * (ctx.depthW ?? W_DEPTH));
   }
   // Joint limits.
   for (let k = 0; k < 3; k++) {
@@ -214,6 +215,19 @@ export function fitFinger({ finger, chain, side, P, wristQ, conf, palm, prev, st
   const cost = (x) => residuals(x, ctx).reduce((s, v) => s + v * v, 0);
   const seed = prev && cost(prev) <= cost(start) ? prev : start;
   let theta = minimise(seed.slice(), ctx);
+  // When the two seeds are far apart, the one that started worse may still
+  // end better: after a one-frame glitch the last frame can sit in a curled
+  // pose the solver cannot climb out of (fingers stayed curled for several
+  // frames after a bad reading while the palm turned).
+  const other = seed === start ? prev : start;
+  if (other && Math.max(...other.map((v, i) => Math.abs(v - seed[i]))) > RESEED) {
+    const alt = minimise(other.slice(), ctx);
+    // The two can fit the picture equally (a finger curled toward the camera
+    // looks like a straight one leaning away); the depth the points were
+    // lifted with (lift.js chose it from the hand's shape) settles it.
+    const full = (x) => residuals(x, { ...ctx, depthW: 1 }).reduce((t, v) => t + v * v, 0);
+    if (full(alt) < full(theta)) theta = alt;
+  }
   // Hard walls after the soft fit (limits) and the roll range.
   theta = theta.map((v, i) => {
     const [k, kind] = lay[i];

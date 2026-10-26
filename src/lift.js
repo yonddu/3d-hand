@@ -182,20 +182,10 @@ export function liftToPicture(world, image, aspect, side = null, memory = null, 
   if (memory && !memory.signs) memory.signs = [];
   // Each finger bone: its picture offset, plus a depth offset that keeps the
   // bone at its world length. Depth is the one thing a picture cannot tell:
-  // the bone leans toward or away from the camera. A finger bone takes the
-  // lean that bends its joint toward the palm (fingers do not bend backward
-  // or sideways past their range); otherwise it keeps last frame's lean, and
-  // the world reading decides only when it clearly leans one way.
+  // the bone leans toward or away from the camera. The world reading decides
+  // when it clearly leans one way; otherwise the bone keeps last frame's lean.
   const out = new Array(21);
   out[0] = { x: 0, y: 0, z: 0 };
-  const sub = (a, b) => [a.x - b.x, a.y - b.y, a.z - b.z];
-  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-  const unit = (a) => {
-    const l = Math.hypot(a[0], a[1], a[2]) || 1;
-    return [a[0] / l, a[1] / l, a[2] / l];
-  };
-  let palmN = null;
   for (const i of ORDER) {
     const p = PARENT[i];
     const x = (u[i][0] - u[0][0]) * k;
@@ -218,25 +208,14 @@ export function liftToPicture(world, image, aspect, side = null, memory = null, 
       let sign = wz >= 0 ? 1 : -1;
       const last = memory && memory.signs[i];
       if (last && Math.abs(wz) < 0.3 * L) sign = last;
-      const finger = i >= 6 && p !== 0 && palmN && room > 1e-4;
-      if (finger) {
-        // Parent bone direction, and the palm side perpendicular to it.
-        const gp = PARENT[p];
-        const dp = unit(sub(out[p], out[gp]));
-        const np = unit(palmN.map((v, n) => v - dot(palmN, dp) * dp[n]));
-        const bend = (sg) => dot(unit([dx, dy, sg * room]), np);
-        const a = bend(sign);
-        const b = bend(-sign);
-        if (a < -0.1 && b > a) sign = -sign; // that lean would bend it backward
-      }
+      // The lean is the world reading's, even when it bends a joint backward
+      // (the fit's joint limits straighten that). Flipping such a lean to
+      // bend the joint toward the palm instead turned a few millimetres of
+      // depth noise on a straight finger into a finger curled 100 degrees
+      // (user GLB 2026-10-26, fingers curling while the palm turned); on the
+      // earlier raw takes it doubled the joints read past 100 degrees.
       if (memory && room > 0.25 * L) memory.signs[i] = sign;
       out[i] = { x, y, z: out[p].z + sign * room };
-    }
-    if (i === 17 && side) {
-      // Palm normal (toward the palm side) once the palm's points are placed.
-      const a = sub(out[5], out[0]);
-      const b = sub(out[17], out[0]);
-      palmN = unit(side === 'right' ? cross(a, b) : cross(b, a));
     }
   }
   out.cup = palmCup(world, side, memory);

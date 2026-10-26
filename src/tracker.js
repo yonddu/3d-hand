@@ -191,8 +191,22 @@ export class HandTracker {
       const arm = aspect ? armSide(h.landmarks, aspect) : null;
       const chiral = best ? best.chiral * 0.4 + h.chiral * 0.6 : h.chiral;
       let flips = 0;
-      if (arm) h.side = arm;
-      else if (aspect && best) h.side = best.side; // the arm decided earlier; keep it while it is unclear
+      let armVotes = 0;
+      if (aspect && best) {
+        // A tracked hand stays the hand it was: the arm line swings toward
+        // the other shoulder as the palm turns over, and following it handed
+        // the right hand to the left side for 1.5 s (user GLB 2026-10-26).
+        // Only an arm that keeps pointing the other way for ARM_SWITCH
+        // frames corrects a side given wrongly at the start.
+        h.side = best.side;
+        if (arm && arm !== best.side) {
+          armVotes = (best.armVotes || 0) + 1;
+          if (armVotes >= ARM_SWITCH) {
+            h.side = arm;
+            armVotes = 0;
+          }
+        }
+      } else if (arm) h.side = arm;
       else if (Math.abs(chiral) > CHIRAL_SURE) h.side = shapeSide(chiral);
       else if (best && best.side !== h.side) {
         flips = best.flips + 1;
@@ -221,7 +235,7 @@ export class HandTracker {
           h.mirrored = true;
         }
       }
-      return { side: h.side, x, y, t: nowMs, flips, mirrored, mirrorVotes, chiral: best ? best.chiral * 0.4 + h.chiral * 0.6 : h.chiral };
+      return { side: h.side, x, y, t: nowMs, flips, armVotes, mirrored, mirrorVotes, chiral: best ? best.chiral * 0.4 + h.chiral * 0.6 : h.chiral };
     });
     return hands;
   }
@@ -246,6 +260,7 @@ function armSide(L, aspect) {
 }
 
 const ARM_MARGIN = (30 * Math.PI) / 180;
+const ARM_SWITCH = 90; // frames (3 s)
 const MIRROR_SURE = 0.3;
 const MIRROR_FRAMES = 3;
 
