@@ -21,6 +21,7 @@ import { POSE_ARM, compactPose, poseElbowAR, lineElbow } from './elbowHint.js';
 import { objectSize, heldFamily } from './gripPrior.js';
 import { initRomPanel } from './romPanel.js';
 import { ForearmFinder } from './forearm.js';
+import { cropJpeg } from './palmFace.js';
 
 const CONFIG = window.HMS_CONFIG || {};
 // The large files stay on the phone between visits (sw.js).
@@ -197,6 +198,7 @@ function setStatus(text, isError = false) {
 const MOBILE = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
 const OBJECT_EVERY = MOBILE ? 600 : 150; // ms
 const POSE_EVERY = MOBILE ? 300 : 100; // ms
+const CROP_EVERY = 5; // recorded frames between saved hand crops (save-crops)
 
 async function ensureTracker() {
   if (tracker) return tracker;
@@ -806,6 +808,15 @@ function tick(now) {
         const r3 = (v) => Math.round(v * 1000) / 1000;
         const objects = (state.detections || []).map((d) => ({ category: d.category, score: r3(d.score), x: r3(d.x), y: r3(d.y), w: r3(d.w), h: r3(d.h) }));
         const pose = compactPose(state.pose);
+        // Every CROP_EVERY-th frame, if asked: the hands' pixels, cut as the
+        // palm/back model sees them, so it can be scored on real video.
+        if ($('save-crops').checked && rec.raw.length % CROP_EVERY === 0) {
+          for (const h of tracker.lastRaw) {
+            const lm = [];
+            for (let i = 0; i < 21; i++) lm.push({ x: h.lm[i * 3], y: h.lm[i * 3 + 1] });
+            h.crop = cropJpeg(video, lm, video.videoWidth, video.videoHeight);
+          }
+        }
         rec.lastRaw = { t: r3(t), hands: tracker.lastRaw, ...(objects.length ? { objects } : {}), ...(pose ? { pose } : {}) };
         rec.raw.push(rec.lastRaw);
         rec.rawMeta = { aspect: video.videoWidth / video.videoHeight, firstPerson: (state.source === 'camera' && !facingUser()) || (state.source === 'video' && $('video-fp').checked), swap: state.swap, rightOnImageRight: !facingUser(), offline };

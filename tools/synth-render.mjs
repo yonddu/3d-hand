@@ -43,6 +43,7 @@ await page.addStyleTag({ content: `header,.topbar,.stage-foot,#pose-banner,.stat
 await page.evaluate(async ([seed, W, H]) => {
   const THREE = await import('three');
   const { armPoseJoints } = await import('./src/armPoses.js');
+  const { paintHand } = await import('./tools/synthSkin.js');
   const { FilesetResolver, HandLandmarker } = await import('@mediapipe/tasks-vision');
   const files = await FilesetResolver.forVisionTasks('vendor/mediapipe/wasm');
   const hl = await HandLandmarker.createFromOptions(files, { baseOptions: { modelAssetPath: 'vendor/models/hand_landmarker.task', delegate: 'CPU' }, runningMode: 'IMAGE', numHands: 2 });
@@ -55,6 +56,11 @@ await page.evaluate(async ([seed, W, H]) => {
   const byId = Object.fromEntries(S.GESTURES.map((g) => [g.id, g]));
   // The app's orbit controls aim the camera at their target every frame, so
   // the look point goes there (no roll: they keep the camera upright).
+  // Plain skin (not the app's pale Quest look), opaque.
+  const look = document.getElementById('look');
+  look.value = 'skin';
+  look.dispatchEvent(new Event('change'));
+  const paint = { left: paintHand(S.realHands.left), right: paintHand(S.realHands.right) };
   const camRig = (x, y) => {
     const c = S.camera;
     c.position.set(0, 0, 0);
@@ -108,7 +114,7 @@ await page.evaluate(async ([seed, W, H]) => {
       const look = J.W.clone().divideScalar(-J.W.z);
       camRig(look.x * (0.5 + 0.5 * rnd()) + (rnd() - 0.5) * 0.2, look.y * (0.5 + 0.5 * rnd()) + (rnd() - 0.5) * 0.2);
       const skin = new THREE.Color(pick(SKIN));
-      S.realHands[side].mesh.material.color = skin;
+      paint[side].vary(rnd, skin);
       if (S.arms[side].mesh) S.arms[side].mesh.material.color = rnd() < 0.5 ? skin : new THREE.Color(pick(SLEEVE));
       S.scene.background = new THREE.Color().setHSL(rnd(), 0.1 + 0.4 * rnd(), 0.2 + 0.6 * rnd());
       S.scene.children.forEach((c) => {
