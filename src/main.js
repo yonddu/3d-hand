@@ -17,7 +17,7 @@ import { ARM_POSES, ARM_CATEGORIES, armPoseJoints, armPoseData } from './armPose
 import { liftToPicture } from './lift.js';
 import { cleanTake, lerpHand } from './cleanTake.js';
 import { replanGrips } from './gripPass.js';
-import { objectSize } from './gripPrior.js';
+import { objectSize, heldFamily } from './gripPrior.js';
 import { initRomPanel } from './romPanel.js';
 import { ForearmFinder } from './forearm.js';
 
@@ -620,7 +620,7 @@ function feed(inputs, t) {
     const rig = rigs[side];
     rig.group.visible = true;
     rig.group.position.set(anc[0], anc[1], anc[2]);
-    const solveOpts = { limits: state.limits, fit: state.fit, occluded: input.occluded, cup: input.cup || 0, held: input.vision ? input.vision.shape : null, heldSize: objectSize(input.vision), smoothing: !rec.offline };
+    const solveOpts = { limits: state.limits, fit: state.fit, occluded: input.occluded, cup: input.cup || 0, held: heldFamily(input.vision), heldSize: objectSize(input.vision), smoothing: !rec.offline };
     state.lastSolve[side] = solvers[side].solve(smooth, solveOpts);
     // A filmed take is solved again once the whole clip is known (gripPass.js).
     state.solveIn[side] = rec.offline && state.fit ? { P: smooth.map((p) => p.toArray()), opts: solveOpts } : null;

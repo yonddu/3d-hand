@@ -59,7 +59,8 @@ const THUMB_TOUCH = { touchI: 'index', touchM: 'middle', touchR: 'ring', touchP:
 const SPREAD = { index: 10, middle: 0, ring: -8, pinky: -16 };
 
 // [id, Korean name, category, thumb, fingers (index middle ring pinky), options]
-// options: s (spread), abd {finger: deg}, region, note, verify
+// options: s (spread), abd {finger: deg}, custom {finger: [mcp, pip, dip]},
+// thumb (7 angles, when no preset fits), region, note, verify
 const RAW = [
   // --- 수어 기본 손모양 (handshapes shared by most sign languages) ---
   ['hs-A', 'A (엄지 옆 주먹)', 'handshape', 'side', 'CCCC'],
@@ -1610,6 +1611,69 @@ const RAW = [
   ['csd-hCCC-side', '점점 말린 손: 검지 반 쥠·중지 쥠·약지 쥠·소지 쥠 (엄지 옆)', 'natural', 'side', 'hCCC'],
   ['csd-hCCC-across', '점점 말린 손: 검지 반 쥠·중지 쥠·약지 쥠·소지 쥠 (엄지 접음)', 'natural', 'across', 'hCCC'],
   ['csd-hCCC-wrap', '점점 말린 손: 검지 반 쥠·중지 쥠·약지 쥠·소지 쥠 (엄지 감쌈)', 'natural', 'wrap', 'hCCC'],
+  // --- v62: 얇은 책·잡지·종이 잡기, 살펴보기, 책장 넘기기 단계별 (가려진 손가락 추정에 쓰임) ---
+  ['bk-edge4-2', '두께 2mm 책 가장자리 잡기 (네 손가락 받침)', 'grip', null, null, {custom: {index: [30, 9, 5], middle: [30, 9, 5], ring: [30, 9, 5], pinky: [30, 9, 5]}, thumb: [20, -25, 0, -5, -5, 0, 0]}],
+  ['bk-edge3-2', '두께 2mm 책 가장자리 잡기 (세 손가락 받침, 새끼 뗌)', 'grip', null, null, {custom: {index: [30, 9, 5], middle: [30, 9, 5], ring: [30, 9, 5], pinky: [30, 35, 20]}, thumb: [20, -25, 0, -5, -5, 0, 0]}],
+  ['bk-edge2-2', '두께 2mm 책 가장자리 잡기 (검지·중지 받침)', 'grip', null, null, {custom: {index: [30, 9, 5], middle: [30, 9, 5], ring: [45, 50, 30], pinky: [50, 55, 30]}, thumb: [20, -25, 0, -5, -5, 0, 0]}],
+  ['bk-edge4-5', '두께 5mm 책 가장자리 잡기 (네 손가락 받침)', 'grip', null, null, {custom: {index: [33, 12, 6], middle: [33, 12, 6], ring: [33, 12, 6], pinky: [33, 12, 6]}, thumb: [20, -20, 0, 0, -5, 0, 5]}],
+  ['bk-edge3-5', '두께 5mm 책 가장자리 잡기 (세 손가락 받침, 새끼 뗌)', 'grip', null, null, {custom: {index: [33, 12, 6], middle: [33, 12, 6], ring: [33, 12, 6], pinky: [30, 35, 20]}, thumb: [20, -20, 0, 0, -5, 0, 5]}],
+  ['bk-edge2-5', '두께 5mm 책 가장자리 잡기 (검지·중지 받침)', 'grip', null, null, {custom: {index: [33, 12, 6], middle: [33, 12, 6], ring: [45, 50, 30], pinky: [50, 55, 30]}, thumb: [20, -20, 0, 0, -5, 0, 5]}],
+  ['bk-edge4-8', '두께 8mm 책 가장자리 잡기 (네 손가락 받침)', 'grip', null, null, {custom: {index: [35, 14, 7], middle: [35, 14, 7], ring: [35, 14, 7], pinky: [35, 14, 7]}, thumb: [20, -15, 0, 5, -5, 0, 5]}],
+  ['bk-edge3-8', '두께 8mm 책 가장자리 잡기 (세 손가락 받침, 새끼 뗌)', 'grip', null, null, {custom: {index: [35, 14, 7], middle: [35, 14, 7], ring: [35, 14, 7], pinky: [30, 35, 20]}, thumb: [20, -15, 0, 5, -5, 0, 5]}],
+  ['bk-edge2-8', '두께 8mm 책 가장자리 잡기 (검지·중지 받침)', 'grip', null, null, {custom: {index: [35, 14, 7], middle: [35, 14, 7], ring: [45, 50, 30], pinky: [50, 55, 30]}, thumb: [20, -15, 0, 5, -5, 0, 5]}],
+  ['bk-edge4-12', '두께 1.2cm 책 가장자리 잡기 (네 손가락 받침)', 'grip', null, null, {custom: {index: [39, 16, 9], middle: [39, 16, 9], ring: [39, 16, 9], pinky: [39, 16, 9]}, thumb: [30, -20, 0, 0, -5, 0, 10]}],
+  ['bk-edge3-12', '두께 1.2cm 책 가장자리 잡기 (세 손가락 받침, 새끼 뗌)', 'grip', null, null, {custom: {index: [39, 16, 9], middle: [39, 16, 9], ring: [39, 16, 9], pinky: [30, 35, 20]}, thumb: [30, -20, 0, 0, -5, 0, 10]}],
+  ['bk-edge2-12', '두께 1.2cm 책 가장자리 잡기 (검지·중지 받침)', 'grip', null, null, {custom: {index: [39, 16, 9], middle: [39, 16, 9], ring: [45, 50, 30], pinky: [50, 55, 30]}, thumb: [30, -20, 0, 0, -5, 0, 10]}],
+  ['bk-edge4-16', '두께 1.6cm 책 가장자리 잡기 (네 손가락 받침)', 'grip', null, null, {custom: {index: [42, 19, 10], middle: [42, 19, 10], ring: [42, 19, 10], pinky: [42, 19, 10]}, thumb: [25, -15, 0, 15, -5, 0, 10]}],
+  ['bk-edge3-16', '두께 1.6cm 책 가장자리 잡기 (세 손가락 받침, 새끼 뗌)', 'grip', null, null, {custom: {index: [42, 19, 10], middle: [42, 19, 10], ring: [42, 19, 10], pinky: [30, 35, 20]}, thumb: [25, -15, 0, 15, -5, 0, 10]}],
+  ['bk-edge2-16', '두께 1.6cm 책 가장자리 잡기 (검지·중지 받침)', 'grip', null, null, {custom: {index: [42, 19, 10], middle: [42, 19, 10], ring: [45, 50, 30], pinky: [50, 55, 30]}, thumb: [25, -15, 0, 15, -5, 0, 10]}],
+  ['bk-edge4-20', '두께 2cm 책 가장자리 잡기 (네 손가락 받침)', 'grip', null, null, {custom: {index: [46, 22, 12], middle: [46, 22, 12], ring: [46, 22, 12], pinky: [46, 22, 12]}, thumb: [40, -20, 0, 10, -5, 0, 10]}],
+  ['bk-edge3-20', '두께 2cm 책 가장자리 잡기 (세 손가락 받침, 새끼 뗌)', 'grip', null, null, {custom: {index: [46, 22, 12], middle: [46, 22, 12], ring: [46, 22, 12], pinky: [30, 35, 20]}, thumb: [40, -20, 0, 10, -5, 0, 10]}],
+  ['bk-edge2-20', '두께 2cm 책 가장자리 잡기 (검지·중지 받침)', 'grip', null, null, {custom: {index: [46, 22, 12], middle: [46, 22, 12], ring: [45, 50, 30], pinky: [50, 55, 30]}, thumb: [40, -20, 0, 10, -5, 0, 10]}],
+  ['bk-palm-gutter-flat', '펼친 얇은 책 손바닥에 올리고 엄지로 가운데 접힌 곳 누르기 (손가락 펴서 받침)', 'grip', null, null, {custom: {index: [15, 8, 4], middle: [15, 8, 4], ring: [15, 8, 4], pinky: [15, 8, 4]}, thumb: [20, 20, 0, 0, 0, 0, -5], s: 1}],
+  ['bk-palm-gutter-tip', '펼친 얇은 책 손바닥에 올리고 엄지로 가운데 접힌 곳 누르기 (손끝 세워 받침)', 'grip', null, null, {custom: {index: [35, 25, 25], middle: [35, 25, 25], ring: [35, 25, 25], pinky: [35, 25, 25]}, thumb: [20, 20, 0, 0, 0, 0, -5], s: 1}],
+  ['bk-palm-gutter-curl', '펼친 얇은 책 손바닥에 올리고 엄지로 가운데 접힌 곳 누르기 (네 손가락 뒤에서 살짝 감음)', 'grip', null, null, {custom: {index: [45, 35, 20], middle: [45, 35, 20], ring: [45, 35, 20], pinky: [45, 35, 20]}, thumb: [20, 20, 0, 0, 0, 0, -5], s: 0}],
+  ['bk-palm-edge-flat', '펼친 얇은 책 손바닥에 올리고 엄지로 책장 가장자리 누르기 (손가락 펴서 받침)', 'grip', null, null, {custom: {index: [15, 8, 4], middle: [15, 8, 4], ring: [15, 8, 4], pinky: [15, 8, 4]}, thumb: [30, -5, 0, 10, -5, 0, 10], s: 1}],
+  ['bk-palm-edge-tip', '펼친 얇은 책 손바닥에 올리고 엄지로 책장 가장자리 누르기 (손끝 세워 받침)', 'grip', null, null, {custom: {index: [35, 25, 25], middle: [35, 25, 25], ring: [35, 25, 25], pinky: [35, 25, 25]}, thumb: [30, -5, 0, 10, -5, 0, 10], s: 1}],
+  ['bk-palm-edge-curl', '펼친 얇은 책 손바닥에 올리고 엄지로 책장 가장자리 누르기 (네 손가락 뒤에서 살짝 감음)', 'grip', null, null, {custom: {index: [45, 35, 20], middle: [45, 35, 20], ring: [45, 35, 20], pinky: [45, 35, 20]}, thumb: [30, -5, 0, 10, -5, 0, 10], s: 0}],
+  ['bk-palm-across-flat', '펼친 얇은 책 손바닥에 올리고 엄지 펴서 책장 가로질러 누르기 (손가락 펴서 받침)', 'grip', null, null, {custom: {index: [15, 8, 4], middle: [15, 8, 4], ring: [15, 8, 4], pinky: [15, 8, 4]}, thumb: [25, 10, 0, -5, 0, 0, -10], s: 1}],
+  ['bk-palm-across-tip', '펼친 얇은 책 손바닥에 올리고 엄지 펴서 책장 가로질러 누르기 (손끝 세워 받침)', 'grip', null, null, {custom: {index: [35, 25, 25], middle: [35, 25, 25], ring: [35, 25, 25], pinky: [35, 25, 25]}, thumb: [25, 10, 0, -5, 0, 0, -10], s: 1}],
+  ['bk-palm-across-curl', '펼친 얇은 책 손바닥에 올리고 엄지 펴서 책장 가로질러 누르기 (네 손가락 뒤에서 살짝 감음)', 'grip', null, null, {custom: {index: [45, 35, 20], middle: [45, 35, 20], ring: [45, 35, 20], pinky: [45, 35, 20]}, thumb: [25, 10, 0, -5, 0, 0, -10], s: 0}],
+  ['bk-onehand-tp', '한 손으로 책 펼쳐 들기 (엄지·새끼로 양쪽 누름)', 'grip', null, null, {custom: {index: [35, 20, 10], middle: [40, 25, 15], ring: [40, 25, 15], pinky: [20, 10, 5]}, thumb: [20, 20, 0, 0, 0, 0, -5], abd: {index: 6, middle: 0, ring: -6, pinky: -22}}],
+  ['bk-onehand-ti', '한 손으로 책 펼쳐 들기 (엄지·검지로 양쪽 누름)', 'grip', null, null, {custom: {index: [15, 8, 4], middle: [40, 25, 15], ring: [45, 30, 15], pinky: [45, 30, 15]}, thumb: [20, 20, 0, 0, 0, 0, -5], abd: {index: 14, middle: 0, ring: -6, pinky: -12}}],
+  ['bk-spine-6-side', '두께 6mm 책 등 쥐고 들기 (엄지 표지 위)', 'grip', null, null, {custom: {index: [70, 90, 50], middle: [70, 90, 50], ring: [70, 90, 50], pinky: [70, 90, 50]}, thumb: [15, -20, 0, 10, 0, 0, 5]}],
+  ['bk-spine-6-hang', '두께 6mm 책 등 손끝으로 걸어 들기', 'grip', null, null, {custom: {index: [40, 90, 60], middle: [40, 90, 60], ring: [45, 85, 55], pinky: [45, 80, 50]}, thumb: [5, -25, 0, 5, 0, 0, 0]}],
+  ['bk-spine-10-side', '두께 1cm 책 등 쥐고 들기 (엄지 표지 위)', 'grip', null, null, {custom: {index: [66, 84, 46], middle: [66, 84, 46], ring: [66, 84, 46], pinky: [66, 84, 46]}, thumb: [15, -20, 0, 10, 0, 0, 5]}],
+  ['bk-spine-15-side', '두께 1.5cm 책 등 쥐고 들기 (엄지 표지 위)', 'grip', null, null, {custom: {index: [60, 77, 40], middle: [60, 77, 40], ring: [60, 77, 40], pinky: [60, 77, 40]}, thumb: [15, -20, 0, 10, 0, 0, 5]}],
+  ['bk-spine-15-hang', '두께 1.5cm 책 등 손끝으로 걸어 들기', 'grip', null, null, {custom: {index: [34, 84, 54], middle: [34, 84, 54], ring: [39, 79, 49], pinky: [39, 74, 44]}, thumb: [5, -25, 0, 5, 0, 0, 0]}],
+  ['bk-spine-20-side', '두께 2cm 책 등 쥐고 들기 (엄지 표지 위)', 'grip', null, null, {custom: {index: [55, 70, 35], middle: [55, 70, 35], ring: [55, 70, 35], pinky: [55, 70, 35]}, thumb: [15, -20, 0, 10, 0, 0, 5]}],
+  ['bk-turn-hover', '책장 넘기려고 검지 내밀기', 'daily', null, null, {custom: {index: [25, 15, 10], middle: [55, 60, 35], ring: [60, 65, 35], pinky: [60, 65, 35]}, thumb: [20, 0, 0, 10, 0, 0, 10]}],
+  ['bk-turn-liftT', '엄지 끝으로 책장 모서리 들추기', 'daily', null, null, {custom: {index: [35, 20, 10], middle: [40, 30, 15], ring: [45, 35, 15], pinky: [45, 35, 15]}, thumb: [30, -5, 0, 20, 0, 0, 40]}],
+  ['bk-turn-liftI', '검지 끝으로 책장 모서리 들추기', 'daily', null, null, {custom: {index: [30, 35, 35], middle: [50, 55, 30], ring: [55, 60, 30], pinky: [55, 60, 30]}, thumb: [10, -20, 0, 10, 0, 0, 5]}],
+  ['bk-turn-pinchPad', '책장 모서리 엄지·검지 끝으로 집기', 'daily', null, null, {custom: {index: [45, 80, 20], middle: [45, 45, 25], ring: [50, 50, 25], pinky: [50, 50, 25]}, thumb: [35, 0, 0, 20, -8, 0, 10]}],
+  ['bk-turn-pinchLat', '책장 엄지 패드와 검지 옆면 사이에 끼우기', 'daily', null, null, {custom: {index: [45, 50, 30], middle: [60, 70, 40], ring: [65, 75, 40], pinky: [65, 75, 40]}, thumb: [10, -15, 0, 15, -5, 0, 5]}],
+  ['bk-turn-pinchMid', '책장 엄지·중지로 집어 넘기기', 'daily', null, null, {custom: {index: [25, 20, 10], middle: [65, 80, 10], ring: [45, 40, 25], pinky: [45, 40, 25]}, thumb: [35, 5, 0, 20, -8, 0, 20]}],
+  ['bk-turn-lick', '손끝 침 묻혀 책장 밀어 넘기기', 'daily', null, null, {custom: {index: [20, 15, 15], middle: [60, 70, 40], ring: [65, 75, 40], pinky: [65, 75, 40]}, thumb: [25, -10, 0, 20, 0, 0, 20]}],
+  ['bk-turn-push', '들춘 책장 손가락 펴서 밀어 넘기기', 'daily', null, null, {custom: {index: [15, 10, 5], middle: [15, 10, 5], ring: [20, 12, 6], pinky: [25, 15, 8]}, thumb: [10, 10, 0, 0, 0, 0, 0]}],
+  ['bk-turn-sweep', '넘어가는 책장 손등으로 쓸어 넘기기', 'daily', null, null, {custom: {index: [25, 30, 15], middle: [25, 30, 15], ring: [30, 32, 15], pinky: [35, 35, 15]}, thumb: [10, -10, 0, 10, 0, 0, 10]}],
+  ['bk-turn-flat', '넘긴 책장 손바닥으로 펴 누르기', 'daily', null, null, {custom: {index: [5, 0, 0], middle: [5, 0, 0], ring: [5, 0, 0], pinky: [5, 0, 0]}, thumb: [0, 15, 0, -5, 0, 0, -5]}],
+  ['bk-turn-riffle', '엄지로 책장 촤르륵 훑어 넘기기', 'daily', null, null, {custom: {index: [40, 20, 10], middle: [45, 25, 12], ring: [50, 25, 12], pinky: [50, 25, 12]}, thumb: [35, -15, 0, 25, 0, 0, 35]}],
+  ['bk-turn-riffleBack', '책장 뒤에서 손가락으로 받치고 엄지 훑기', 'daily', null, null, {custom: {index: [50, 30, 15], middle: [55, 30, 15], ring: [55, 30, 15], pinky: [55, 30, 15]}, thumb: [40, -20, 0, 30, 0, 0, 45]}],
+  ['bk-turn-dogEar', '책장 모서리 접기', 'daily', null, null, {custom: {index: [45, 80, 20], middle: [50, 50, 30], ring: [55, 55, 30], pinky: [55, 55, 30]}, thumb: [35, 0, 0, 20, -8, 0, 10]}],
+  ['bk-turn-hold', '넘기던 책장 엄지로 잡고 멈추기', 'daily', null, null, {custom: {index: [35, 25, 15], middle: [40, 30, 15], ring: [45, 30, 15], pinky: [45, 30, 15]}, thumb: [25, 5, 0, 5, 0, 0, 0]}],
+  ['bk-turn-middle', '중지 끝으로 책장 넘기기', 'daily', null, null, {custom: {index: [55, 50, 25], middle: [25, 20, 15], ring: [60, 60, 30], pinky: [60, 60, 30]}, thumb: [15, -20, 0, 10, 0, 0, 10]}],
+  ['bk-sheet-padI', '종이 한 장 엄지·검지 끝으로 집어 들기', 'objects', null, null, {custom: {index: [60, 80, 50], middle: [55, 60, 35], ring: [60, 65, 35], pinky: [60, 65, 35]}, thumb: [30, 0, 0, 20, -8, 0, 20]}],
+  ['bk-sheet-padIM', '종이 한 장 엄지와 검지·중지로 집기', 'objects', null, null, {custom: {index: [50, 80, 30], middle: [53, 83, 33], ring: [60, 65, 35], pinky: [60, 65, 35]}, thumb: [35, 10, 0, 20, -8, 0, 20]}],
+  ['bk-sheet-lat', '종이 엄지와 검지 옆면으로 끼워 들기', 'objects', null, null, {custom: {index: [55, 55, 30], middle: [65, 70, 40], ring: [70, 75, 40], pinky: [70, 75, 40]}, thumb: [5, -10, 0, 25, -5, 0, 20]}],
+  ['bk-sheet-top', '종이 위쪽 가장자리 잡고 들어 보기', 'objects', null, null, {custom: {index: [30, 20, 10], middle: [32, 22, 10], ring: [35, 22, 10], pinky: [38, 22, 10]}, thumb: [20, -25, 0, -5, -5, 0, 0]}],
+  ['bk-sheet-roll', '돌돌 만 잡지 쥐기', 'objects', null, null, {custom: {index: [60, 65, 40], middle: [65, 70, 42], ring: [68, 72, 42], pinky: [70, 72, 40]}, thumb: [21, 0, -2, 35, -10, 0, 30]}],
+  ['bk-sheet-fold', '반 접은 신문 한 손에 들기', 'objects', null, null, {custom: {index: [35, 20, 10], middle: [38, 22, 12], ring: [40, 24, 12], pinky: [42, 25, 12]}, thumb: [15, -15, 0, 10, -5, 0, 0]}],
+  ['bk-sheet-fan', '종이 여러 장 부채처럼 펴 들기', 'objects', null, null, {custom: {index: [35, 15, 8], middle: [38, 18, 10], ring: [40, 20, 10], pinky: [42, 22, 10]}, thumb: [25, -10, 0, 5, 0, 0, 0]}],
+  ['bk-sheet-tap', '종이 묶음 책상에 탁탁 맞추기', 'objects', null, null, {custom: {index: [20, 10, 5], middle: [22, 10, 5], ring: [24, 12, 6], pinky: [26, 12, 6]}, thumb: [20, -15, 0, 5, 0, 0, 0]}],
+  ['bk-look-tilt', '얇은 책 기울여 들고 표지 보기', 'objects', null, null, {custom: {index: [40, 25, 12], middle: [40, 25, 12], ring: [40, 25, 12], pinky: [40, 25, 12]}, thumb: [20, -15, 0, 10, -5, 0, 10]}],
+  ['bk-look-high', '얇은 책 눈높이로 들어 살펴보기', 'objects', null, null, {custom: {index: [45, 20, 10], middle: [45, 20, 10], ring: [45, 20, 10], pinky: [45, 20, 10]}, thumb: [25, -10, 0, 0, -5, 0, 5]}],
+  ['bk-look-claw', '책 위쪽 가장자리 손끝으로 걸쳐 잡기', 'objects', null, null, {custom: {index: [20, 55, 40], middle: [20, 55, 40], ring: [20, 55, 40], pinky: [20, 55, 40]}, thumb: [10, -20, 0, 10, 0, 0, 5]}],
+  ['bk-look-back', '책 뒤를 손가락 세워 받치고 읽기', 'objects', null, null, {custom: {index: [55, 30, 20], middle: [55, 30, 20], ring: [55, 30, 20], pinky: [55, 30, 20]}, thumb: [20, 15, 0, 0, 0, 0, -5]}],
 ];
 
 // Every combination of straight and folded fingers (32), and the spread
@@ -1679,7 +1743,7 @@ function build() {
       h = {};
       for (const k of Object.keys(byId[a].h)) h[k] = byId[a].h[k].map((v, j) => v + (byId[b].h[k][j] - v) * t);
     } else {
-      h = { thumb: T[thumb].slice() };
+      h = { thumb: (opts.thumb || T[thumb]).slice() };
       KEYS.forEach((key, i) => {
         const [mcp, pip, dip] = opts.custom ? opts.custom[key] : F[fingers[i]];
         const abd = opts.abd && opts.abd[key] !== undefined ? opts.abd[key] : opts.s ? SPREAD[key] : 0;

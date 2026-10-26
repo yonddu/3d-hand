@@ -149,7 +149,7 @@ export class HandSolver {
       hidden[finger.key] = hiddenJoints(finger, P, frames[finger.key], occluded);
     }
     // The grip the seen fingers point to, for the hidden ones (gripPrior.js).
-    this.gripIn = { reading: starts, hidden, shape: held, size: heldSize };
+    this.gripIn = { reading: starts, hidden, shape: held, size: heldSize, aperture: P[4].distanceTo(P[8]) * 1000 };
     let grip;
     if (plan === undefined) {
       grip = this.grasp.update(starts, hidden, held, heldSize);

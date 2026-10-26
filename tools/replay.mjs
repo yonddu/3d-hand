@@ -23,7 +23,7 @@ import { liftToPicture } from '../src/lift.js';
 import { objectForHand, objectOcclusion } from '../src/objects.js';
 import { HandRig, handFrameQuat } from '../src/handRig.js';
 import { HandSolver } from '../src/solver.js';
-import { planGrips, objectSize } from '../src/gripPrior.js';
+import { planGrips, objectSize, heldFamily } from '../src/gripPrior.js';
 
 const FLIP = (45 * Math.PI) / 180;
 const JUMP = 30;
@@ -109,7 +109,7 @@ function pass(take, plans, logs = null) {
       const occluded = vision && vision.box ? objectOcclusion(h.landmarks, vision.box, raw.occluded) : raw.occluded || null;
       const prev = last[side];
       if (!prev || t - prev.t > 0.6) solvers[side].reset();
-      const opts = { limits: true, fit: true, occluded, cup: raw.cup || 0, held: vision ? vision.shape : null, heldSize: objectSize(vision), smoothing: false };
+      const opts = { limits: true, fit: true, occluded, cup: raw.cup || 0, held: heldFamily(vision), heldSize: objectSize(vision), smoothing: false };
       if (plans) opts.plan = plans[side][fi] || null;
       const res = solvers[side].solve(P, opts);
       if (logs) logs[side][fi] = solvers[side].gripIn;

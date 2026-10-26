@@ -10,6 +10,7 @@
 // another one fits clearly better for several frames, so hidden fingers do not
 // jump between shapes.
 import { GESTURES } from './gestures.js';
+import { contactMisfit, contactOver, reachBound } from './gripPhysics.js';
 
 const CATS = new Set(['grip', 'graspTax', 'objects', 'daily']);
 const KEYS = ['thumb', 'index', 'middle', 'ring', 'pinky'];
@@ -23,7 +24,6 @@ const FIT_MAX = 16; // degrees (RMS over seen angles) for a grip to count
 const SWITCH = 0.7; // a new grip must fit this much better than the held one
 const HOLD = 6; // for this many frames in a row
 const SIZE_TOL = 0.25; // log size ratio between grip and object that counts as one unit of mismatch
-const SIZE_UNKNOWN = 0.5; // what a grip without a size pays when the object's size is known
 
 // Every real hand shape in the dictionary takes part, not only the grips:
 // hidden fingers in a sign or a gesture are filled the same way. Over the
@@ -39,35 +39,36 @@ const FAMILY_IDS = {
   cylinder: ['grip-power', 'gt-01', 'gt-02', 'gt-03', 'gt-04', 'gt-05', 'gt-29', 'ob-bottleBody', 'ob-bottleNeck', 'ob-can', 'ob-mugHandle', 'ob-railing', 'ob-umbrella', 'ob-barbell', 'ob-racket', 'ob-ropePull', 'dl-cup', 'dl-mug', 'dl-flashlight', 'dl-flashlightOn', 'dl-candle', 'dl-rail', 'dl-rung', 'dl-rope', 'ob2-paperCup', 'ob2-shotGlass', 'ob2-pillBottle', 'ob-spray'],
   sphere: ['grip-sphere', 'gt-10', 'gt-11', 'gt-13', 'gt-26', 'gt-28', 'ob-egg', 'ob-eggHold', 'ob-tennis', 'ob-baseballHold', 'ob-golfBall', 'ob-apple', 'ob-orange', 'ob-ballSmall', 'ob-doorKnob', 'ob-lid', 'dl-knob', 'ob2-pingBall', 'tl-bowlingBall'],
   box: ['gt-06', 'gt-07', 'gt-08', 'gt-18', 'gt-22', 'ob-phoneSide', 'ob-phoneTwo', 'ob-book', 'ob-remote', 'ob-mouse', 'ob-card', 'dl-phoneHold', 'dl-phoneTap', 'dl-phoneLand', 'dl-phoneCall', 'dl-keyFob', 'dl-card', 'dl-gamepadL', 'dev-mousePalm', 'dev-mouseClaw', 'dev-mouseTip', 'dev-phoneThumb', 'dev-remoteBtn', 'dev-padStick', 'dev-padTrigger', 'dev-padBumper'],
+  book: ['ob-book', 'dl-page', 'dl-card', 'ob-card', 'gt-06', 'gt-07', 'gt-08'],
   rod: ['grip-tripod', 'gt-02', 'gt-14', 'gt-17', 'gt-19', 'gt-20', 'gt-21', 'gt-29', 'ob-pen', 'ob-penClick', 'ob-toothbrush', 'ob-spoonHold', 'ob-fork', 'ob-knife', 'ob-scissorsHold', 'ob-wineStem', 'ob-umbrella', 'ob-racket', 'ob-chopOne', 'ob-brushPaint', 'dl-spoon', 'dl-chopsticks', 'dl-match', 'tl-lateralTripod', 'tl-quadrupod', 'tl-chopOpen', 'tl-chopClose', 'tl-scissorOpen', 'tl-scissorClose', 'tl-knifeSpine', 'tl-knifePinch', 'tl-dartGrip', 'tl-paintbrush', 'tl-tweezers', 'tl-screwdriverTip', 'ob2-chalk', 'ob2-lipstick', 'ob2-ladle'],
 };
 // The size-graded grips (gestures.js v53) join their family by id prefix.
-const FAMILY_PREFIX = { cylinder: ['cyl-', 'mug-'], sphere: ['sph-'], box: ['box-'], rod: ['rod-'] };
+const FAMILY_PREFIX = { cylinder: ['cyl-', 'mug-'], sphere: ['sph-'], box: ['box-'], rod: ['rod-'], book: ['bk-', 'box-'] };
 export const FAMILIES = Object.fromEntries(Object.entries(FAMILY_IDS).map(([k, ids]) => [k, GRIPS.filter((g) => ids.includes(g.id) || FAMILY_PREFIX[k].some((p) => g.id.startsWith(p)))]));
 
-// The size a grip was made for, in mm, from its id: cyl-50-*, sph-70-*, rod-15-*,
-// mug-*, box-<width>-<thickness>. null for grips not graded by size.
-export function gripSize(g) {
-  const m = /^(cyl|sph|rod|box)-(\d+)/.exec(g.id);
-  return m ? Number(m[2]) : null;
-}
-
 // The held object's size in mm (objects.js measure): a diameter for round
-// things, the width for a box.
+// things. A box's measured width says nothing about how the hand holds it
+// (across its thickness), so it gives none.
 export function objectSize(vision) {
-  if (!vision) return null;
-  if (vision.shape === 'box') return vision.size ? vision.size[0] * 1000 : null;
+  if (!vision || vision.shape === 'box') return null;
   return vision.radius ? vision.radius * 2000 : null;
 }
 
-// How badly a grip's size suits the object, in units of FIT_MAX squared.
-// A hand closes around what it holds: a 70 mm cup is not held in a 30 mm grip
-// however alike the seen fingers look.
-function sizeCost(g, size) {
-  if (!size) return 0;
-  const d = gripSize(g);
-  if (!d) return SIZE_UNKNOWN;
-  return Math.min(4, (Math.log(d / size) / SIZE_TOL) ** 2 * 0.5);
+// The grip family the held object calls for: a book is a box held thin.
+export function heldFamily(vision) {
+  if (!vision) return null;
+  return vision.category === 'book' ? 'book' : vision.shape;
+}
+
+// How badly a grip suits the object, in units of FIT_MAX squared, from what
+// the grip's geometry can hold (gripPhysics.js). A 70 mm cup is not held in a
+// grip whose fingers curl round 30 mm, however alike the seen fingers look.
+// bound: the largest size the reach allows (planGrips), a one-sided limit.
+function sizeCost(g, size, shape, bound = null) {
+  let c = 0;
+  if (size) c += (contactMisfit(g, shape, size) / SIZE_TOL) ** 2 * 0.5;
+  if (bound) c += (contactOver(g, shape, bound) / SIZE_TOL) ** 2 * 0.5;
+  return Math.min(4, c);
 }
 
 export class GraspPrior {
@@ -114,13 +115,13 @@ export class GraspPrior {
     let best = null;
     let bestFit = Infinity;
     for (const g of family) {
-      const f = Math.sqrt(this.misfit(g, reading, hidden) ** 2 + FIT_MAX ** 2 * sizeCost(g, size));
+      const f = Math.sqrt(this.misfit(g, reading, hidden) ** 2 + FIT_MAX ** 2 * sizeCost(g, size, shape));
       if (f < bestFit) {
         bestFit = f;
         best = g;
       }
     }
-    const held = this.current ? Math.sqrt(this.misfit(this.current, reading, hidden) ** 2 + FIT_MAX ** 2 * sizeCost(this.current, size)) : Infinity;
+    const held = this.current ? Math.sqrt(this.misfit(this.current, reading, hidden) ** 2 + FIT_MAX ** 2 * sizeCost(this.current, size, shape)) : Infinity;
     if (held > FIT_MAX * 1.5) this.current = null; // the hand left that grip
     if (!this.current) {
       this.current = bestFit <= FIT_MAX ? best : null;
@@ -175,7 +176,8 @@ const SWITCH_COST = 32; // a switch costs as much as this many frames at the fit
 // recorded takes, 32 and this cut finger jumps 11% (5384 -> 4793) and grip
 // changes 829 -> 137; 4 to 128 and 1 to 8 were tried.
 const NONE_COST = 4;
-const APPROACH = 8; // frames before a hold that already shape for its grip
+const APPROACH = 8;
+const REACH_LOOK = 20; // frames before a hold searched for the hand's widest opening // frames before a hold that already shape for its grip
 export function planGrips(log, prior = new GraspPrior()) {
   const plan = log.map(() => null);
   const isHidden = (e) => e && KEYS.some((k) => Math.max(...e.hidden[k]) >= HIDDEN_MIN);
@@ -205,14 +207,23 @@ function planRun(log, plan, s, e, prior) {
     if (log[i].size) sizes.push(log[i].size);
   }
   const shape = Object.keys(votes).sort((a, b) => votes[b] - votes[a])[0] || null;
-  const size = sizes.length ? sizes.sort((a, b) => a - b)[sizes.length >> 1] : null;
+  const seen = sizes.length ? sizes.sort((a, b) => a - b)[sizes.length >> 1] : null;
+  // Read backward from the hold: the hand opened only so wide on the way in,
+  // so the object can be no bigger than that allows (gripPhysics.js). A size
+  // from the camera past that limit is cut down to it.
+  const openings = [];
+  for (let i = Math.max(0, s - REACH_LOOK); i <= Math.min(e, s + 2); i++) openings.push(log[i] ? log[i].aperture : NaN);
+  const reach = log[s].aperture ? reachBound(openings, log[s].aperture) : null;
+  const size = seen && reach ? Math.min(seen, reach) : seen;
+  plan.sizes = plan.sizes || [];
+  plan.sizes.push({ s, e, shape, seen, reach, size });
   const C = prior.family(shape);
   const S = C.length + 1; // the last state: no grip
   const T = e - s + 1;
   const back = new Int32Array(T * S);
   let best = new Float64Array(S);
   let next = new Float64Array(S);
-  const sc = C.map((g) => sizeCost(g, size));
+  const sc = C.map((g) => sizeCost(g, size, shape, reach));
   for (let t = 0; t < T; t++) {
     const f = log[s + t];
     let m = Infinity;
