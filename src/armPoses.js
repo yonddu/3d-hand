@@ -8,7 +8,8 @@
 // elliptical range, so flexion and deviation cannot both be at their limits.
 //
 // Angles in degrees:
-//   sFlex   shoulder flexion (0 arm hanging, 90 forward, 180 overhead)
+//   sFlex   shoulder flexion (0 arm hanging, 90 forward, 180 overhead;
+//           negative: the arm swung back, elbow behind the body, to -50)
 //   sAbd    shoulder abduction (out to the side)
 //   hRot    humeral rotation (+ internal: the forearm swings toward the body)
 //   elbow   elbow flexion (0 straight .. 150)
@@ -22,7 +23,7 @@ import { sideSign } from './skeleton.js';
 import { MOTIONS, MOTION_CATEGORIES, expandMotion } from './armMotions.js';
 
 export const ARM_ROM = {
-  sFlex: [0, 180], sAbd: [0, 150], hRot: [-70, 80], elbow: [0, 150], pron: [-80, 80],
+  sFlex: [-50, 180], sAbd: [0, 150], hRot: [-70, 80], elbow: [0, 150], pron: [-80, 80],
   wFlex: [-60, 70], wDev: [-35, 20],
 };
 const WRIST = { flex: 70, ext: 60, radial: 20, ulnar: 35 };
