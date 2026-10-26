@@ -5,8 +5,10 @@
 #
 #   python3 -I tools/palm/crops.py <synthetic folder> <file.jsonl> <out.npz>
 #
-# Label: how much the palm faces the camera (-1 back .. 1 palm), from the
-# drawn hand's true joints.
+# Labels: how much the palm faces the camera (-1 back .. 1 palm), from the
+# drawn hand's true joints, and the 15 joint flexions the hand was posed with
+# (degrees; thumb CMC/MCP/IP, then MCP/PIP/DIP of index..pinky, as
+# tools/synth-eval.mjs compares them) for the finger curl model.
 import json, sys
 import numpy as np
 from PIL import Image
@@ -50,7 +52,7 @@ def facing(t):
 
 if __name__ == '__main__':
     D, f, out = sys.argv[1:4]
-    X, Y, side, ids = [], [], [], []
+    X, Y, side, ids, ang = [], [], [], [], []
     for line in open(D + f):
         r = json.loads(line)
         t = r['truth']
@@ -63,5 +65,7 @@ if __name__ == '__main__':
         Y.append(facing(t))
         side.append(t['side'] == 'right')
         ids.append(r['id'])
-    np.savez_compressed(out, x=np.array(X, np.uint8), y=np.array(Y, np.float32), right=np.array(side), ids=np.array(ids))
+        h = t['h']
+        ang.append([h['thumb'][i] for i in (0, 3, 6)] + [h[k][i] for k in ('index', 'middle', 'ring', 'pinky') for i in (0, 3, 4)])
+    np.savez_compressed(out, x=np.array(X, np.uint8), y=np.array(Y, np.float32), right=np.array(side), ids=np.array(ids), ang=np.array(ang, np.float32))
     print(len(X), 'crops ->', out, 'palm-facing share', float((np.array(Y) > 0).mean()))

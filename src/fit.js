@@ -11,6 +11,8 @@
 import * as THREE from 'three';
 import { limitsFor, sideSign } from './skeleton.js';
 import { F as FINGER_SHAPES, T as THUMB_SHAPES } from './shapes.js';
+import { segDist, palmDepth } from './collide.js';
+export { ROOT };
 
 const D2R = Math.PI / 180;
 const Y = new THREE.Vector3(0, 1, 0);
@@ -26,6 +28,12 @@ const W_ROLL = 1.2; // knuckles barely turn about their length
 const W_TIME = 0.03; // stay near the last frame, lightly (the point filters already smooth)
 const W_CLOSE = 0.8; // hidden joints follow the natural closing path
 const W_SHAPE = 0.7; // hidden joints take the nearest basic shape
+const W_PICTURE = 0.5; // the bend read from the picture (fingerCurl.js), per PICTURE_SD of its spread
+const PICTURE_SD = 20; // degrees
+const W_SOLID = 40; // per palm length of one finger's bone inside another's (fingers are solid)
+const SQUEEZE = 0.005; // m two fingers may press into each other (skin gives; a folded thumb lies on the index)
+const RIG_PALM = 0.09; // m, the scale solid overlaps are weighed on
+const ROOT = 0.35; // fraction of a finger's first bone left out of the solid check
 const RESEED = 30; // degrees between seeds before both are tried
 const BENT_THUMB = 40; // degrees at the thumb's MCP and IP for the bent start
 const BENT_GAIN = 0.2; // the bent fit must cost this much less to win (0.6 shook a thumb pinching a book)
@@ -114,6 +122,36 @@ function residuals(theta, ctx) {
       if (ctx.hidden[k] > 0) r.push((v - ctx.shape[i]) * D2R * W_SHAPE * ctx.hidden[k]);
     });
   }
+  // Solid fingers: this finger's bones stay out of the others' (the thumb's
+  // first bone, under the palm's skin, is not checked).
+  if (ctx.walls) {
+    const model = forward(theta, { ...ctx, len: ctx.rigLen }).pts;
+    const pts3 = [[0, 0, 0], ...model.map((v) => [v.x, v.y, v.z])];
+    for (let k = ctx.key === 'thumb' ? 1 : 0; k < 3; k++) {
+      let deep = 0;
+      // A finger's first bone from a third along: neighbouring knuckles sit
+      // about two radii apart, so their roots always touch.
+      const from = k === 0 ? pts3[1].map((v) => v * ROOT) : pts3[k];
+      for (const w of ctx.walls) deep = Math.max(deep, w.reach - segDist(from, pts3[k + 1], w.p, w.q));
+      r.push((Math.max(0, deep - SQUEEZE) / RIG_PALM) * W_SOLID);
+    }
+  }
+  // The palm is solid too: the end joints stay out of it.
+  if (ctx.palmSlab && ctx.rigBase) {
+    const model = forward(theta, { ...ctx, len: ctx.rigLen }).pts;
+    const b = ctx.rigBase;
+    for (const k of [1, 2]) {
+      const p = [model[k].x + b[0], model[k].y + b[1], model[k].z + b[2]];
+      r.push((Math.max(0, palmDepth(p, ctx.radius, ctx.palmSlab) - SQUEEZE) / RIG_PALM) * W_SOLID);
+    }
+  }
+  // The bends the picture shows, each as sure as the network says it is.
+  if (ctx.picture) {
+    for (let k = 0; k < 3; k++) {
+      const { flex, sd } = ctx.picture[k];
+      r.push((ang[k].flex - flex) * D2R * W_PICTURE * (PICTURE_SD / Math.max(sd, 5)));
+    }
+  }
   // Time: unsure tracking leans on the last frame.
   if (ctx.prev) {
     const unsure = 1 - Math.min(...ctx.conf);
@@ -199,7 +237,16 @@ function solveLinear(A, b) {
 // Fit one finger. P: tracked points (rig orientation), wristQ: palm frame,
 // conf: per-bone confidence, prev: last frame's angles for this finger or null.
 // Returns { theta, locals, ang } (angles in degrees, abd toward the thumb).
-export function fitFinger({ finger, chain, side, P, wristQ, conf, palm, prev, start, useLimits, occluded = null, prior = null }) {
+// picture: this finger's joint bends read from the pixels ([{ flex, sd }] x3,
+// fingerCurl.js) or null. solid: the other fingers' bones already placed,
+// [{ p, q, reach }] (points in P's space, reach = the two radii summed), which
+// this finger's bones must stay out of.
+// The solid check runs on the hand model's own bones (rigBase: this finger's
+// base from the wrist, rigLen: its bone lengths), the shape that is drawn
+// and exported, not on the tracked points' lengths.
+// palmSlab: the palm on the model (collide.js palmFrame, from the wrist),
+// which the finger's end joints may not sink into.
+export function fitFinger({ finger, chain, side, P, wristQ, conf, palm, prev, start, useLimits, occluded = null, prior = null, picture = null, solid = null, radius = 0, rigBase = null, rigLen = null, palmSlab = null }) {
   const J = finger.joints;
   const base = P[J[0]];
   const obs = [1, 2, 3].map((k) => P[J[k]].clone().sub(base));
@@ -211,7 +258,9 @@ export function fitFinger({ finger, chain, side, P, wristQ, conf, palm, prev, st
   // A grip guessed from the whole hand (gripPrior.js) when there is one, else the
   // basic shape this finger's seen joints match.
   const shape = Math.max(...hidden) < 0.05 ? null : prior || nearestShape(finger.key, start, hidden);
-  const ctx = { key: finger.key, chain, side, wristQ, obs, len, conf, palm, lay, limits, prev, hidden, shape };
+  // Obstacles relative to this finger's base on the model.
+  const walls = solid && rigBase ? solid.map(({ p, q, reach }) => ({ p: [p[0] - rigBase[0], p[1] - rigBase[1], p[2] - rigBase[2]], q: [q[0] - rigBase[0], q[1] - rigBase[1], q[2] - rigBase[2]], reach: reach + radius })) : null;
+  const ctx = { key: finger.key, chain, side, wristQ, obs, len, conf, palm, lay, limits, prev, hidden, shape, picture, walls, rigLen, rigBase, palmSlab, radius };
   // Start from the last frame, or from the fresh reading when that already
   // fits better (the hand moved fast, or was just found again).
   const cost = (x) => residuals(x, ctx).reduce((s, v) => s + v * v, 0);
@@ -254,7 +303,9 @@ export function fitFinger({ finger, chain, side, P, wristQ, conf, palm, prev, st
     return kind === 'flex' ? THREE.MathUtils.clamp(v, fMin - 3, fMax + 3) : THREE.MathUtils.clamp(v, aMin - 2, aMax + 2);
   });
   const { locals, ang } = forward(theta, ctx);
-  return { theta, locals, ang };
+  // The model's joints from the wrist, base to tip, for the fingers fitted after.
+  const joints = rigBase && rigLen ? [rigBase.slice(), ...forward(theta, { ...ctx, len: rigLen }).pts.map((v) => [v.x + rigBase[0], v.y + rigBase[1], v.z + rigBase[2]])] : null;
+  return { theta, locals, ang, joints };
 }
 
 // How hidden each joint of a finger is (0 seen .. 1 a guess), base to tip.

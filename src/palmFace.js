@@ -18,7 +18,7 @@ const URL_BIN = 'vendor/models/palm_face.bin';
 let weights = null;
 let loading = null;
 
-function half(h) {
+export function half(h) {
   const s = h & 0x8000 ? -1 : 1;
   const e = (h >> 10) & 0x1f;
   const f = h & 0x3ff;
@@ -110,7 +110,7 @@ export function cropJpeg(source, lm, W, H) {
 
 // 3x3 stride 2 convolution with TensorFlow/JAX 'SAME' padding for an even
 // size (nothing before, one row/column after), then ReLU. HWC in and out.
-function conv(x, size, { ci, co, w, b }) {
+export function conv(x, size, { ci, co, w, b }) {
   const os = size / 2;
   const y = new Float32Array(os * os * co);
   for (let oy = 0; oy < os; oy++) {

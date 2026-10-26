@@ -8,8 +8,9 @@
 import * as THREE from 'three';
 import { FINGERS, limitsFor, sideSign } from './skeleton.js';
 import { handFrameQuat, cupQuat } from './handRig.js';
-import { fitFinger, hiddenJoints } from './fit.js';
+import { fitFinger, hiddenJoints, ROOT } from './fit.js';
 import { GraspPrior } from './gripPrior.js';
+import { RADIUS, palmFrame } from './collide.js';
 
 const D2R = Math.PI / 180;
 const R2D = 180 / Math.PI;
@@ -43,7 +44,8 @@ export class HandSolver {
 
   // P: 21 THREE.Vector3 in rig orientation (any origin, meters).
   // Returns per-bone angles and confidences and writes rotations to the rig.
-  solve(P, { limits = true, smoothing = true, synergy = true, fit = false, occluded = null, cup = 0, held = null, heldSize = null, plan } = {}) {
+  // picture: joint bends read from the hand's pixels (fingerCurl.js), or null.
+  solve(P, { limits = true, smoothing = true, synergy = true, fit = false, occluded = null, cup = 0, held = null, heldSize = null, plan, picture = null } = {}) {
     const rig = this.rig;
     const side = rig.side;
     const wristQ = handFrameQuat(P, side);
@@ -124,7 +126,7 @@ export class HandSolver {
       });
     }
     rig.cup = fit ? cup : 0;
-    if (fit) this.fitHand(P, wristQ, angles, confidence, { limits, smoothing, occluded, held, heldSize, plan });
+    if (fit) this.fitHand(P, wristQ, angles, confidence, { limits, smoothing, occluded, held, heldSize, plan, picture });
     return { angles, confidence };
   }
 
@@ -133,7 +135,7 @@ export class HandSolver {
   // plan: a grip chosen for this frame with the whole take known
   // (gripPrior.js planGrips), or null for none; left out, the grip is chosen
   // live from the frames so far.
-  fitHand(P, wristQ, angles, confidence, { limits, smoothing, occluded, held, heldSize, plan }) {
+  fitHand(P, wristQ, angles, confidence, { limits, smoothing, occluded, held, heldSize, plan, picture }) {
     const rig = this.rig;
     const palm = P[0].distanceTo(P[9]);
     const starts = {};
@@ -158,15 +160,33 @@ export class HandSolver {
       grip = plan && anyHidden(hidden) ? this.grasp.targets(plan, starts) : null;
       this.gripName = grip ? plan.name : '';
     }
-    for (const finger of FINGERS) {
+    // Fingers are solid: the four fingers are fitted first, each kept out of
+    // the ones already placed, then the thumb out of all four (it is the one
+    // that crosses the others, and MediaPipe reads it least well).
+    // On the hand model's own bones, which are what is drawn; radii scale
+    // with it (an adult palm is about 9 cm, wrist to middle knuckle).
+    const R = rig.rest;
+    const size = R[0].distanceTo(R[9]) / 0.09;
+    const solid = [];
+    const knuckle = (key) => rig.chains[key][0].bone.position.clone().applyQuaternion(wristQ).toArray();
+    const palmSlab = palmFrame([0, 0, 0], knuckle('index'), knuckle('pinky'), knuckle('middle'), new THREE.Vector3(0, 0, 1).applyQuaternion(wristQ).toArray());
+    for (const finger of [...FINGERS.slice(1), FINGERS[0]]) {
       const start = starts[finger.key];
       const prev = this.fitPrev[finger.key] || null;
       const chain = rig.chains[finger.key];
       const cupQ = cupQuat(rig.side, finger.key, rig.cup);
-      const res = fitFinger({ finger, chain, side: rig.side, P, wristQ: frames[finger.key], conf: confidence[finger.key], palm, prev, start, useLimits: limits, occluded, prior: grip && grip[finger.key] });
+      const radius = RADIUS[finger.key] * size;
+      const J = finger.joints;
+      const rigBase = chain[0].bone.position.clone().applyQuaternion(wristQ).toArray();
+      const rigLen = [0, 1, 2].map((k) => R[J[k + 1]].distanceTo(R[J[k]]));
+      const res = fitFinger({ finger, chain, side: rig.side, P, wristQ: frames[finger.key], conf: confidence[finger.key], palm, prev, start, useLimits: limits, occluded, prior: grip && grip[finger.key], picture: picture && picture[finger.key], solid: solid.length ? solid : null, radius, rigBase, rigLen, palmSlab });
       res.locals[0].premultiply(cupQ);
       this.fitPrev[finger.key] = res.theta;
       chain.forEach((link, k) => this.apply(link.bone, res.locals[k], smoothing ? 0.85 : 1));
+      const j = res.joints;
+      // The thumb's bones are checked from its MCP (the metacarpal is under the palm).
+      // A finger's first bone from ROOT along (fit.js: neighbouring knuckles touch).
+      for (let k = finger.key === 'thumb' ? 1 : 0; k < 3; k++) solid.push({ p: k === 0 ? j[0].map((v, i) => v + (j[1][i] - v) * ROOT) : j[k], q: j[k + 1], reach: radius });
       angles[finger.key] = res.ang.map(({ flex, abd }) => ({ flex, abd }));
     }
   }
