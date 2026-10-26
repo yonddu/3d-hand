@@ -13,20 +13,40 @@ import { planGrips } from './gripPrior.js';
 
 const RESET_GAP = 0.6; // seconds unseen after which the solver starts afresh, as live
 
+const CHUNK = 15; // frames solved between breaks, so the page keeps drawing
+
+// A break that also runs in a page out of view (timers there wait a second).
+function pause() {
+  return new Promise((resolve) => {
+    if (typeof MessageChannel === 'undefined') return setTimeout(resolve, 0);
+    const ch = new MessageChannel();
+    ch.port1.onmessage = () => resolve();
+    ch.port2.postMessage(0);
+  });
+}
+
 // frames: recorded frames whose hands carry `solveIn` (the solver's input:
 // points P as [x, y, z] and the solve options). Changes the frames in place
-// and drops `solveIn`.
-export function replanGrips(frames) {
-  for (const side of ['left', 'right']) {
+// and drops `solveIn`. onProgress(0..1) is told how far it is.
+export async function replanGrips(frames, onProgress = () => {}) {
+  const sides = ['left', 'right'];
+  let done = 0;
+  const total = frames.length * sides.length * 2;
+  for (const side of sides) {
     const solver = new HandSolver(new HandRig(side));
-    const run = (plan) => {
+    const run = async (plan) => {
       const log = [];
       const poses = [];
       let last = -1e9;
-      frames.forEach((f, i) => {
+      for (let i = 0; i < frames.length; i++) {
+        if (++done % CHUNK === 0) {
+          onProgress(done / total);
+          await pause();
+        }
+        const f = frames[i];
         const h = f.hands[side];
         log[i] = null;
-        if (!h || !h.solveIn) return;
+        if (!h || !h.solveIn) continue;
         if (f.t - last > RESET_GAP) solver.reset();
         last = f.t;
         const { P, opts } = h.solveIn;
@@ -35,12 +55,15 @@ export function replanGrips(frames) {
         solver.solve(P.map((p) => new THREE.Vector3(...p)), o);
         log[i] = solver.gripIn || null;
         poses[i] = solver.rig.getPose().bones;
-      });
+      }
       return { log, poses };
     };
-    const live = run(null);
-    if (!live.log.some(Boolean)) continue;
-    const planned = run(planGrips(live.log));
+    const live = await run(null);
+    if (!live.log.some(Boolean)) {
+      done += frames.length;
+      continue;
+    }
+    const planned = await run(planGrips(live.log));
     const q0 = new THREE.Quaternion();
     const q1 = new THREE.Quaternion();
     const qf = new THREE.Quaternion();
@@ -58,6 +81,7 @@ export function replanGrips(frames) {
       }
     });
   }
-  for (const f of frames) for (const side of ['left', 'right']) if (f.hands[side]) delete f.hands[side].solveIn;
+  for (const f of frames) for (const side of sides) if (f.hands[side]) delete f.hands[side].solveIn;
+  onProgress(1);
   return frames;
 }

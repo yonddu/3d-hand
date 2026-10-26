@@ -1339,7 +1339,7 @@ $('export-all').onclick = () => {
 
 const REC_FPS = 30;
 const takes = []; // this session's recordings, newest first
-const rec = { on: false, offline: false, frameReady: false, frames: [], raw: [], rawMeta: null, lastAt: -1e9, name: '', seekTo: 0, seekAt: 0, frameTime: 0, stepId: 0 };
+const rec = { on: false, finishing: null, offline: false, frameReady: false, frames: [], raw: [], rawMeta: null, lastAt: -1e9, name: '', seekTo: 0, seekAt: 0, frameTime: 0, stepId: 0 };
 const SEEK_RETRY = 1500; // ms before a seek that has not landed is asked again
 
 function handIsLive(side, t) {
@@ -1471,12 +1471,25 @@ function stopRecording() {
     resetTracking();
     video.play().catch(() => {});
   }
-  // The whole clip is known now: misread frames are fixed from their
-  // neighbours and the motion smoothed both ways (see cleanTake.js).
-  // Hidden fingers are read again with the frames before and after them
-  // known (gripPass.js), then the clip is cleaned.
-  const frames = cleanTake(replanGrips(trimFrames(rec.frames)));
+  // The whole clip is known now. Hidden fingers are read again with the
+  // frames before and after them known (gripPass.js), in steps so the view
+  // keeps drawing; then misread frames are fixed from their neighbours and
+  // the motion smoothed both ways (see cleanTake.js).
   const filmed = camRec.processing;
+  rec.finishing = 0;
+  updateGuide();
+  replanGrips(trimFrames(rec.frames), (u) => (rec.finishing = u))
+    .catch((e) => {
+      console.error(e);
+      return trimFrames(rec.frames);
+    })
+    .then((frames) => {
+      rec.finishing = null;
+      finishTake(cleanTake(frames), filmed);
+    });
+}
+
+function finishTake(frames, filmed) {
   camRec.processing = false;
   if (frames.length) {
     const take = { id: Date.now().toString(36), name: rec.name, frames, raw: rec.rawMeta ? { ...rec.rawMeta, frames: rec.raw } : null, createdAt: new Date(), videoUrl: filmed ? video.src : null };
@@ -1497,6 +1510,7 @@ function stopRecording() {
 $('rec').onclick = () => {
   unlockAudio();
   if (state.source === 'camera' && !state.liveTrack) return camRec.on ? stopFilming() : startFilming();
+  if (rec.finishing != null) return; // the last take is still being finished
   return rec.on ? stopRecording() : startRecording();
 };
 
@@ -1567,9 +1581,17 @@ function backToCamera() {
 
 function updateGuide() {
   // The frame-by-frame pass shows as it goes, with its progress in a bar at the bottom.
-  const busy = rec.on && rec.offline;
+  const finishing = rec.finishing != null;
+  const busy = (rec.on && rec.offline) || finishing;
   $('busy').hidden = !busy;
-  if (busy) {
+  if (finishing) {
+    const pct = Math.min(99, Math.round(rec.finishing * 100));
+    $('busy-bar').style.width = `${pct}%`;
+    $('busy-pct').textContent = `${pct}%`;
+    $('busy-text').hidden = false;
+    $('busy-text').textContent = '가려진 손가락을 앞뒤 장면과 맞춰 보는 중';
+    document.title = `${pct}% 마무리 중 · ${TITLE}`;
+  } else if (busy) {
     const end = rec.endTime || video.duration || 1;
     const pct = Math.min(99, Math.round((video.currentTime / end) * 100));
     $('busy-bar').style.width = `${pct}%`;
