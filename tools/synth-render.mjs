@@ -107,6 +107,10 @@ await page.evaluate(async ([seed, W, H, EXTRAS, HOLD]) => {
   // Something held: a pencil between thumb and fingers, a cup or a book on the
   // palm side. The hand's shape is not changed to fit it (its pose stays the
   // truth); it hides parts of the hand the way held things do in real video.
+  // The held object's own corner points (object keypoints: rod ends, a
+  // cylinder's axis ends, a box's 8 corners), for training an object point
+  // model; set by holdThing, read into the truth by pose().
+  let held = null;
   function holdThing(side, P) {
     const wrist = P[0];
     const n = P[5].clone().sub(wrist).cross(P[17].clone().sub(wrist)).normalize();
@@ -123,21 +127,29 @@ await page.evaluate(async ([seed, W, H, EXTRAS, HOLD]) => {
       const dir = across.clone().multiplyScalar(rnd() - 0.5).add(up.clone().multiplyScalar(0.3 + rnd())).add(palm.clone().multiplyScalar(rnd() - 0.5)).normalize();
       m.position.copy(at).addScaledVector(dir, (rnd() - 0.3) * 0.05);
       m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+      held = { type: 'rod', radius: 0.0035, local: [[0, L / 2, 0], [0, -L / 2, 0]] };
     } else if (k < 0.8) {
       const r = 0.035 + 0.012 * rnd();
-      m = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 0.9, 0.08 + 0.04 * rnd(), 24), new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(rnd(), 0.4 * rnd(), 0.3 + 0.6 * rnd()), roughness: 0.3 + 0.5 * rnd() }));
+      const ch = 0.08 + 0.04 * rnd();
+      held = { type: 'cylinder', radius: r * 0.95, local: [[0, ch / 2, 0], [0, -ch / 2, 0]] };
+      m = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 0.9, ch, 24), new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(rnd(), 0.4 * rnd(), 0.3 + 0.6 * rnd()), roughness: 0.3 + 0.5 * rnd() }));
       m.position.copy(wrist.clone().lerp(P[9], 0.75)).addScaledVector(palm, r + 0.012);
       m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), across.clone().add(up.clone().multiplyScalar(0.3 * (rnd() - 0.5))).normalize());
     } else {
-      m = new THREE.Mesh(new THREE.BoxGeometry(0.15 + 0.05 * rnd(), 0.21 + 0.04 * rnd(), 0.01 + 0.025 * rnd()), new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(rnd(), 0.5 * rnd(), 0.2 + 0.7 * rnd()), roughness: 0.7 }));
+      const bx = [0.15 + 0.05 * rnd(), 0.21 + 0.04 * rnd(), 0.01 + 0.025 * rnd()];
+      held = { type: 'box', local: [-1, 1].flatMap((x) => [-1, 1].flatMap((y) => [-1, 1].map((z) => [(x * bx[0]) / 2, (y * bx[1]) / 2, (z * bx[2]) / 2]))) };
+      m = new THREE.Mesh(new THREE.BoxGeometry(...bx), new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(rnd(), 0.5 * rnd(), 0.2 + 0.7 * rnd()), roughness: 0.7 }));
       m.position.copy(P[9].clone().lerp(P[12], 0.5)).addScaledVector(palm, 0.02 + 0.02 * rnd());
       m.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(across, palm.clone().cross(across).normalize(), palm));
       m.rotateZ((rnd() - 0.5) * 1.2);
     }
     extras.add(m);
+    m.updateMatrixWorld(true);
+    held.world = held.local.map((q) => new THREE.Vector3(...q).applyMatrix4(m.matrixWorld));
   }
   function wearThings(side, P, E) {
     extras.clear();
+    held = null;
     if (HOLD && rnd() < 0.5) holdThing(side, P);
     // Rings on proximal phalanges: none, one or two.
     const FING = [['index', 5, 6], ['middle', 9, 10], ['ring', 13, 14], ['pinky', 17, 18], ['thumb', 2, 3]];
@@ -247,7 +259,10 @@ await page.evaluate(async ([seed, W, H, EXTRAS, HOLD]) => {
       const L = [rh.joints.wrist.getWorldPosition(new THREE.Vector3())];
       for (const k of Object.keys(XR)) for (const n of XR[k].split(' ')) L.push(rh.joints[n].getWorldPosition(new THREE.Vector3()));
       if (EXTRAS) wearThings(side, L, J.E);
-      else extras.clear();
+      else {
+        extras.clear();
+        held = null;
+      }
       const inv = S.camera.matrixWorldInverse;
       const cam = L.map((p) => p.clone().applyMatrix4(inv));
       const img = L.map((p) => {
@@ -257,7 +272,16 @@ await page.evaluate(async ([seed, W, H, EXTRAS, HOLD]) => {
       const inside = img.filter(([x, y]) => x > 0.02 && x < 0.98 && y > 0.02 && y < 0.98).length;
       if (inside < 21 || cam.some((p) => p.z > -0.12)) return null;
       const handQ = new THREE.Quaternion().setFromRotationMatrix(inv).multiply(rig.wrist.getWorldQuaternion(new THREE.Quaternion()));
-      return { side, arm: ap.id, armAngles: ap.arm, shape: shape.id, h: shape.h, cup: shape.cup, handQ: handQ.toArray(), joints: cam.map((p) => p.toArray()), image: img };
+      const object = held && {
+        type: held.type,
+        radius: held.radius,
+        joints: held.world.map((p) => p.clone().applyMatrix4(inv).toArray()),
+        image: held.world.map((p) => {
+          const q = p.clone().project(S.camera);
+          return [(q.x + 1) / 2, (1 - q.y) / 2];
+        }),
+      };
+      return { side, arm: ap.id, armAngles: ap.arm, shape: shape.id, h: shape.h, cup: shape.cup, handQ: handQ.toArray(), joints: cam.map((p) => p.toArray()), image: img, object };
     },
     async detect(dataUrl) {
       const im = new Image();
