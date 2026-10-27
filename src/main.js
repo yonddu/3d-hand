@@ -1566,6 +1566,7 @@ $('rec').onclick = () => {
 // same frame-by-frame pass a video file gets (every frame, no lag), then
 // opens the result in review. Nothing is kept unless "저장" is pressed.
 
+const REC_BITS = 8e6; // 8 Mbit/s: 1 min of filming holds about 60 MB until analysed
 const camRec = { on: false, recorder: null, chunks: [], t0: 0, processing: false };
 
 function pickMime() {
@@ -1577,7 +1578,9 @@ function startFilming() {
   if (!stream || !window.MediaRecorder) return toast('이 브라우저는 녹화를 지원하지 않습니다. "실시간 추적"을 켜고 쓰세요.');
   const mimeType = pickMime();
   camRec.chunks = [];
-  camRec.recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+  // A high bitrate keeps nail and crease edges that the default compression
+  // (about 2.5 Mbit/s for 720p in Chrome) smears; the picture models read them.
+  camRec.recorder = new MediaRecorder(stream, { ...(mimeType ? { mimeType } : {}), videoBitsPerSecond: REC_BITS });
   camRec.recorder.ondataavailable = (e) => e.data.size && camRec.chunks.push(e.data);
   camRec.recorder.onstop = processFilm;
   camRec.recorder.start(250);
