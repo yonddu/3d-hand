@@ -25,7 +25,6 @@ const WRIST_CUT = -0.015;
 const BEND_IN = 0.02; // m of the heel of the hand, above the border, that shares the wrist's bend
 import { basisQuat, handFrameQuat, cupQuat } from './handRig.js';
 import { separateThumb } from './handBody.js';
-import { PALM_FRONT, PALM_BACK } from './collide.js';
 
 // WebXR joint names per finger: [metacarpal, proximal, intermediate/distal, distal/tip, tip].
 const XR = {
@@ -573,81 +572,6 @@ export class RealHand {
         ccd(key, goalB, 0.12);
       }
     }
-  }
-
-  // Each joint as a small cube turning with its bone (user idea 2026-10-27:
-  // rig points as cubes, so a joint's turn shows, not just where it is).
-  // Faces sit on the real hand: orange = nail / back of the hand (+y of the
-  // model's joints), blue = finger pad and creases (-y), green = toward the
-  // fingertip (-z). Drawn over the skin; screen only (exportSkin bakes the
-  // mesh alone, so the cubes never reach a saved GLB).
-  setCubesVisible(on) {
-    if (on && !this.cubes) {
-      const grey = new THREE.MeshBasicMaterial({ color: 0xd8d8d8, depthTest: false, transparent: true, opacity: 0.85 });
-      const face = (color) => new THREE.MeshBasicMaterial({ color, depthTest: false, transparent: true, opacity: 0.85 });
-      // BoxGeometry face order: +x, -x, +y, -y, +z, -z.
-      const mats = [grey, grey, face(0xff9a3c), face(0x4aa8ff), grey, face(0x3ccf6e)];
-      const geo = new THREE.BoxGeometry(0.009, 0.009, 0.009);
-      const edges = new THREE.EdgesGeometry(geo);
-      const line = new THREE.LineBasicMaterial({ color: 0x222222, depthTest: false, transparent: true, opacity: 0.6 });
-      // Finger points only (the finger metacarpals are part of the palm).
-      const fingerJoints = Object.entries(this.joints).filter(([n]) => n !== 'wrist' && !/-finger-metacarpal$/.test(n));
-      this.cubes = fingerJoints.map(([, j]) => {
-        const c = new THREE.Mesh(geo, mats);
-        c.add(new THREE.LineSegments(edges, line));
-        c.renderOrder = c.children[0].renderOrder = 10;
-        c.name = 'joint-cube';
-        j.add(c);
-        return c;
-      });
-      // The palm: the triangle the solid hand already uses for it (wrist,
-      // index and little finger knuckles, collide.js palmFrame) given its
-      // thickness, so it reads as one block with a palm and a back face.
-      this.cubes.push(this.palmBlock(face(0x4aa8ff), face(0xff9a3c), grey, line));
-    }
-    if (this.cubes) this.cubes.forEach((c) => (c.visible = on));
-  }
-
-  // Triangular block on the wrist joint: palm face (blue), back face (orange),
-  // grey sides, PALM_FRONT / PALM_BACK thick either side of the bones' plane.
-  palmBlock(palmMat, backMat, sideMat, line) {
-    const w = this.joints.wrist;
-    const inv = this.restQuat.wrist.clone().invert();
-    const local = (n) => this.restPos[n].clone().sub(this.restPos.wrist).applyQuaternion(inv);
-    const a = new THREE.Vector3();
-    const b = local('index-finger-phalanx-proximal');
-    const c = local('pinky-finger-phalanx-proximal');
-    // Toward the palm (back of the model's joints is +y; the triangle's
-    // normal is turned to agree).
-    const n = b.clone().cross(c).normalize();
-    const back = new THREE.Vector3(0, 1, 0).applyQuaternion(this.restQuat['middle-finger-phalanx-proximal'].clone().premultiply(inv));
-    if (n.dot(back) > 0) n.negate();
-    const front = n.clone().multiplyScalar(PALM_FRONT);
-    const rear = n.clone().multiplyScalar(-PALM_BACK);
-    const pts = [a, b, c].flatMap((p) => [p.clone().add(front), p.clone().add(rear)]);
-    // 0,2,4 palm side; 1,3,5 back side.
-    const pos = [];
-    const groups = [];
-    const tri = (i, j, k, g) => {
-      groups.push(g);
-      for (const q of [i, j, k]) pos.push(...pts[q].toArray());
-    };
-    tri(0, 2, 4, 0);
-    tri(1, 5, 3, 1);
-    for (const [i, j] of [[0, 2], [2, 4], [4, 0]]) {
-      tri(i, i + 1, j + 1, 2);
-      tri(i, j + 1, j, 2);
-    }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    groups.forEach((g, i) => geo.addGroup(i * 3, 3, g));
-    [palmMat, backMat, sideMat].forEach((m) => (m.side = THREE.DoubleSide));
-    const mesh = new THREE.Mesh(geo, [palmMat, backMat, sideMat]);
-    mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), line));
-    mesh.renderOrder = mesh.children[0].renderOrder = 9;
-    mesh.name = 'palm-block';
-    w.add(mesh);
-    return mesh;
   }
 
   // Mesh + bone offsets for GLB export, in the solver rig's bone layout.
