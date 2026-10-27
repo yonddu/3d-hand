@@ -23,6 +23,8 @@
 //          past 60 deg (middle + end joints) in the solved hand: a bend the picture rules out
 //   openpic (marks only) fingers whose tip lies back past the knuckle toward the wrist in
 //          the picture but bent under 60 deg (middle + end joints): only a folded finger does that
+//   pstill (marks only) a finger's middle + end joints changing more than 60 deg in
+//          one frame while the finger holds still in the picture: a depth misread
 //   unsure frames the tracker had to guess, by reason, each kept with where the
 //          hand was so the guesses say what data to collect next (--unsure):
 //            facing   both mirror poses of the palm fit and no rule decided (lift.js)
@@ -59,6 +61,8 @@ const A_STILL = 0.03;
 const PIERCE = 0.008;
 // pierce and ppierce are counted on the drawn and saved model's bones (handBody.js).
 const BODY_SIZE = Math.hypot(...BODY.right.base.middle) / 0.09; // m of two fingers' bones inside each other: one passing through the other
+const P_STILL = 60; // degrees of middle + end joint change in one frame...
+const P_STILL_PIC = 0.12; // ...with the finger's middle joint and tip moving under this (palm lengths) in the picture
 const BENT_PIC = 60; // degrees of middle + end joint bend a finger straight in the picture cannot have
 const STRAIGHT = 0.95; // picture chain this close to a line...
 const FULL = 0.8; // ...and this long against the palm (not pointing at the camera)
@@ -78,6 +82,13 @@ function straightInPicture(lm, aspect) {
 }
 const BEHIND = 0.05; // palm lengths the tip must lie back past the knuckle
 // Fingers the picture shows folded: the tip back past the knuckle, toward the wrist.
+// Each finger's middle joint and tip in the picture, from the wrist, in palm lengths.
+function pictureFingers(lm, aspect) {
+  const p = (i) => [lm[i].x * aspect, lm[i].y];
+  const palm = Math.hypot(p(9)[0] - p(0)[0], p(9)[1] - p(0)[1]) || 1;
+  return [[6, 8], [10, 12], [14, 16], [18, 20]].map((js) => js.map((j) => [(p(j)[0] - p(0)[0]) / palm, (p(j)[1] - p(0)[1]) / palm]));
+}
+
 function foldedInPicture(lm, aspect) {
   const p = (i) => [lm[i].x * aspect, lm[i].y];
   const palm = Math.hypot(p(9)[0] - p(0)[0], p(9)[1] - p(0)[1]);
@@ -174,6 +185,7 @@ function pass(take, plans, logs = null, keep = false) {
   const memory = { left: {}, right: {} };
   const held = { left: new HeldObject(), right: new HeldObject() };
   const last = { left: null, right: null };
+  const stillPic = {};
   const arms = { left: new ArmRig('left'), right: new ArmRig('right') };
   arms.left.follow = arms.right.follow = true;
   const made = take.frames.map((f) => ({ t: f.t, hands: { left: null, right: null } }));
@@ -274,6 +286,20 @@ function pass(take, plans, logs = null, keep = false) {
         const a = res.angles[key];
         if (a[1].flex + a[2].flex < BENT_PIC) out.marks.push({ t, side, kind: 'openpic', n: 1 });
       }
+      // pstill (marks only): a bend change the picture does not show.
+      {
+        const pic = pictureFingers(h.landmarks, take.aspect);
+        const lp = last[side];
+        if (lp && lp.pic && t - lp.t < 0.05) {
+          for (const [n, key] of ['index', 'middle', 'ring', 'pinky'].entries()) {
+            const a = res.angles[key];
+            const bend = a[1].flex + a[2].flex;
+            const moved = Math.max(...pic[n].map((v, i) => Math.hypot(v[0] - lp.pic[n][i][0], v[1] - lp.pic[n][i][1])));
+            if (Math.abs(bend - lp.bends[n]) > P_STILL && moved < P_STILL_PIC) out.marks.push({ t, side, kind: 'pstill', n: 1, about: `${key} ${Math.round(lp.bends[n])} -> ${Math.round(bend)}${lp.grip !== (solvers[side].gripName || '') ? ' grip changed' : ''}${(lp.label || '') !== ((vision && (vision.label || vision.type)) || '') ? ' object changed' : ''}${vision ? ' object ' + (vision.label || vision.type) : ''}` });
+          }
+        }
+        stillPic[side] = { pic, bends: ['index', 'middle', 'ring', 'pinky'].map((key) => res.angles[key][1].flex + res.angles[key][2].flex) };
+      }
       // pierce (marks only): fingers of the solved hand inside each other.
       {
         // ppierce (marks only): a finger sunk into the palm.
@@ -303,7 +329,7 @@ function pass(take, plans, logs = null, keep = false) {
       const grip = solvers[side].gripName;
       if (grip) out.grip++;
       if (prev && t - prev.t < 0.1 && grip !== prev.grip) out.gsw++;
-      last[side] = { t, q, flex, grip };
+      last[side] = { t, q, flex, grip, label: (vision && (vision.label || vision.type)) || '', ...stillPic[side] };
     }
     prevHands = hands.map((h) => ({ x: h.landmarks[0].x, y: h.landmarks[0].y, side: h.side }));
   });

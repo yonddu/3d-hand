@@ -241,5 +241,14 @@
   "fjump": 50,
   "fflip": 0,
   "asnap": 0
+ },
+ "thumb_out_01-09.glb": {
+  "swap": 0,
+  "flip": 0,
+  "jump": 83,
+  "gsw": 6,
+  "fjump": 40,
+  "fflip": 0,
+  "asnap": 0
  }
 }

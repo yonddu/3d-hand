@@ -47,7 +47,7 @@ export function measureGlb(path) {
   });
   const times = tracks.reduce((a, t) => (t.times.length > a.length ? t.times : a), []);
   const byName = Object.fromEntries(nodes.map((o) => [o.name, o]));
-  const out = { frames: times.length, pierce: 0, ppierce: 0, thumb: 0, marks: [] };
+  const out = { frames: times.length, pierce: 0, ppierce: 0, thumb: 0, marks: [], gaps: [] };
   const v = new THREE.Vector3();
   for (let fi = 0; fi < times.length; fi++) {
     const t = times[fi];
@@ -66,6 +66,9 @@ export function measureGlb(path) {
       if (!hand || hand.getWorldScale(v).x < 1e-3) continue; // hand not in this frame
       const L = [hand.getWorldPosition(new THREE.Vector3()).toArray()];
       for (const f of FINGERS) for (let j = 1; j <= 4; j++) L.push(byName[`${side}Hand${f}${j}`].getWorldPosition(new THREE.Vector3()).toArray());
+      // Thumb tip off the index knuckle, in palm lengths (replay.mjs topen reads > 0.45 as open).
+      const dist = (i, j) => Math.hypot(...L[i].map((v, k) => v - L[j][k]));
+      out.gaps.push({ t: +t.toFixed(3), side, gap: dist(4, 5) / dist(0, 9) });
       for (const o of overlaps(L, Math.hypot(...L[9].map((v, i) => v - L[0][i])) / 0.09, PIERCE)) {
         out.pierce++;
         if (o.a === 'thumb') out.thumb++;
