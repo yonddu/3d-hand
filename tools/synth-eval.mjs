@@ -53,7 +53,14 @@ if (!inputs.length) inputs.push('/mnt/project-files/hand-motion-studio/synthetic
 const lines = [];
 for (const a of inputs) {
   const list = fs.statSync(a).isDirectory() ? fs.readdirSync(a).filter((f) => f.endsWith('.jsonl') && held.has(f) === score).map((f) => path.join(a, f)) : [a];
-  for (const f of list) for (const l of fs.readFileSync(f, 'utf8').split('\n')) if (l.trim()) lines.push(JSON.parse(l));
+  for (const f of list) for (const l of fs.readFileSync(f, 'utf8').split('\n')) {
+    if (!l.trim()) continue;
+    try {
+      lines.push(JSON.parse(l));
+    } catch {
+      // a line cut short on the shared folder
+    }
+  }
 }
 
 const catOf = Object.fromEntries(GESTURES.map((g) => [g.id, g.category]));
