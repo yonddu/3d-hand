@@ -93,8 +93,15 @@ if __name__ == '__main__':
     out = sys.argv[3] if len(sys.argv) > 3 else 'vendor/models/joint_cube.bin'
     steps = int(sys.argv[4]) if len(sys.argv) > 4 else 8000
     rng = np.random.default_rng(2)
-    idx = rng.permutation(len(tr['x']))
-    nv = len(idx) // 10
+    # Held back by picture: the #left and #right crops of one two-hand render
+    # go to the same side of the split (one picture, one hand seen in both).
+    ids = np.concatenate([q['ids'] for q in parts])
+    pic = np.array([str(i).split('#')[0] for i in ids])
+    groups = rng.permutation(np.unique(pic))
+    back = set(groups[: len(groups) // 10].tolist())
+    held = np.array([g in back for g in pic])
+    idx = np.concatenate([np.flatnonzero(held), rng.permutation(np.flatnonzero(~held))])
+    nv = int(held.sum())
     val = {'x': tr['x'][idx[:nv]], 'cube': tr['cube'][idx[:nv]]}
     X, A = tr['x'][idx[nv:]], tr['cube'][idx[nv:]] / SCALE
     p = init(jax.random.PRNGKey(1))

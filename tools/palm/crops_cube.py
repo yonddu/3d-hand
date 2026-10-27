@@ -8,7 +8,7 @@
 # points; their nail sides face the camera differently.
 #
 #   python3 -I tools/palm/crops_cube.py <synthetic folder> <file.jsonl> <out.npz>
-import json, sys, os
+import json, sys, os, subprocess
 import numpy as np
 from PIL import Image
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -34,8 +34,18 @@ def cube_labels(t):
     return along + nail
 
 
+def matches(D, f):
+    # Which detection belongs to which drawn hand: the same rule as the
+    # scoring (tools/match-hands.mjs, one to one, all 21 points, never
+    # MediaPipe's left/right label; unsure pairs left out).
+    here = os.path.dirname(os.path.abspath(__file__))
+    out = subprocess.run(['node', os.path.join(here, '..', 'match-hands.mjs'), D + f], check=True, capture_output=True, text=True)
+    return json.loads(out.stdout)
+
+
 if __name__ == '__main__':
     D, f, out = sys.argv[1:4]
+    pairs = matches(D, f)
     X, ids, cube = [], [], []
     for line in open(D + f):
         try:
@@ -43,19 +53,16 @@ if __name__ == '__main__':
         except ValueError:  # a line cut short on the shared folder
             continue
         # Two-hand renders (SYNTH_TWO) hold one truth per hand; each hand
-        # found by MediaPipe near its true wrist gives its own crop.
+        # paired with a detection gives its own crop, id <picture>#<side>.
         two = r['truth'].get('two')
         hands = r['truth']['hands'] if two else [r['truth']]
         im = None
-        for t in hands:
+        for ti, di in pairs.get(r['id'], []):
+            t = hands[ti]
             if 'cubes' not in t:
                 continue
-            tw = t['image'][0]
-            hits = sorted(r['mp'], key=lambda h: np.hypot(h['lm'][0][0] - tw[0], h['lm'][0][1] - tw[1]))
-            if not hits or np.hypot(hits[0]['lm'][0][0] - tw[0], hits[0]['lm'][0][1] - tw[1]) > 0.1:
-                continue
             im = im or Image.open(D + 'img/' + r['id']).convert('RGB')
-            X.append(cut(im, hits[0]['lm']))
+            X.append(cut(im, r['mp'][di]['lm']))
             ids.append(r['id'] + ('#' + t['side'] if two else ''))
             cube.append(cube_labels(t))
     np.savez_compressed(out, x=np.array(X, np.uint8), ids=np.array(ids), cube=np.array(cube, np.float32))

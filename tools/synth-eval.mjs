@@ -15,6 +15,7 @@
 // side names its angles: the bend at each finger joint (15 per hand), and the
 // way the palm faces in the camera's view. Reported for the raw MediaPipe
 // world reading too, to show what the pipeline adds or loses.
+import { matchRender, truthHands } from './match-hands.mjs';
 import fs from 'fs';
 import path from 'path';
 import * as THREE from 'three';
@@ -64,10 +65,16 @@ for (const a of inputs) {
     } catch {
       continue; // a line cut short on the shared folder
     }
-    // Two-hand renders (SYNTH_TWO): each hand is scored as its own sample,
-    // id <picture>#<side> as tools/palm/crops_cube.py names its crop.
-    if (r.truth.two) for (const t of r.truth.hands) lines.push({ ...r, id: `${r.id}#${t.side}`, truth: { ...t, arm: r.truth.motion } });
-    else lines.push(r);
+    // Each drawn hand is scored as its own sample with the detection paired
+    // to it by tools/match-hands.mjs (the rule the training crops use); a
+    // hand with no sure detection counts as not found. Two-hand renders
+    // (SYNTH_TWO): id <picture>#<side>, as tools/palm/crops_cube.py names its crop.
+    const pairs = new Map(matchRender(r));
+    truthHands(r).forEach((t, ti) => {
+      const det = pairs.has(ti) ? r.mp[pairs.get(ti)] : null;
+      if (r.truth.two) lines.push({ ...r, id: `${r.id}#${t.side}`, truth: { ...t, arm: r.truth.motion }, det });
+      else lines.push({ ...r, det });
+    });
   }
 }
 
@@ -87,12 +94,9 @@ const rows = [];
 for (const s of lines) {
   sum.n++;
   const t = s.truth;
-  // The detection nearest the drawn wrist.
-  const tw = t.image[0];
-  const hits = s.mp.map((h) => ({ h, d: Math.hypot(h.lm[0][0] - tw[0], h.lm[0][1] - tw[1]) })).sort((a, b) => a.d - b.d);
-  if (!hits.length || hits[0].d > 0.1) continue;
+  if (!s.det) continue;
   sum.found++;
-  const h = hits[0].h;
+  const h = s.det;
   const side = t.side;
   // MediaPipe labels assume a mirrored selfie picture; this one is not mirrored.
   if (h.label.toLowerCase() !== side) sum.label++;
