@@ -2,10 +2,14 @@
 // cases an outside review found (2026-10-27): the hand nearer the camera
 // stays nearer frame by frame, a correction does not leak across frames with
 // no hands or a gap in time, and a wrist at the camera itself gives no NaN.
+// Then the palm against the other hand's finger bones (collide.js slabDepth)
+// on a made-up palm: in front, behind, beside the edge (missed before
+// 2026-10-27), off a corner, just touching, apart, and a bone across it.
 //
 //   node tools/test-collide.mjs
 import { HandRig } from '../src/handRig.js';
 import { separateHands, handsDepth } from '../src/handBody.js';
+import { palmFrame, slabDepth, PALM_FRONT, PALM_BACK } from '../src/collide.js';
 
 let fails = 0;
 const check = (ok, what) => {
@@ -61,6 +65,28 @@ const R0 = [0.004, 0, -0.4];
   separateHands(frames, (s) => new HandRig(s));
   const d1 = handsDepth(rigs, frames[0].hands.left, frames[0].hands.right).depth;
   check(d1 < d0, `overlap lowered (${(d0 * 1000).toFixed(1)} -> ${(d1 * 1000).toFixed(1)} mm)`);
+}
+// A palm 100 mm from wrist to middle knuckle, knuckles at x = +-35 mm (the
+// box reaches 5 mm past them: -40..40), facing +z; an index finger bone.
+{
+  const mm = (v) => v.map((c) => c / 1000);
+  const f = palmFrame([0, 0, 0], mm([35, 100, 0]), mm([-35, 100, 0]), mm([0, 100, 0]), [0, 0, 1]);
+  const r = 0.0085;
+  const ball = (c) => slabDepth(mm(c), mm(c), r, f) * 1000;
+  const near = (got, want, what) => check(Math.abs(got - want) < 0.01, `${what}: ${got.toFixed(2)} mm (want ${want})`);
+  const F = PALM_FRONT * 1000;
+  const B = PALM_BACK * 1000;
+  near(ball([45, 50, 0]), 3.5, 'beside the palm edge, 5 mm out');
+  near(ball([0, 50, F + 5]), 3.5, 'in front, 5 mm off the palm');
+  near(ball([0, 50, -B - 5]), 3.5, 'behind, 5 mm off the back');
+  near(ball([0, 50, F - 2]), r * 1000 + 2, 'in the palm, 2 mm under its front');
+  near(ball([45, 95, F + 5]), 0, 'off a corner, 5 mm out on each axis (8.7 mm away)');
+  near(ball([43, 93, F + 3]), r * 1000 - Math.sqrt(27), 'off a corner, 3 mm out on each axis');
+  near(ball([48.5, 50, 0]), 0, 'just touching the edge');
+  near(ball([0, 50, F + 8.5]), 0, 'just touching the front');
+  near(ball([100, 50, 0]), 0, 'apart');
+  near(slabDepth(mm([-60, 50, 20]), mm([60, 50, -20]), r, f) * 1000, r * 1000 + Math.min(F, B), 'a bone through the palm, both ends outside');
+  near(slabDepth(mm([-60, 50, F + 20]), mm([60, 50, F + 20]), r, f) * 1000, 0, 'a bone passing 20 mm in front');
 }
 console.log(fails ? `${fails} failed` : 'all passed');
 process.exit(fails ? 1 : 0);

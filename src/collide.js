@@ -141,7 +141,7 @@ export function handOverlaps(A, B, fa, fb, scale = 1, min = 0) {
   const inPalm = (P, f, who) => {
     for (const k of KEYS) {
       let deepest = 0;
-      for (const [s0, s1] of BONES[k]) for (const i of [s1, s0]) deepest = Math.max(deepest, slabDepth(P[i], RADIUS[k] * scale, f, scale));
+      for (const [s0, s1] of BONES[k]) deepest = Math.max(deepest, slabDepth(P[s0], P[s1], RADIUS[k] * scale, f, scale));
       if (deepest > min) out.push({ kind: 'palm', a: who === 'a' ? k : 'palm', b: who === 'a' ? 'palm' : k, depth: deepest });
     }
   };
@@ -150,16 +150,43 @@ export function handOverlaps(A, B, fa, fb, scale = 1, min = 0) {
   return out.sort((x, y) => y.depth - x.depth);
 }
 
-// Like palmDepth, but the way out is through the nearer face (a hand coming
-// from either side).
-function slabDepth(p, r, f, scale) {
-  const d = sub(p, f.o);
-  const a = dot(d, f.u);
-  const b = dot(d, f.v) / f.L;
-  if (a < f.lo || a > f.hi || b < 0.2 || b > 0.9) return 0;
-  const h = dot(d, f.n);
-  const front = PALM_FRONT * scale + r;
-  const back = PALM_BACK * scale + r;
-  if (h >= front || h <= -back) return 0;
-  return Math.min(front - h, h + back);
+// How deep (m) a finger bone of the other hand, a capsule from p to q of
+// radius r, sits inside the palm (0 outside). The palm is a finite box in its
+// frame: across lo..hi, 20-90% of the way from wrist to knuckles (the part
+// of the palm that is surely there; the knuckle line is the other hand's
+// finger capsules' job), PALM_BACK behind to PALM_FRONT in front of the
+// bones' plane. Distance is to the box itself, so a bone beside the palm's
+// edge is caught (review 2026-10-27: the slab only looked straight in front
+// and behind) and one off a corner is not. Inside, the way out is the nearest
+// face (a hand coming from any side).
+export const PALM_BAND = [0.2, 0.9];
+export function slabDepth(p, q, r, f, scale = 1) {
+  const half = [(f.hi - f.lo) / 2, ((PALM_BAND[1] - PALM_BAND[0]) * f.L) / 2, ((PALM_FRONT + PALM_BACK) * scale) / 2];
+  const mid = [(f.hi + f.lo) / 2, ((PALM_BAND[1] + PALM_BAND[0]) * f.L) / 2, ((PALM_FRONT - PALM_BACK) * scale) / 2];
+  const local = (x) => {
+    const d = sub(x, f.o);
+    return [dot(d, f.u), dot(d, f.v), dot(d, f.n)];
+  };
+  const P = local(p);
+  const D = sub(local(q), P);
+  // Signed distance to the box (negative inside); convex along the bone.
+  const sd = (t) => {
+    let out = 0;
+    let most = -Infinity;
+    for (let k = 0; k < 3; k++) {
+      const e = Math.abs(P[k] + D[k] * t - mid[k]) - half[k];
+      if (e > 0) out += e * e;
+      most = Math.max(most, e);
+    }
+    return Math.sqrt(out) + Math.min(most, 0);
+  };
+  let lo = 0;
+  let hi = 1;
+  for (let i = 0; i < 40; i++) {
+    const m1 = lo + (hi - lo) / 3;
+    const m2 = hi - (hi - lo) / 3;
+    if (sd(m1) < sd(m2)) hi = m2;
+    else lo = m1;
+  }
+  return Math.max(0, r - Math.min(sd(0), sd(1), sd((lo + hi) / 2)));
 }
