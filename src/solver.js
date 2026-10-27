@@ -11,6 +11,7 @@ import { handFrameQuat, cupQuat } from './handRig.js';
 import { fitFinger, hiddenJoints, ROOT } from './fit.js';
 import { GraspPrior } from './gripPrior.js';
 import { RADIUS, palmFrame } from './collide.js';
+import { BODY } from './handBody.js';
 
 const D2R = Math.PI / 180;
 const R2D = 180 / Math.PI;
@@ -163,12 +164,13 @@ export class HandSolver {
     // Fingers are solid: the four fingers are fitted first, each kept out of
     // the ones already placed, then the thumb out of all four (it is the one
     // that crosses the others, and MediaPipe reads it least well).
-    // On the hand model's own bones, which are what is drawn; radii scale
-    // with it (an adult palm is about 9 cm, wrist to middle knuckle).
-    const R = rig.rest;
-    const size = R[0].distanceTo(R[9]) / 0.09;
+    // On the hand model's own bones, which are what is drawn and saved
+    // (handBody.js); radii scale with it (an adult palm is about 9 cm, wrist
+    // to middle knuckle).
+    const body = BODY[rig.side];
+    const size = Math.hypot(...body.base.middle) / 0.09;
     const solid = [];
-    const knuckle = (key) => rig.chains[key][0].bone.position.clone().applyQuaternion(wristQ).toArray();
+    const knuckle = (key) => new THREE.Vector3(...body.base[key]).applyQuaternion(wristQ).toArray();
     const palmSlab = palmFrame([0, 0, 0], knuckle('index'), knuckle('pinky'), knuckle('middle'), new THREE.Vector3(0, 0, 1).applyQuaternion(wristQ).toArray());
     for (const finger of [...FINGERS.slice(1), FINGERS[0]]) {
       const start = starts[finger.key];
@@ -176,9 +178,8 @@ export class HandSolver {
       const chain = rig.chains[finger.key];
       const cupQ = cupQuat(rig.side, finger.key, rig.cup);
       const radius = RADIUS[finger.key] * size;
-      const J = finger.joints;
-      const rigBase = chain[0].bone.position.clone().applyQuaternion(wristQ).toArray();
-      const rigLen = [0, 1, 2].map((k) => R[J[k + 1]].distanceTo(R[J[k]]));
+      const rigBase = knuckle(finger.key);
+      const rigLen = body.len[finger.key];
       const res = fitFinger({ finger, chain, side: rig.side, P, wristQ: frames[finger.key], conf: confidence[finger.key], palm, prev, start, useLimits: limits, occluded, prior: grip && grip[finger.key], picture: picture && picture[finger.key], solid: solid.length ? solid : null, radius, rigBase, rigLen, palmSlab });
       res.locals[0].premultiply(cupQ);
       this.fitPrev[finger.key] = res.theta;

@@ -775,8 +775,19 @@ function tick(now) {
   if (offline && !rec.frameReady) {
     // Waiting for the next frame. A phone that put the page in the background
     // drops the video's decoder, and a seek asked for then never lands; ask
-    // again so the pass picks up where it was instead of stalling.
-    if (now - rec.seekAt > SEEK_RETRY) seekFrame(rec.seekTo);
+    // again so the pass picks up where it was instead of stalling. Each ask
+    // restarts the seek, so the wait doubles: far into a long phone clip
+    // (WebM with no seek index) one seek can take longer than the first wait,
+    // and asking again at a fixed interval kept restarting it forever. A
+    // frame that never comes while the page is in view (past the clip's real
+    // end) ends the pass with the frames it has.
+    if (now - rec.seekAt > rec.seekWait) {
+      if (!document.hidden && rec.seekWait >= SEEK_GIVE_UP) stopRecording();
+      else {
+        rec.seekWait = Math.min(rec.seekWait * 2, SEEK_GIVE_UP);
+        seekFrame(rec.seekTo);
+      }
+    }
   } else if (!state.frozen) {
     if (state.source === 'demo') {
       const inputs = demo.frame(t);
@@ -1170,7 +1181,8 @@ async function saveJson(obj, filename) {
     document.body.appendChild(a);
     a.click();
     a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    // Long takes make big files; a phone may start reading the file late.
+    setTimeout(() => URL.revokeObjectURL(a.href), 60000);
   } catch (err) {
     console.warn(err);
     toast('파일 저장이 취소되었습니다. 아래 JSON을 복사해 쓰세요.');
@@ -1328,8 +1340,9 @@ $('export-all').onclick = () => {
 
 const REC_FPS = 30;
 const takes = []; // this session's recordings, newest first
-const rec = { on: false, finishing: null, lastRaw: null, offline: false, frameReady: false, frames: [], raw: [], rawMeta: null, lastAt: -1e9, name: '', seekTo: 0, seekAt: 0, frameTime: 0, stepId: 0 };
-const SEEK_RETRY = 1500; // ms before a seek that has not landed is asked again
+const rec = { on: false, finishing: null, lastRaw: null, offline: false, frameReady: false, frames: [], raw: [], rawMeta: null, lastAt: -1e9, name: '', seekTo: 0, seekAt: 0, seekWait: 1500, frameTime: 0, stepId: 0 };
+const SEEK_RETRY = 1500; // ms before a seek that has not landed is first asked again (then doubling)
+const SEEK_GIVE_UP = 24000; // ms waited on one frame, in view, before the pass ends there
 
 function handIsLive(side, t) {
   if (!rigs[side].group.visible) return false;
@@ -1379,6 +1392,7 @@ function stepOffline() {
 }
 function goToFrame(next) {
   rec.frameReady = false;
+  rec.seekWait = SEEK_RETRY;
   rec.seekTo = next;
   rec.seekAt = performance.now();
   const id = ++rec.stepId;
@@ -1442,6 +1456,7 @@ function startRecording() {
     video.loop = false; // the pass ends at the clip's end
     resetTracking();
     rec.frameTime = 0;
+    rec.seekWait = SEEK_RETRY;
     if (video.currentTime === 0) rec.frameReady = true;
     else seekFrame(0);
   }
@@ -1481,7 +1496,22 @@ function stopRecording() {
     })
     .then((frames) => {
       rec.finishing = null;
-      finishTake(cleanTake(frames), filmed);
+      let done;
+      try {
+        done = cleanTake(frames);
+      } catch (e) {
+        // A failed clean-up must not lose the take: keep it as solved.
+        console.error(e);
+        done = frames;
+      }
+      finishTake(done, filmed);
+    })
+    .catch((e) => {
+      console.error(e);
+      rec.finishing = null;
+      camRec.processing = false;
+      updateGuide();
+      toast(`테이크를 마무리하지 못했습니다: ${e.message || e}`);
     });
 }
 

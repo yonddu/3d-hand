@@ -35,6 +35,7 @@
 import fs from 'fs';
 import path from 'path';
 import { overlaps, palmFrame, palmDepth, RADIUS } from '../src/collide.js';
+import { BODY, bodyPoints } from '../src/handBody.js';
 import * as THREE from 'three';
 import { HandTracker, chirality, dedupe, resolveSides } from '../src/tracker.js';
 import { liftToPicture } from '../src/lift.js';
@@ -55,7 +56,9 @@ const F_JUMP = 15;
 const F_FLIP = 45;
 const A_SNAP = 20;
 const A_STILL = 0.03;
-const PIERCE = 0.008; // m of two fingers' bones inside each other: one passing through the other
+const PIERCE = 0.008;
+// pierce and ppierce are counted on the drawn and saved model's bones (handBody.js).
+const BODY_SIZE = Math.hypot(...BODY.right.base.middle) / 0.09; // m of two fingers' bones inside each other: one passing through the other
 const BENT_PIC = 60; // degrees of middle + end joint bend a finger straight in the picture cannot have
 const STRAIGHT = 0.95; // picture chain this close to a line...
 const FULL = 0.8; // ...and this long against the palm (not pointing at the camera)
@@ -274,15 +277,15 @@ function pass(take, plans, logs = null, keep = false) {
       // pierce (marks only): fingers of the solved hand inside each other.
       {
         // ppierce (marks only): a finger sunk into the palm.
-        const L = rig.landmarkPositions().map((v) => v.toArray());
+        const L = bodyPoints(rig).map((v) => v.toArray());
         const toPalm = new THREE.Vector3(0, 0, 1).applyQuaternion(rig.wrist.quaternion).toArray();
         const pf = palmFrame(L[0], L[5], L[17], L[9], toPalm);
         for (const [key, idx] of [['thumb', [3, 4]], ['index', [7, 8]], ['middle', [11, 12]], ['ring', [15, 16]], ['pinky', [19, 20]]]) {
-          const deep = Math.max(...idx.map((i) => palmDepth(L[i], RADIUS[key], pf)));
+          const deep = Math.max(...idx.map((i) => palmDepth(L[i], RADIUS[key] * BODY_SIZE, pf, BODY_SIZE)));
           if (deep > PIERCE) out.marks.push({ t, side, kind: 'ppierce', n: 1, about: `${key} ${Math.round(deep * 1000)}mm` });
         }
       }
-      for (const o of overlaps(rig.landmarkPositions(), 1, PIERCE)) out.marks.push({ t, side, kind: 'pierce', n: 1, about: `${o.a}-${o.b} ${Math.round(o.depth * 1000)}mm bones ${o.bones.join('/')}` });
+      for (const o of overlaps(bodyPoints(rig), BODY_SIZE, PIERCE)) out.marks.push({ t, side, kind: 'pierce', n: 1, about: `${o.a}-${o.b} ${Math.round(o.depth * 1000)}mm bones ${o.bones.join('/')}` });
       const q = handFrameQuat(P, side);
       const flex = [];
       for (const key of Object.keys(res.angles)) for (const a of res.angles[key]) flex.push(a.flex);

@@ -60,9 +60,11 @@ for (const is of issues) {
     fails.push(`[${is.id}] ${is.take} missing`);
     continue;
   }
-  let v;
-  if (is.from === undefined) v = r[is.metric];
-  else v = r.marks.filter((m) => m.kind === is.metric && m.t >= is.from && m.t <= is.to).reduce((s, m) => s + m.n, 0);
+  // Counts kept only as marks (pierce, topen, ...) are summed from the marks,
+  // over the whole take when no stretch is given.
+  const from = is.from === undefined ? -Infinity : is.from;
+  const to = is.to === undefined ? Infinity : is.to;
+  const v = is.from === undefined && r[is.metric] !== undefined ? r[is.metric] : r.marks.filter((m) => m.kind === is.metric && m.t >= from && m.t <= to).reduce((s, m) => s + m.n, 0);
   const where = is.from === undefined ? 'whole take' : `${is.from}-${is.to}s`;
   const line = `[${is.id}] ${is.note} (${is.take}, ${where}): ${is.metric} ${v} / max ${is.max}`;
   if (v > is.max) fails.push(line);
