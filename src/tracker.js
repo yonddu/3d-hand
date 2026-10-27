@@ -187,6 +187,7 @@ export class HandTracker {
   // gave it for as long as it is tracked.
   keepSides(hands, nowMs, swap = false, aspect = 0) {
     const prev = (this.tracks || []).filter((k) => nowMs - k.t < 400 && nowMs >= k.t);
+    this.dropGhost(hands, prev, nowMs);
     this.tracks = hands.map((h) => {
       const x = h.landmarks[0].x;
       const y = h.landmarks[0].y;
@@ -251,6 +252,27 @@ export class HandTracker {
     });
     return hands;
   }
+
+  // A second hand that appears inside the box of the one already tracked is
+  // most often the model reading that hand twice under the other label (user
+  // GLB 2026-10-27 20:47: a "left" hand on top of the right one, 13 broken-up
+  // frames over 0.9 s, mean point gap 0.27-0.49 palm so dedupe kept it). It is
+  // taken only once it has been there for GHOST_FRAMES frames; a hand already
+  // tracked on its own (clasped or crossed hands) is never held back.
+  dropGhost(hands, prev, nowMs) {
+    const was = this.ghost && nowMs - this.ghost.t < 400 && nowMs >= this.ghost.t ? this.ghost.n : 0;
+    this.ghost = was ? this.ghost : null;
+    if (prev.length !== 1 || hands.length !== 2) return;
+    const k = prev[0];
+    // The new one: the one under the other label (the wrists of a hand read
+    // twice lie close, 2026-10-26 shaky take 16.5 s), else the one farther away.
+    const d = hands.map((h) => Math.hypot(h.landmarks[0].x - k.x, h.landmarks[0].y - k.y));
+    const same = hands.map((h) => h.side === k.side);
+    const i = same[0] !== same[1] ? (same[0] ? 1 : 0) : d[0] > d[1] ? 0 : 1;
+    if (insideBox(hands[i].landmarks, hands[1 - i].landmarks) < INSIDE) return;
+    this.ghost = { t: nowMs, n: was + 1 };
+    if (this.ghost.n < GHOST_FRAMES) hands.splice(i, 1);
+  }
 }
 
 // First person: which shoulder the forearm line points back to. The line runs
@@ -300,6 +322,29 @@ export function dedupe(hands) {
     }
   }
   return hands;
+}
+// How much of the smaller hand's picture box lies within the other's box
+// (0..1). A second reading of one hand sits inside it (user GLB 2026-10-27
+// 20:47: a "left" hand read on top of the right one, 85-100% inside).
+export const INSIDE = 0.8;
+const GHOST_FRAMES = 10; // 1/3 s
+export function insideBox(A, B) {
+  const box = (L) => {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const p of L) {
+      x0 = Math.min(x0, p.x);
+      y0 = Math.min(y0, p.y);
+      x1 = Math.max(x1, p.x);
+      y1 = Math.max(y1, p.y);
+    }
+    return [x0, y0, x1, y1];
+  };
+  const a = box(A);
+  const b = box(B);
+  const w = Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0]));
+  const h = Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
+  const area = Math.min((a[2] - a[0]) * (a[3] - a[1]), (b[2] - b[0]) * (b[3] - b[1]));
+  return area > 0 ? (w * h) / area : 0;
 }
 const SIDE_FLIP_FRAMES = 8;
 const CHIRAL_SURE = 0.25;

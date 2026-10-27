@@ -216,13 +216,13 @@
   "asnap": 3
  },
  "clasp_same_14-10.glb": {
-  "swap": 7,
-  "flip": 29,
-  "jump": 380,
-  "gsw": 32,
+  "swap": 0,
+  "flip": 26,
+  "jump": 370,
+  "gsw": 29,
   "fjump": 108,
   "fflip": 0,
-  "asnap": 1
+  "asnap": 0
  },
  "pencil_fidget_21-40.glb": {
   "swap": 0,
@@ -234,10 +234,10 @@
   "asnap": 0
  },
  "ref_23-01.glb": {
-  "swap": 7,
-  "flip": 4,
-  "jump": 137,
-  "gsw": 4,
+  "swap": 0,
+  "flip": 3,
+  "jump": 134,
+  "gsw": 2,
   "fjump": 50,
   "fflip": 0,
   "asnap": 0
@@ -261,11 +261,11 @@
   "asnap": 0
  },
  "shaky_02-46.glb": {
-  "swap": 30,
-  "flip": 13,
-  "jump": 227,
+  "swap": 9,
+  "flip": 3,
+  "jump": 225,
   "gsw": 5,
-  "fjump": 60,
+  "fjump": 76,
   "fflip": 0,
   "asnap": 0
  },
@@ -279,12 +279,21 @@
   "asnap": 0
  },
  "two_hands_03-59.glb": {
-  "swap": 5,
-  "flip": 23,
-  "jump": 483,
-  "gsw": 50,
-  "fjump": 147,
+  "swap": 1,
+  "flip": 19,
+  "jump": 477,
+  "gsw": 46,
+  "fjump": 145,
   "fflip": 2,
+  "asnap": 0
+ },
+ "left_pop_20-47.glb": {
+  "swap": 0,
+  "flip": 6,
+  "jump": 41,
+  "gsw": 9,
+  "fjump": 6,
+  "fflip": 0,
   "asnap": 0
  }
 }

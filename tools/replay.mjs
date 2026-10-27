@@ -39,7 +39,7 @@ import path from 'path';
 import { overlaps, palmFrame, palmDepth, RADIUS } from '../src/collide.js';
 import { BODY, bodyPoints, separateThumb, separateFrames, separateHands, handsDepth } from '../src/handBody.js';
 import * as THREE from 'three';
-import { HandTracker, chirality, dedupe, resolveSides } from '../src/tracker.js';
+import { HandTracker, chirality, dedupe, resolveSides, insideBox, INSIDE } from '../src/tracker.js';
 import { liftToPicture } from '../src/lift.js';
 import { objectForHand, objectOcclusion, HeldObject } from '../src/objects.js';
 import { HandRig, handFrameQuat } from '../src/handRig.js';
@@ -209,6 +209,10 @@ function pass(take, plans, logs = null, keep = false) {
     tracker.keepSides(hands, t * 1000, take.swap, take.firstPerson ? take.aspect : 0);
     resolveSides(hands, take.rightOnImageRight !== take.swap);
     if (hands.length) out.frames++;
+    // inside (marks only): a hand kept although its picture box lies within
+    // the other hand's box, as a second reading of one hand does (user GLB
+    // 2026-10-27 20:47, a "left" hand read on top of the right one).
+    if (hands.length === 2 && insideBox(hands[0].landmarks, hands[1].landmarks) >= INSIDE) out.marks.push({ t, side: 'both', kind: 'inside', n: 1 });
     for (const h of hands) {
       const w = h.landmarks[0];
       const before = prevHands.find((p) => Math.hypot(p.x - w.x, p.y - w.y) < NEAR);

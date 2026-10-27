@@ -24,6 +24,7 @@ import { ArmRig, UPPER, FORE, ARM_BIND, limitedArmLocals, wristPivot, pivotLoop,
 import { wristLoop, buildArm } from './armMesh.js';
 
 const SIDES = ['left', 'right'];
+const HIDE_GAP = 0.5; // seconds a hand stays drawn while unseen
 const prefix = (side) => (side === 'left' ? 'Left' : 'Right');
 
 // --- frames ----------------------------------------------------------------------
@@ -300,6 +301,22 @@ export async function exportGlb({ frames, skins, name = 'HMS_Motion', includeObj
     }
   }
 
+  // A hand is drawn only while it is seen, and across gaps up to HIDE_GAP;
+  // before it first shows, after it last shows and over longer gaps the
+  // whole arm is scaled to nothing. Held over the whole take, a hand seen for
+  // 0.9 s stood there from the first frame to the last (user GLB 2026-10-27 20:47).
+  const shown = {};
+  for (const side of sides) {
+    const seen = frames.map((fr) => !!fr.hands[side]);
+    shown[side] = seen.slice();
+    let last = -1;
+    seen.forEach((v, i) => {
+      if (!v) return;
+      if (last >= 0 && i - last > 1 && frames[i].t - frames[last].t <= HIDE_GAP) shown[side].fill(true, last + 1, i);
+      last = i;
+    });
+  }
+
   // A Scene exports its children as glTF root nodes (skinned meshes must be roots).
   const root = new THREE.Scene();
   root.name = 'HMS_Arms';
@@ -356,6 +373,7 @@ export async function exportGlb({ frames, skins, name = 'HMS_Motion', includeObj
     const P = prefix(side);
     const locals = filled[side].map((f) => sideLocals(f, side));
     vecTrack(`${P}Shoulder`, 'position', locals.flatMap((l) => l.shoulderPos));
+    vecTrack(`${P}Shoulder`, 'scale', shown[side].flatMap((v) => (v ? [1, 1, 1] : [0, 0, 0])));
     quatTrack(`${P}Arm`, locals.flatMap((l) => l.arm));
     quatTrack(`${P}ForeArm`, locals.flatMap((l) => l.fore));
     quatTrack(wristName(side), locals.flatMap((l) => l.hand));
