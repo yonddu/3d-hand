@@ -9,9 +9,11 @@
     "start": "npx --yes http-server -p 8080 -c-1 .",
     "check": "node tools/check-data.mjs",
     "replay": "node tools/replay.mjs",
-    "regress": "node tools/regress.mjs"
+    "regress": "node tools/regress.mjs",
+    "check-collide": "node tools/check-rapier.mjs"
   },
   "devDependencies": {
+    "@dimforge/rapier3d-compat": "0.21.0",
     "@mediapipe/tasks-vision": "0.10.21",
     "esbuild": "0.24.0",
     "three": "0.170.0"

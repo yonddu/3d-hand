@@ -27,7 +27,9 @@ function readGlb(path) {
   return { json, read };
 }
 
-export function measureGlb(path) {
+// onFrame(t, seen): each frame's hands ({ Left, Right }: { L, pf, scale }), for
+// tools that check the measure itself (tools/check-rapier.mjs).
+export function measureGlb(path, onFrame = null) {
   const { json, read } = readGlb(path);
   const nodes = json.nodes.map((n) => {
     const o = new THREE.Object3D();
@@ -89,6 +91,7 @@ export function measureGlb(path) {
         }
       }
     }
+    if (onFrame) onFrame(t, seen);
     // One hand inside the other.
     if (seen.Left && seen.Right) {
       out.both++;
