@@ -35,6 +35,9 @@ const URL = process.env.SYNTH_URL || 'http://localhost:8090/index.html';
 const EXTRAS = process.env.SYNTH_EXTRAS === '1';
 // SYNTH_HOLD=1 (with SYNTH_EXTRAS): half the hands also hold a pencil, cup or book.
 const HOLD = process.env.SYNTH_HOLD === '1';
+// SYNTH_TWO=1: both hands in every picture, posed in a two-hand action
+// (src/twoHandMotions.js); the truth is { two, motion, contact, hands: [...] }.
+const TWO = process.env.SYNTH_TWO === '1';
 
 fs.mkdirSync(path.join(OUT, 'img'), { recursive: true });
 const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader'] });
@@ -48,6 +51,7 @@ await page.addStyleTag({ content: `header,.topbar,.stage-foot,#pose-banner,.stat
 await page.evaluate(async ([seed, W, H, EXTRAS, HOLD]) => {
   const THREE = await import('three');
   const { armPoseJoints } = await import('./src/armPoses.js');
+  const { TWO_HAND_MOTIONS } = await import('./src/twoHandMotions.js');
   const { paintHand } = await import('./tools/synthSkin.js');
   const { FilesetResolver, HandLandmarker } = await import('@mediapipe/tasks-vision');
   const files = await FilesetResolver.forVisionTasks('vendor/mediapipe/wasm');
@@ -201,6 +205,37 @@ await page.evaluate(async ([seed, W, H, EXTRAS, HOLD]) => {
     c.lookAt(t);
     c.updateMatrixWorld(true);
   };
+  // One drawn hand's truth: the model's 21 joints (RealHand places its bones
+  // from the rig, with its own bone lengths) in camera space (x right, y up,
+  // -z ahead) and in the picture, each joint's cube (its turn in camera
+  // space: the model's joint axes, WebXR hand convention, -z along the bone,
+  // +y the nail side), and the hand's turn.
+  const XR = { thumb: 'thumb-metacarpal thumb-phalanx-proximal thumb-phalanx-distal thumb-tip' };
+  for (const k of ['index', 'middle', 'ring', 'pinky']) XR[k] = ['phalanx-proximal', 'phalanx-intermediate', 'phalanx-distal', 'tip'].map((n) => `${k}-finger-${n}`).join(' ');
+  function handTruth(side) {
+    const rh = S.realHands[side];
+    rh.update();
+    rh.root.updateMatrixWorld(true);
+    const inv = S.camera.matrixWorldInverse;
+    const camQ = new THREE.Quaternion().setFromRotationMatrix(inv);
+    const L = [rh.joints.wrist.getWorldPosition(new THREE.Vector3())];
+    const cubes = [camQ.clone().multiply(rh.joints.wrist.getWorldQuaternion(new THREE.Quaternion())).toArray()];
+    for (const k of Object.keys(XR)) for (const n of XR[k].split(' ')) {
+      L.push(rh.joints[n].getWorldPosition(new THREE.Vector3()));
+      cubes.push(camQ.clone().multiply(rh.joints[n].getWorldQuaternion(new THREE.Quaternion())).toArray());
+    }
+    const handQ = camQ.clone().multiply(S.rigs[side].wrist.getWorldQuaternion(new THREE.Quaternion()));
+    return {
+      world: L,
+      handQ: handQ.toArray(),
+      joints: L.map((p) => p.clone().applyMatrix4(inv).toArray()),
+      cubes: cubes.map((q) => q.map((v) => +v.toFixed(4))),
+      image: L.map((p) => {
+        const q = p.clone().project(S.camera);
+        return [(q.x + 1) / 2, (1 - q.y) / 2];
+      }),
+    };
+  }
   window.__synth = {
     hl,
     // Poses one hand and arm; returns the truth, or null if the hand is out of the picture.
@@ -291,6 +326,75 @@ await page.evaluate(async ([seed, W, H, EXTRAS, HOLD]) => {
       };
       return { side, arm: ap.id, armAngles: ap.arm, shape: shape.id, h: shape.h, cup: shape.cup, handQ: handQ.toArray(), joints: cam.map((p) => p.toArray()), cubes: cubes.map((q) => q.map((v) => +v.toFixed(4))), image: img, object };
     },
+    // Poses both hands and arms in one two-hand action (src/twoHandMotions.js:
+    // palms pressed, fingers interlaced, one fist in the other palm, both on
+    // one stick...); returns { two: true, motion, hands: [truth per hand] },
+    // or null if either hand is out of the picture.
+    pose2() {
+      const row = pick(TWO_HAND_MOTIONS);
+      const key = pick(row[6]);
+      S.state.frozen = true;
+      S.state.armView = true;
+      // Keys are [sFlex, sAbd, hRot, elbow, pron, wFlex, wDev] per arm (armPoses.js names).
+      const toArm = (k) => ({ sFlex: k[0], sAbd: k[1], hRot: k[2], elbow: k[3], pron: k[4], wFlex: k[5], wDev: k[6] });
+      const sides = { right: { arm: toArm(key[0]), shape: byId[row[4]] }, left: { arm: toArm(key[1]), shape: byId[row[5]] } };
+      const J = {};
+      for (const side of ['left', 'right']) {
+        const g = sides[side].shape || pick(S.GESTURES);
+        const rig = S.rigs[side];
+        const arm = S.arms[side];
+        J[side] = armPoseJoints(sides[side].arm, side, arm.homeShoulder);
+        S.applyGesture(rig, { id: g.id, h: g.h, cup: g.cup || 0 });
+        rig.group.position.copy(J[side].W);
+        rig.wrist.quaternion.copy(J[side].handQ);
+        rig.group.visible = true;
+        arm.shoulder.copy(J[side].S);
+        arm.elbow.copy(J[side].E);
+        arm.opts = { side, comfort: 1, shrug: 0 };
+        arm.setVisible(true, true, false);
+        sides[side].g = g;
+      }
+      S.scene.children.forEach((c) => {
+        if (c.type === 'GridHelper') c.visible = false;
+        if (c.name === 'leftRealHand' || c.name === 'rightRealHand') c.visible = true;
+      });
+      const mid = J.left.W.clone().add(J.right.W).multiplyScalar(0.5);
+      if (-mid.z < 0.15 || mid.clone().normalize().z > -0.55) return null;
+      const look = mid.clone().divideScalar(-mid.z);
+      camRig(look.x + (rnd() - 0.5) * 0.1, look.y + (rnd() - 0.5) * 0.1);
+      // Two hands of one person: one skin tone, sleeves alike.
+      const skin = new THREE.Color(pick(SKIN));
+      const sleeve = rnd() < 0.5 ? skin : new THREE.Color(pick(SLEEVE));
+      for (const side of ['left', 'right']) {
+        paint[side].vary(rnd, skin);
+        if (S.arms[side].mesh) S.arms[side].mesh.material.color = sleeve;
+      }
+      S.scene.background = EXTRAS && rnd() < 0.6 ? patternBackground() : new THREE.Color().setHSL(rnd(), 0.1 + 0.4 * rnd(), 0.2 + 0.6 * rnd());
+      S.scene.children.forEach((c) => {
+        if (c.isDirectionalLight) c.intensity = 0.4 + 1.6 * rnd();
+        if (c.isHemisphereLight) c.intensity = 0.4 + 1.2 * rnd();
+      });
+      const hands = [];
+      extras.clear();
+      held = null;
+      for (const side of ['left', 'right']) {
+        const t = handTruth(side);
+        // Both hands in the picture; a few points of one may be off its edge.
+        const inside = t.image.filter(([x, y]) => x > 0.02 && x < 0.98 && y > 0.02 && y < 0.98).length;
+        if (inside < 18 || t.joints.some((p) => p[2] > -0.12)) return null;
+        // Rings and a watch on one hand or both (no held things: the hands hold each other).
+        if (EXTRAS && rnd() < 0.6) {
+          const keep = [...extras.children];
+          wearThings(side, t.world, J[side].E);
+          keep.forEach((m) => extras.add(m));
+          held = null;
+        }
+        delete t.world;
+        const g = sides[side].g;
+        hands.push({ side, armAngles: sides[side].arm, shape: g.id, h: g.h, cup: g.cup || 0, ...t });
+      }
+      return { two: true, motion: row[0], contact: row[3], hands };
+    },
     async detect(dataUrl) {
       const im = new Image();
       im.src = dataUrl;
@@ -310,7 +414,7 @@ let tries = 0;
 let found = 0;
 while (made < N && tries < N * 6) {
   tries++;
-  const truth = await page.evaluate(() => window.__synth.pose());
+  const truth = await page.evaluate((two) => (two ? window.__synth.pose2() : window.__synth.pose()), TWO);
   if (!truth) continue;
   // Two frames drawn after posing, so the picture shows this pose.
   await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
