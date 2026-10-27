@@ -1,6 +1,7 @@
 // Checks of tools/match-hands.mjs on small made-up renders: no detection, one,
 // two, crossed hands, a duplicate detection, MediaPipe's left/right label
-// wrong, one detection over two clasped hands, and a detection far away.
+// wrong, one detection over two clasped hands, a detection far away, two
+// hands drawn on the same points.
 //
 //   node tools/test-match.mjs
 import { matchHands } from './match-hands.mjs';
@@ -49,6 +50,13 @@ const Lo = truth(0.45, 0.6, 'left');
 const Ro = truth(0.55, 0.62, 'right');
 check(matchHands([Lo, Ro], [det(0.55, 0.62, 'right', 'Left')]), [[1, 0]], 'one detection, hands overlapping but clearly the right one');
 check(matchHands([L, R], [det(0.5, 0.2, 'right', 'Right')]), [], 'a detection far from both hands: nothing');
+// Two hands drawn on exactly the same points: both costs 0, nothing tells
+// them apart (review 2026-10-27: 0 >= 2 * 0 let it through).
+const same = { lm: Lc.image.map(([x, y]) => [x, y, 0]) };
+check(matchHands([Lc, { side: 'right', image: Lc.image }], [same]), [], 'two hands on the same points, one detection: left out');
+check(matchHands([Lc, { side: 'right', image: Lc.image }], [same, same]), [], 'two hands on the same points, two detections: left out');
+// Wider than tall (aspect 16/9): x distances count by the picture's width.
+check(matchHands([R], [det(0.7, 0.6, 'right', 'Right')], 16 / 9), [[0, 0]], 'landscape picture: still matched');
 check(matchHands([{ side: 'right', image: R.image }], [det(0.7, 0.6, 'right', 'Right')]), [[0, 0]], 'one-hand render');
 console.log(fails ? `${fails} failed` : 'all passed');
 process.exit(fails ? 1 : 0);

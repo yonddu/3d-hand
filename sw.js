@@ -8,9 +8,14 @@
 // shows on the next visit; the stored copy is used only offline.
 // The picture models (vendor/models/*.bin) are asked for as <file>?h=<hash of
 // its contents> (build.mjs, palmFace.js versioned()), so a replaced model is a
-// new name: it is fetched once and the stored copies of the same file under
-// other hashes are dropped. Change VENDOR when any other file in vendor/ is
-// replaced under the same name.
+// new name. The server ignores the ?h=, so the bytes are checked against it
+// before they are stored: a page of an older release asking for its model
+// after the file was replaced gets the new bytes, which are not stored under
+// the old name (the page refuses them too, palmFace.js fetchModel). Per file
+// the two newest stored versions are kept, so a tab still on the previous
+// release works offline; copies stored without a hash (before 2026-10-27)
+// are dropped once a hashed one is there. Change VENDOR when any other file
+// in vendor/ is replaced under the same name.
 const VENDOR = 'hms-vendor-1';
 const APP = 'hms-app';
 
@@ -30,9 +35,40 @@ async function stored(cacheName, req, dropOthers = null) {
   if (hit) return hit;
   const res = await fetch(req);
   if (res.ok) {
-    if (dropOthers) for (const k of await cache.keys()) if (dropOthers(k) && k.url !== req.url) await cache.delete(k);
     await cache.put(req, res.clone());
+    if (dropOthers) for (const k of await cache.keys()) if (dropOthers(k) && k.url !== req.url) await cache.delete(k);
   }
+  return res;
+}
+
+const KEEP = 2; // versions of one model kept
+const hex = async (buf) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', buf))].map((b) => b.toString(16).padStart(2, '0')).join('');
+async function model(req) {
+  const cache = await caches.open(VENDOR);
+  const url = new URL(req.url);
+  const want = url.searchParams.get('h');
+  const same = async () => (await cache.keys()).filter((k) => new URL(k.url).pathname === url.pathname);
+  const tidy = async () => {
+    const all = await same();
+    const hashed = all.filter((k) => new URL(k.url).searchParams.get('h'));
+    if (!hashed.length) return;
+    for (const k of all.filter((k) => !new URL(k.url).searchParams.get('h'))) await cache.delete(k);
+    // keys() lists in the order stored; a hit is stored again to count as new
+    for (const k of hashed.slice(0, Math.max(0, hashed.length - KEEP))) await cache.delete(k);
+  };
+  const hit = await cache.match(req);
+  if (hit) {
+    if (want) {
+      await cache.put(req, hit.clone());
+      await tidy();
+    }
+    return hit;
+  }
+  const res = await fetch(req, want ? { cache: 'no-cache' } : undefined);
+  if (!res.ok) return res;
+  if (want && (await hex(await res.clone().arrayBuffer())).slice(0, want.length) !== want) return res; // another release's bytes: not stored
+  await cache.put(req, res.clone());
+  if (want) await tidy();
   return res;
 }
 
@@ -55,7 +91,8 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
   const path = url.pathname;
-  if (path.includes('/vendor/')) e.respondWith(stored(VENDOR, req, (k) => new URL(k.url).pathname === path));
+  if (path.includes('/vendor/models/') && path.endsWith('.bin')) e.respondWith(model(req));
+  else if (path.includes('/vendor/')) e.respondWith(stored(VENDOR, req));
   else if (path.endsWith('/app.bundle.js')) e.respondWith(stored(APP, req, (k) => new URL(k.url).pathname.endsWith('/app.bundle.js')));
   else if (req.mode === 'navigate') e.respondWith(fresh(req));
 });

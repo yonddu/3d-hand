@@ -6,6 +6,7 @@
 import { readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { build } from 'esbuild';
+import { basename } from 'node:path';
 
 const MP_VERSION = '0.10.21';
 const THREE_VERSION = '0.170.0';
@@ -29,6 +30,10 @@ const appBundle = await build({
 const appJs = appBundle.outputFiles[0].text;
 const appHash = createHash('sha256').update(appJs).digest('hex').slice(0, 10);
 writeFileSync('app.bundle.js', appJs);
+// The picture models (palmFace.js fetchModel): each page names the hash of the
+// model bytes it was built with, for both the standalone app and the artifact.
+const PICTURE_MODELS = ['vendor/models/palm_face.bin', 'vendor/models/finger_curl.bin', 'vendor/models/joint_cube.bin'];
+const modelHash = Object.fromEntries(PICTURE_MODELS.map((f) => [f, createHash('sha256').update(readFileSync(f)).digest('hex').slice(0, 10)]));
 const standalone = `<!doctype html>
 <html lang="ko">
 <head>
@@ -46,9 +51,7 @@ ${config({
   poseModelPath: 'vendor/models/pose_landmarker_lite.task',
   handModels: { left: { url: 'vendor/models/hand-left.glb' }, right: { url: 'vendor/models/hand-right.glb' } },
   serviceWorker: 'sw.js',
-  modelHash: Object.fromEntries(
-    ['vendor/models/palm_face.bin', 'vendor/models/finger_curl.bin', 'vendor/models/joint_cube.bin'].map((f) => [f, createHash('sha256').update(readFileSync(f)).digest('hex').slice(0, 10)]),
-  ),
+  modelHash,
 })}
 ${importMap({
   three: './vendor/three/three.module.min.js',
@@ -86,6 +89,8 @@ ${config({
     left: { base64: readFileSync('vendor/models/hand-left.glb').toString('base64') },
     right: { base64: readFileSync('vendor/models/hand-right.glb').toString('base64') },
   },
+  modelHash,
+  modelBase64: Object.fromEntries(PICTURE_MODELS.map((f) => [f, `${basename(f)}.b64.txt`])),
 })}
 ${importMap({
   three: `${jsd}/three@${THREE_VERSION}/build/three.module.min.js`,
@@ -100,4 +105,5 @@ copyFileSync('vendor/mediapipe/wasm/vision_wasm_internal.wasm', `${out}/vision_w
 writeFileSync(`${out}/hand_landmarker.task.b64.txt`, readFileSync('vendor/models/hand_landmarker.task').toString('base64'));
 writeFileSync(`${out}/pose_landmarker_lite.task.b64.txt`, readFileSync('vendor/models/pose_landmarker_lite.task').toString('base64'));
 writeFileSync(`${out}/efficientdet_lite0.tflite.b64.txt`, readFileSync('vendor/models/efficientdet_lite0.tflite').toString('base64'));
+for (const f of PICTURE_MODELS) writeFileSync(`${out}/${basename(f)}.b64.txt`, readFileSync(f).toString('base64'));
 console.log('built index.html and dist/artifact/');

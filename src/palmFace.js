@@ -17,11 +17,38 @@ const URL_BIN = 'vendor/models/palm_face.bin';
 
 // A model file's URL carries a hash of its contents (build.mjs writes them
 // into HMS_CONFIG.modelHash next to the app bundle's own hash), so a phone
-// that stored an older copy (sw.js) fetches the new one once, and the page
-// never pairs new app code with an old model.
+// that stored an older copy (sw.js) fetches the new one once.
 export function versioned(path) {
   const h = globalThis.HMS_CONFIG && HMS_CONFIG.modelHash && HMS_CONFIG.modelHash[path];
   return h ? `${path}?h=${h}` : path;
+}
+
+// A model's bytes, checked against that hash: a server that ignores the ?h=
+// and hands out a newer file (an old tab after a release) is refused, so the
+// page never pairs its app code with another release's model. In the
+// artifact (no vendor/ folder) the model rides as base64 text
+// (HMS_CONFIG.modelBase64).
+export async function fetchModel(path, base = '') {
+  const cfg = globalThis.HMS_CONFIG || {};
+  let buf;
+  if (cfg.modelBase64 && cfg.modelBase64[path]) {
+    const r = await fetch(base + cfg.modelBase64[path]);
+    if (!r.ok) throw new Error(`${path} ${r.status}`);
+    const bin = atob((await r.text()).trim());
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    buf = bytes.buffer;
+  } else {
+    const r = await fetch(base + versioned(path));
+    if (!r.ok) throw new Error(`${path} ${r.status}`);
+    buf = await r.arrayBuffer();
+  }
+  const want = cfg.modelHash && cfg.modelHash[path];
+  if (want && globalThis.crypto && crypto.subtle) {
+    const got = [...new Uint8Array(await crypto.subtle.digest('SHA-256', buf))].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, want.length);
+    if (got !== want) throw new Error(`${path}: another release's model (${got}, page wants ${want}); reload the page`);
+  }
+  return buf;
 }
 
 let weights = null;
@@ -36,11 +63,11 @@ export function half(h) {
   return s * (1 + f / 1024) * 2 ** (e - 15);
 }
 
-// Loads the weights once (about 120 KB); later calls return the same promise.
+// Loads the weights once (about 120 KB); later calls return the same promise
+// (a failed load is tried again on the next call).
 export function loadPalmFace(base = '') {
   if (!loading) {
-    loading = fetch(base + versioned(URL_BIN))
-      .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`palm_face.bin ${r.status}`))))
+    loading = fetchModel(URL_BIN, base)
       .then((buf) => {
         const h = new Uint16Array(buf);
         const all = new Float32Array(h.length);
@@ -49,6 +76,10 @@ export function loadPalmFace(base = '') {
         const take = (n) => all.subarray(o, (o += n));
         weights = LAYERS.map(([ci, co]) => ({ ci, co, w: take(9 * ci * co), b: take(co) }));
         weights.push({ w: take(LAYERS[3][1]), b: take(1) });
+      })
+      .catch((err) => {
+        loading = null;
+        throw err;
       });
   }
   return loading;

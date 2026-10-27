@@ -11,8 +11,10 @@
 // detection. A pair is kept only when it is sure:
 //   - close: mean distance under MAX_COST;
 //   - not the other hand's: the detection is at least RATIO times closer to
-//     this hand than to any other drawn hand (one detection over two
-//     clasped or crossed hands fits both, and is left out);
+//     this hand than to any other drawn hand, and at least MIN_GAP closer
+//     (one detection over two clasped or crossed hands fits both, and is left
+//     out; the gap keeps two hands drawn on the same points, both costs near
+//     0, from passing the ratio as 0 >= 2 * 0: review 2026-10-27);
 // The best one-to-one choice is taken (most sure pairs, then least distance),
 // so a second, duplicate detection of the same hand is simply left over.
 //
@@ -24,6 +26,7 @@ import { fileURLToPath } from 'node:url';
 // 95%, the worst 1% at 0.6 and over (MediaPipe misreading the hand).
 export const MAX_COST = 0.5;
 export const RATIO = 2;
+export const MIN_GAP = 0.05;
 
 // Truth hands of one render: a two-hand render (SYNTH_TWO) holds one per hand.
 export const truthHands = (r) => (r.truth.two ? r.truth.hands : [r.truth]);
@@ -41,7 +44,7 @@ export function pointCost(image, lm, aspect = 1) {
 // Returns [[truth index, detection index], ...].
 export function matchHands(truths, dets, aspect = 1) {
   const C = truths.map((t) => dets.map((d) => pointCost(t.image, d.lm, aspect)));
-  const sure = (ti, di) => C[ti][di] < MAX_COST && truths.every((_, o) => o === ti || C[o][di] >= RATIO * C[ti][di]);
+  const sure = (ti, di) => C[ti][di] < MAX_COST && truths.every((_, o) => o === ti || (C[o][di] >= RATIO * C[ti][di] && C[o][di] - C[ti][di] >= MIN_GAP));
   let best = { pairs: [], cost: 0 };
   const walk = (ti, used, pairs, cost) => {
     if (ti === truths.length) {
