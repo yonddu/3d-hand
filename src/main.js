@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { FINGERS, HAND_CONNECTIONS, restLandmarks } from './skeleton.js';
 import { HandRig, handFrameQuat } from './handRig.js';
+import { separateFrames } from './handBody.js';
 import { HandSolver } from './solver.js';
 import { PointSetFilter } from './filters.js';
 import { DemoSource } from './demo.js';
@@ -1507,7 +1508,7 @@ function stopRecording() {
       rec.finishing = null;
       let done;
       try {
-        done = cleanTake(frames);
+        done = separateFrames(cleanTake(frames), (side) => new HandRig(side));
       } catch (e) {
         // A failed clean-up must not lose the take: keep it as solved.
         console.error(e);

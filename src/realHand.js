@@ -24,6 +24,7 @@ import { addDepthPrepass } from './prepass.js';
 const WRIST_CUT = -0.015;
 const BEND_IN = 0.02; // m of the heel of the hand, above the border, that shares the wrist's bend
 import { basisQuat, handFrameQuat, cupQuat } from './handRig.js';
+import { separateThumb } from './handBody.js';
 
 // WebXR joint names per finger: [metacarpal, proximal, intermediate/distal, distal/tip, tip].
 const XR = {
@@ -294,6 +295,8 @@ export class RealHand {
       if (this.thumbWrap > 0) this.wrapThumb();
       if (this.pinches.length) this.solvePinches();
     }
+    // The thumb stays out of the other fingers whatever moved it (handBody.js).
+    separateThumb(rig);
     links.forEach((l, i) => this.writtenQ[i].copy(l.bone.quaternion));
     for (const finger of FINGERS) {
       const chain = drivenChain(finger.key);

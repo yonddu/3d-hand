@@ -4,7 +4,7 @@
   "flip": 7,
   "jump": 92,
   "gsw": 6,
-  "fjump": 11,
+  "fjump": 10,
   "fflip": 0,
   "asnap": 0
  },
@@ -13,7 +13,7 @@
   "flip": 2,
   "jump": 142,
   "gsw": 13,
-  "fjump": 65,
+  "fjump": 64,
   "fflip": 0,
   "asnap": 0
  },
@@ -58,7 +58,7 @@
   "flip": 3,
   "jump": 194,
   "gsw": 5,
-  "fjump": 146,
+  "fjump": 145,
   "fflip": 0,
   "asnap": 6
  },
@@ -211,7 +211,7 @@
   "flip": 25,
   "jump": 339,
   "gsw": 98,
-  "fjump": 105,
+  "fjump": 104,
   "fflip": 0,
   "asnap": 3
  },
@@ -247,7 +247,7 @@
   "flip": 0,
   "jump": 83,
   "gsw": 6,
-  "fjump": 40,
+  "fjump": 39,
   "fflip": 0,
   "asnap": 0
  },
@@ -256,7 +256,7 @@
   "flip": 0,
   "jump": 127,
   "gsw": 2,
-  "fjump": 40,
+  "fjump": 39,
   "fflip": 0,
   "asnap": 0
  },
@@ -267,6 +267,24 @@
   "gsw": 5,
   "fjump": 60,
   "fflip": 0,
+  "asnap": 0
+ },
+ "thumb_between_03-47.glb": {
+  "swap": 0,
+  "flip": 0,
+  "jump": 81,
+  "gsw": 4,
+  "fjump": 24,
+  "fflip": 0,
+  "asnap": 0
+ },
+ "two_hands_03-59.glb": {
+  "swap": 5,
+  "flip": 23,
+  "jump": 483,
+  "gsw": 50,
+  "fjump": 147,
+  "fflip": 2,
   "asnap": 0
  }
 }
