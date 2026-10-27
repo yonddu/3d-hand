@@ -200,6 +200,15 @@ const MOBILE = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
 const OBJECT_EVERY = MOBILE ? 600 : 150; // ms
 const POSE_EVERY = MOBILE ? 300 : 100; // ms
 const CROP_EVERY = 5; // recorded frames between saved hand crops (save-crops)
+// The option stays on across visits (it is for collecting scoring takes).
+try {
+  $('save-crops').checked = localStorage.getItem('hms.saveCrops') === '1';
+} catch {}
+$('save-crops').onchange = (e) => {
+  try {
+    localStorage.setItem('hms.saveCrops', e.target.checked ? '1' : '0');
+  } catch {}
+};
 
 async function ensureTracker() {
   if (tracker) return tracker;
