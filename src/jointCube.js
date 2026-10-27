@@ -44,3 +44,22 @@ export function withCubes(picture, cubes, view = null) {
   if (!cubes) return picture;
   return Object.fromEntries(KEYS.map((k) => [k, [0, 1, 2].map((i) => ({ ...(picture ? picture[k][i] : {}), ...cubes[k][i], view }))]));
 }
+
+// One hand's curl and cube readings as a filmed take's raw record keeps them
+// (main.js), so tools/replay.mjs solves with what the app's picture models
+// read: the GLB carries no pixels. Rounded to 3 decimals.
+const r3 = (v) => Math.round(v * 1000) / 1000;
+export function packPicture(curl, cubes, view) {
+  return {
+    ...(curl ? { c: KEYS.flatMap((k) => curl[k].map((b) => [r3(b.flex), r3(b.sd)])) } : {}),
+    ...(cubes ? { j: KEYS.flatMap((k) => cubes[k].map((b) => [r3(b.along), r3(b.asd), r3(b.nail), r3(b.nsd)])) } : {}),
+    ...(view ? { v: view[2] } : {}),
+  };
+}
+export function unpackPicture(p) {
+  const at = (a, k, i) => a[KEYS.indexOf(k) * 3 + i];
+  const curl = p.c ? Object.fromEntries(KEYS.map((k) => [k, [0, 1, 2].map((i) => ({ flex: at(p.c, k, i)[0], sd: at(p.c, k, i)[1] }))])) : null;
+  const cubes = p.j ? Object.fromEntries(KEYS.map((k) => [k, [0, 1, 2].map((i) => { const [along, asd, nail, nsd] = at(p.j, k, i); return { along, asd, nail, nsd }; })])) : null;
+  const view = p.v ? [0, 0, p.v] : null;
+  return curl || cubes ? withCubes(curl, view ? cubes : null, view) : null;
+}

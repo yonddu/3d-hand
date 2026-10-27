@@ -50,6 +50,7 @@ import { restLandmarks } from '../src/skeleton.js';
 import { expandPose, poseElbowAR, lineElbow } from '../src/elbowHint.js';
 import { planGrips, objectSize, heldFamily, GraspPrior, HIDDEN_MIN, FIT_MAX } from '../src/gripPrior.js';
 import { planMirrors } from '../src/mirrorPlan.js';
+import { unpackPicture } from '../src/jointCube.js';
 
 const FLIP = (45 * Math.PI) / 180;
 const JUMP = 30;
@@ -245,6 +246,8 @@ function pass(take, plans, logs = null, keep = false) {
       if (!prev || t - prev.t > 0.6) solvers[side].reset();
       const opts = { limits: true, fit: true, occluded, cup: raw.cup || 0, held: heldFamily(vision), heldSize: objectSize(vision), smoothing: false };
       if (plans) opts.plan = plans[side][fi] || null;
+      // The app's picture model readings, kept in takes from v93 on.
+      if (f.picture && f.picture[side] && !process.env.NOPIC) opts.picture = unpackPicture(f.picture[side]);
       const res = solvers[side].solve(P, opts);
       // As the app's drawn hand does after its contact passes (realHand.js).
       if (!process.env.NOSEP) separateThumb(solvers[side].rig);

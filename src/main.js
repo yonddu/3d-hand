@@ -24,7 +24,7 @@ import { initRomPanel } from './romPanel.js';
 import { ForearmFinder } from './forearm.js';
 import { cropJpeg, cutHand } from './palmFace.js';
 import { loadFingerCurl, fingerCurl } from './fingerCurl.js';
-import { loadJointCube, jointCube, withCubes } from './jointCube.js';
+import { loadJointCube, jointCube, withCubes, packPicture } from './jointCube.js';
 import { focalW } from './camera.js';
 
 const CONFIG = window.HMS_CONFIG || {};
@@ -511,7 +511,11 @@ function fromMediaPipe(hand) {
   // frame, and the cubes are left out.
   const crop = rec.offline && state.fit ? cutHand(video, hand.landmarks, video.videoWidth, video.videoHeight) : null;
   const view = state.lift ? (!state.ar && facingUser() ? [0, 0, -1] : [0, 0, 1]) : null;
-  const picture = crop ? withCubes(fingerCurl(crop), view ? jointCube(crop) : null, view) : null;
+  const curl = crop ? fingerCurl(crop) : null;
+  const cubes = crop && view ? jointCube(crop) : null;
+  const picture = crop ? withCubes(curl, cubes, view) : null;
+  // Kept with the take's raw readings, so a replay solves with them too.
+  if (crop && rec.on && rec.lastRaw && (curl || cubes)) (rec.lastRaw.picture ||= {})[hand.side] = packPicture(curl, cubes, view);
   if (state.ar) {
     // Passthrough: put the wrist on its own camera ray at its real distance,
     // so the 3D hand lands on top of the real one in the video.
