@@ -270,8 +270,10 @@ await page.evaluate(async ([seed, W, H, EXTRAS, HOLD]) => {
 }, [SEED, W, H, EXTRAS, HOLD]);
 
 const outFile = path.join(OUT, `synth_seed${SEED}.jsonl`);
-const stream = fs.createWriteStream(outFile, { flags: 'a' });
-let made = 0;
+// One synchronous append per sample: a write stream on the shared folder lost
+// every label when the container restarted mid-run (seed 5 and seed 7). A
+// run picks up after the samples already written.
+let made = fs.existsSync(outFile) ? fs.readFileSync(outFile, 'utf8').split('\n').filter(Boolean).length : 0;
 let tries = 0;
 let found = 0;
 while (made < N && tries < N * 6) {
@@ -286,10 +288,9 @@ while (made < N && tries < N * 6) {
   const name = `s${SEED}_${String(made).padStart(5, '0')}.jpg`;
   fs.writeFileSync(path.join(OUT, 'img', name), jpg);
   if (mp.length) found++;
-  stream.write(JSON.stringify({ id: name, aspect: W / H, truth, mp }) + '\n');
+  fs.appendFileSync(outFile, JSON.stringify({ id: name, aspect: W / H, truth, mp }) + '\n');
   made++;
   if (made % 50 === 0) console.log(`${made} made, MediaPipe found a hand in ${found}`);
 }
-stream.end();
 console.log(`done: ${made} samples (${tries} tries), MediaPipe found a hand in ${found} -> ${outFile}`);
 await browser.close();
