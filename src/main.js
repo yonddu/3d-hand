@@ -24,6 +24,7 @@ import { initRomPanel } from './romPanel.js';
 import { ForearmFinder } from './forearm.js';
 import { cropJpeg, cutHand } from './palmFace.js';
 import { loadFingerCurl, fingerCurl } from './fingerCurl.js';
+import { loadJointCube, jointCube, withCubes } from './jointCube.js';
 
 const CONFIG = window.HMS_CONFIG || {};
 // The large files stay on the phone between visits (sw.js).
@@ -227,6 +228,8 @@ async function ensureTracker() {
         .catch((err) => console.warn('object model unavailable', err));
       // Finger curl from the pixels, for filmed takes (151 KB).
       loadFingerCurl().catch((err) => console.warn('finger curl model unavailable', err));
+      // Joint cubes from the pixels (which way each bone and nail faces), same use (211 KB).
+      loadJointCube().catch((err) => console.warn('joint cube model unavailable', err));
       t.initPose()
         .then(() => t.pose && setStatus(`추적 + 팔꿈치 인식 준비됨 (${t.delegate})`))
         .catch((err) => console.warn('pose model unavailable; elbows use IK only', err));
@@ -502,7 +505,10 @@ function fromMediaPipe(hand) {
   // The fingers' bends read from the hand's own pixels (fingerCurl.js), for
   // the analysis of a filmed take only: about 5 ms a hand on a PC, too much
   // for every live frame on a phone.
-  const picture = rec.offline && state.fit ? fingerCurl(cutHand(video, hand.landmarks, video.videoWidth, video.videoHeight)) : null;
+  // With them, each joint's cube (jointCube.js): how much the bone points
+  // at the camera, which a curled finger and one pointing at it differ in.
+  const crop = rec.offline && state.fit ? cutHand(video, hand.landmarks, video.videoWidth, video.videoHeight) : null;
+  const picture = crop ? withCubes(fingerCurl(crop), jointCube(crop)) : null;
   if (state.ar) {
     // Passthrough: put the wrist on its own camera ray at its real distance,
     // so the 3D hand lands on top of the real one in the video.
