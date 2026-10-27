@@ -250,5 +250,23 @@
   "fjump": 40,
   "fflip": 0,
   "asnap": 0
+ },
+ "held_middle_02-39.glb": {
+  "swap": 0,
+  "flip": 0,
+  "jump": 127,
+  "gsw": 2,
+  "fjump": 40,
+  "fflip": 0,
+  "asnap": 0
+ },
+ "shaky_02-46.glb": {
+  "swap": 30,
+  "flip": 13,
+  "jump": 227,
+  "gsw": 5,
+  "fjump": 60,
+  "fflip": 0,
+  "asnap": 0
  }
 }

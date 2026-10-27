@@ -209,7 +209,7 @@ function cleanSide(hands, swapped) {
         const win = [];
         for (let j = Math.max(s, i - BONE_WIN); j <= Math.min(e, i + BONE_WIN); j++) if (orig[j]) win.push(orig[j]);
         const med = qmedoid(win);
-        if (qangle(orig[i], med) > BONE_SPIKE) hands[i].fingers[n] = med.slice();
+        if (orig[i] && qangle(orig[i], med) > BONE_SPIKE) hands[i].fingers[n] = med.slice();
       }
     }
 

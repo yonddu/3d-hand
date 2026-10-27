@@ -126,20 +126,36 @@ export function fillTogether(frames, lerpHand) {
       if (last && seen !== last && d[seen] > d[last] - KEEP) seen = last;
       last = seen;
       const hid = other(seen);
-      frames[k].hands = { [seen]: h, [hid]: null };
+      // A find named as the other hand was solved on the other hand's rig:
+      // its finger bones carry that hand's names and frames, which the clean-up
+      // and the export cannot read as this hand's (user take 2026-10-27 02:46:
+      // the clean-up stopped on a left hand with right-hand bones, and the
+      // take was saved unsmoothed, shaking). It is taken from this hand's own
+      // frames at either end, moved to where it was seen.
+      const was = frames[k].hands.left ? 'left' : 'right';
+      let found = h;
+      if (was !== seen) {
+        const A = end(a, seen);
+        const B = end(b, seen);
+        found = A && B ? lerpHand(A, B, (k - a) / (b - a)) : JSON.parse(JSON.stringify(A || B));
+        const shift = h.wrist.map((v, c) => v - found.wrist[c]);
+        found.wrist = h.wrist.slice();
+        if (Array.isArray(found.elbow)) found.elbow = found.elbow.map((v, c) => v + shift[c]);
+      }
+      frames[k].hands = { [seen]: found, [hid]: null };
       // Feedback: the hidden hand relative to the seen one at each end.
       const rels = [a, b].map((x) => (x >= 0 ? relOf(vec(end(x, seen).wrist), quat(end(x, seen).handQ), vec(end(x, hid).wrist), quat(end(x, hid).handQ)) : null));
       const u = a >= 0 && b >= 0 ? (k - a) / (b - a) : a >= 0 ? 0 : 1;
       const R0 = rels[0] || rels[1];
       const R1 = rels[1] || rels[0];
       const rel = { p: R0.p.clone().lerp(R1.p, u), q: R0.q.clone().slerp(R1.q, u) };
-      const ws = vec(h.wrist);
-      const qs = quat(h.handQ);
+      const ws = vec(found.wrist);
+      const qs = quat(found.handQ);
       // Feedforward: lean toward the nearest relative pose people make.
       const away = Math.min(a >= 0 ? k - a : Infinity, b >= 0 ? b - k : Infinity);
       // The arm rig lets the shoulder follow the body; the data's arms hang
       // from a fixed shoulder, so the seen hand is matched from its own shoulder.
-      const sh = Array.isArray(h.shoulder) ? vec(h.shoulder) : SHOULDER[seen];
+      const sh = Array.isArray(found.shoulder) ? vec(found.shoulder) : SHOULDER[seen];
       const near = nearest(seen, ws.clone().sub(sh).add(SHOULDER[seen]), qs, rel);
       if (near) {
         const w = W_DATA * Math.min(1, away / RAMP) * near.fit;

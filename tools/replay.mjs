@@ -243,6 +243,11 @@ function pass(take, plans, logs = null, keep = false) {
       if (plans) opts.plan = plans[side][fi] || null;
       const res = solvers[side].solve(P, opts);
       if (logs) logs[side][fi] = solvers[side].gripIn;
+      if (!logs && plans && process.env.TR && t >= +process.env.TR.split(',')[0] && t <= +process.env.TR.split(',')[1]) {
+        const B = (pts, j) => { const g = (i) => [pts[i].x, pts[i].y, pts[i].z]; const an = (a, b2, c) => { const u = g(b2).map((v, q) => v - g(a)[q]), w = g(c).map((v, q) => v - g(b2)[q]); return Math.acos(Math.max(-1, Math.min(1, u.reduce((s2, v, q) => s2 + v * w[q], 0) / Math.hypot(...u) / Math.hypot(...w)))) * 57.3; }; return Math.round(an(j, j + 1, j + 2) + an(j + 1, j + 2, j + 3)); };
+        const gi = solvers[side].gripIn;
+        console.log(t.toFixed(2), side[0], 'world', [5, 9, 13, 17].map((j) => B(h.world, j)).join(' '), '| lifted', [5, 9, 13, 17].map((j) => B(raw, j)).join(' '), '| solved', ['index', 'middle', 'ring', 'pinky'].map((k) => Math.round(res.angles[k][1].flex + res.angles[k][2].flex)).join(' '), '| grip', solvers[side].gripName || '-', '| hid', gi ? ['index', 'middle', 'ring', 'pinky'].map((k) => Math.max(...gi.hidden[k]).toFixed(1)).join(' ') : '', '| obj', vision ? (vision.label || vision.category || vision.shape) : '-');
+      }
       const gin = solvers[side].gripIn;
       if (!logs && gin) {
         const hid = Object.keys(gin.hidden).filter((k) => Math.max(...gin.hidden[k]) >= HIDDEN_MIN);
