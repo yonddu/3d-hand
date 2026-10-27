@@ -4,7 +4,7 @@
 // read curled fingers too open (tools/synth-eval.mjs); the picture shows the
 // fold. Trained on painted renders (tools/palm/train_curl.py), same crop as
 // the palm/back model (palmFace.js).
-import { half, conv } from './palmFace.js';
+import { half, conv, versioned } from './palmFace.js';
 
 const S = 64;
 const LAYERS = [
@@ -23,7 +23,7 @@ export function pictureNet(url, outs) {
   let loading = null;
   const load = (base = '') => {
     if (!loading) {
-      loading = fetch(base + url)
+      loading = fetch(base + versioned(url))
         .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`${url} ${r.status}`))))
         .then((buf) => {
           const h = new Uint16Array(buf);

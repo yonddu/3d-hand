@@ -46,6 +46,9 @@ ${config({
   poseModelPath: 'vendor/models/pose_landmarker_lite.task',
   handModels: { left: { url: 'vendor/models/hand-left.glb' }, right: { url: 'vendor/models/hand-right.glb' } },
   serviceWorker: 'sw.js',
+  modelHash: Object.fromEntries(
+    ['vendor/models/palm_face.bin', 'vendor/models/finger_curl.bin', 'vendor/models/joint_cube.bin'].map((f) => [f, createHash('sha256').update(readFileSync(f)).digest('hex').slice(0, 10)]),
+  ),
 })}
 ${importMap({
   three: './vendor/three/three.module.min.js',

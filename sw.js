@@ -6,7 +6,11 @@
 // every release, so it is fetched once per release and the old copy dropped.
 // The page itself (index.html) is always asked for first, so a new release
 // shows on the next visit; the stored copy is used only offline.
-// Change VENDOR when a file in vendor/ is replaced under the same name.
+// The picture models (vendor/models/*.bin) are asked for as <file>?h=<hash of
+// its contents> (build.mjs, palmFace.js versioned()), so a replaced model is a
+// new name: it is fetched once and the stored copies of the same file under
+// other hashes are dropped. Change VENDOR when any other file in vendor/ is
+// replaced under the same name.
 const VENDOR = 'hms-vendor-1';
 const APP = 'hms-app';
 
@@ -51,7 +55,7 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
   const path = url.pathname;
-  if (path.includes('/vendor/')) e.respondWith(stored(VENDOR, req));
+  if (path.includes('/vendor/')) e.respondWith(stored(VENDOR, req, (k) => new URL(k.url).pathname === path));
   else if (path.endsWith('/app.bundle.js')) e.respondWith(stored(APP, req, (k) => new URL(k.url).pathname.endsWith('/app.bundle.js')));
   else if (req.mode === 'navigate') e.respondWith(fresh(req));
 });

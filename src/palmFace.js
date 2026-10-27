@@ -15,6 +15,15 @@ const LAYERS = [
 ];
 const URL_BIN = 'vendor/models/palm_face.bin';
 
+// A model file's URL carries a hash of its contents (build.mjs writes them
+// into HMS_CONFIG.modelHash next to the app bundle's own hash), so a phone
+// that stored an older copy (sw.js) fetches the new one once, and the page
+// never pairs new app code with an old model.
+export function versioned(path) {
+  const h = globalThis.HMS_CONFIG && HMS_CONFIG.modelHash && HMS_CONFIG.modelHash[path];
+  return h ? `${path}?h=${h}` : path;
+}
+
 let weights = null;
 let loading = null;
 
@@ -30,7 +39,7 @@ export function half(h) {
 // Loads the weights once (about 120 KB); later calls return the same promise.
 export function loadPalmFace(base = '') {
   if (!loading) {
-    loading = fetch(base + URL_BIN)
+    loading = fetch(base + versioned(URL_BIN))
       .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`palm_face.bin ${r.status}`))))
       .then((buf) => {
         const h = new Uint16Array(buf);
