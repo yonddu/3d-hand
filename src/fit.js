@@ -154,19 +154,27 @@ function residuals(theta, ctx) {
   // The bends the picture shows, each as sure as the network says it is.
   if (ctx.picture) {
     for (let k = 0; k < 3; k++) {
-      const { flex, sd, along, asd, nail, nsd } = ctx.picture[k];
+      const { flex, sd, along, asd, nail, nsd, view } = ctx.picture[k];
       if (flex !== undefined) r.push((ang[k].flex - flex) * D2R * W_PICTURE * (PICTURE_SD / Math.max(sd, 5)));
-      // The joint's cube: how much the bone points at the camera (+z here),
-      // the depth lean a curled finger and one pointing at the camera differ in.
-      if (along !== undefined) {
+      // The joint's cube: how much the bone points at the camera, the depth
+      // lean a curled finger and one pointing at the camera differ in. The
+      // network was taught the cosine between the bone and the line from the
+      // joint to the camera (tools/palm/crops_cube.py). These points are in
+      // the picture frame lift.js builds: x, y where the picture shows each
+      // point, depth along the line of sight; so a bone along its own line to
+      // the camera has no length in x, y, and that line is +z for every point
+      // (tools/test-along.mjs). view is that axis in the solver's axes: +z,
+      // or -z when main.js turns the hands around for a camera facing the
+      // person. No view (points not from lift.js), no term.
+      if (along !== undefined && view) {
         const dir = pts[k].clone().sub(k ? pts[k - 1] : new THREE.Vector3()).normalize();
-        r.push((dir.z - along) * W_CUBE * (CUBE_SD / Math.max(asd, 0.05)));
+        r.push((dir.x * view[0] + dir.y * view[1] + dir.z * view[2] - along) * W_CUBE * (CUBE_SD / Math.max(asd, 0.05)));
       }
-      // ...and how much its nail side faces the camera (flexion turns a bone
-      // toward its +z, so the back of the finger is -z).
-      if (nail !== undefined && W_NAIL) {
+      // ...and how much its nail side faces the camera, on the same line
+      // (flexion turns a bone toward its +z, so the back of the finger is -z).
+      if (nail !== undefined && view && W_NAIL) {
         const back = NAIL_AXIS.clone().applyQuaternion(frames[k]);
-        r.push((back.z - nail) * W_NAIL * (CUBE_SD / Math.max(nsd, 0.05)));
+        r.push((back.x * view[0] + back.y * view[1] + back.z * view[2] - nail) * W_NAIL * (CUBE_SD / Math.max(nsd, 0.05)));
       }
     }
   }

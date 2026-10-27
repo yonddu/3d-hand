@@ -18,6 +18,9 @@ export const jointCubeReady = net.ready;
 
 // rgba: the 64x64 crop (palmFace.js cutHand). Returns { thumb: [{ along,
 // asd, nail, nsd } x3], ... } or null before the weights have loaded.
+// along: the cosine between the bone (this joint to the next) and the line
+// from this joint to the camera (1 = points straight at the camera); nail:
+// the same for the bone's back-of-finger axis (tools/palm/crops_cube.py).
 export function jointCube(rgba) {
   const o = net.run(rgba);
   if (!o) return null;
@@ -34,8 +37,10 @@ export function jointCube(rgba) {
   return out;
 }
 
-// The curl and cube readings of one hand as the solver's picture input.
-export function withCubes(picture, cubes) {
+// The curl and cube readings of one hand as the solver's picture input, with
+// view: the line of sight in the solver's axes, which along is measured on
+// (fit.js).
+export function withCubes(picture, cubes, view = null) {
   if (!cubes) return picture;
-  return Object.fromEntries(KEYS.map((k) => [k, [0, 1, 2].map((i) => ({ ...(picture ? picture[k][i] : {}), ...cubes[k][i] }))]));
+  return Object.fromEntries(KEYS.map((k) => [k, [0, 1, 2].map((i) => ({ ...(picture ? picture[k][i] : {}), ...cubes[k][i], view }))]));
 }

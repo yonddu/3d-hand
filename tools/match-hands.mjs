@@ -16,7 +16,7 @@
 // The best one-to-one choice is taken (most sure pairs, then least distance),
 // so a second, duplicate detection of the same hand is simply left over.
 //
-//   node tools/match-hands.mjs <file.jsonl>   prints {"<id>": [[truth index, detection index], ...]}
+//   node tools/match-hands.mjs <file.jsonl>   prints, line by line, [[truth index, detection index], ...] or null
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -67,16 +67,20 @@ export function matchRender(r) {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const out = {};
-  for (const l of fs.readFileSync(process.argv[2], 'utf8').split('\n')) {
-    if (!l.trim()) continue;
-    let r;
-    try {
-      r = JSON.parse(l);
-    } catch {
-      continue; // a line cut short on the shared folder
-    }
-    out[r.id] = matchRender(r);
-  }
+  // By line, null for a line that is not a render, and for all but the last
+  // line of a picture name written twice (a render resumed after a stop
+  // draws that picture again, so only the last line describes the file).
+  const rs = fs
+    .readFileSync(process.argv[2], 'utf8')
+    .split('\n')
+    .map((l) => {
+      try {
+        return JSON.parse(l);
+      } catch {
+        return null; // empty, or cut short on the shared folder
+      }
+    });
+  const last = new Map(rs.map((r, n) => [r && r.id, n]));
+  const out = rs.map((r, n) => (r && last.get(r.id) === n ? matchRender(r) : null));
   process.stdout.write(JSON.stringify(out));
 }

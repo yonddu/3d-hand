@@ -51,20 +51,26 @@ const cubeFile = args.includes('--cube') ? args[args.indexOf('--cube') + 1] : nu
 const cubes = cubeFile ? JSON.parse(fs.readFileSync(cubeFile, 'utf8')) : null;
 const KEYS = ['thumb', 'index', 'middle', 'ring', 'pinky'];
 // Curl readings (r) and joint cube readings (c, tools/palm/train_cube.py --predict: 15 along then 15 nail), either may be missing.
-const asPicture = (r, c) => (r || c ? Object.fromEntries(KEYS.map((k, f) => [k, [0, 1, 2].map((i) => ({ ...(r ? { flex: r[0][f * 3 + i], sd: r[1][f * 3 + i] } : {}), ...(c ? { along: c[0][f * 3 + i], asd: c[1][f * 3 + i], nail: c[0][15 + f * 3 + i], nsd: c[1][15 + f * 3 + i] } : {}) }))])) : null);
+// view: the line of sight in the lifted points' frame, +z (fit.js), as the app gives it.
+const asPicture = (r, c, view = [0, 0, 1]) => (r || c ? Object.fromEntries(KEYS.map((k, f) => [k, [0, 1, 2].map((i) => ({ ...(r ? { flex: r[0][f * 3 + i], sd: r[1][f * 3 + i] } : {}), ...(c ? { along: c[0][f * 3 + i], asd: c[1][f * 3 + i], nail: c[0][15 + f * 3 + i], nsd: c[1][15 + f * 3 + i], view } : {}) }))])) : null);
 const inputs = args.filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--worst' && args[i - 1] !== '--picture' && args[i - 1] !== '--cube');
 if (!inputs.length) inputs.push('/mnt/project-files/hand-motion-studio/synthetic/');
 const lines = [];
 for (const a of inputs) {
   const list = fs.statSync(a).isDirectory() ? fs.readdirSync(a).filter((f) => f.endsWith('.jsonl') && held.has(f) === score).map((f) => path.join(a, f)) : [a];
+  // A picture name written twice (a render resumed after a stop draws it
+  // again): only the last line describes the file (as tools/match-hands.mjs).
+  const renders = new Map();
   for (const f of list) for (const l of fs.readFileSync(f, 'utf8').split('\n')) {
-    if (!l.trim()) continue;
-    let r;
     try {
-      r = JSON.parse(l);
+      const r = JSON.parse(l);
+      renders.delete(`${f}/${r.id}`);
+      renders.set(`${f}/${r.id}`, r);
     } catch {
-      continue; // a line cut short on the shared folder
+      // empty, or a line cut short on the shared folder
     }
+  }
+  for (const r of renders.values()) {
     // Each drawn hand is scored as its own sample with the detection paired
     // to it by tools/match-hands.mjs (the rule the training crops use); a
     // hand with no sure detection counts as not found. Two-hand renders

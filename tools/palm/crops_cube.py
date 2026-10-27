@@ -47,17 +47,16 @@ if __name__ == '__main__':
     D, f, out = sys.argv[1:4]
     pairs = matches(D, f)
     X, ids, cube = [], [], []
-    for line in open(D + f):
-        try:
-            r = json.loads(line)
-        except ValueError:  # a line cut short on the shared folder
+    for n, line in enumerate(open(D + f).read().split('\n')):
+        if pairs[n] is None:  # empty, or a line cut short on the shared folder
             continue
+        r = json.loads(line)
         # Two-hand renders (SYNTH_TWO) hold one truth per hand; each hand
         # paired with a detection gives its own crop, id <picture>#<side>.
         two = r['truth'].get('two')
         hands = r['truth']['hands'] if two else [r['truth']]
         im = None
-        for ti, di in pairs.get(r['id'], []):
+        for ti, di in pairs[n]:
             t = hands[ti]
             if 'cubes' not in t:
                 continue

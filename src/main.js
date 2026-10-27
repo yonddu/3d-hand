@@ -25,6 +25,7 @@ import { ForearmFinder } from './forearm.js';
 import { cropJpeg, cutHand } from './palmFace.js';
 import { loadFingerCurl, fingerCurl } from './fingerCurl.js';
 import { loadJointCube, jointCube, withCubes } from './jointCube.js';
+import { focalW } from './camera.js';
 
 const CONFIG = window.HMS_CONFIG || {};
 // The large files stay on the phone between visits (sw.js).
@@ -459,10 +460,6 @@ Promise.all(
 
 // --- per-frame pipeline --------------------------------------------------------------
 
-// Phone main cameras see about 66 degrees across the long side of the frame.
-const LONG_FOV = (66 * Math.PI) / 180;
-// Focal length in image-width units for a frame of this aspect (width / height).
-const focalW = (aspect) => (Math.max(1, 1 / aspect) * 0.5) / Math.tan(LONG_FOV / 2);
 const WORK_DEPTH = 0.42;
 const LIVE_WINDOW = 1.0; // seconds a hand counts as tracked after its last detection
 
@@ -509,8 +506,14 @@ function fromMediaPipe(hand) {
   // for every live frame on a phone.
   // With them, each joint's cube (jointCube.js): how much the bone points
   // at the camera, which a curled finger and one pointing at it differ in.
+  // The cubes read how much each bone points along its own line to the
+  // camera, which in lift.js's picture frame is the depth axis (fit.js): +z,
+  // or -z once the hands are turned around for a camera facing the person
+  // (below). Without the lift the points are MediaPipe's own, not in that
+  // frame, and the cubes are left out.
   const crop = rec.offline && state.fit ? cutHand(video, hand.landmarks, video.videoWidth, video.videoHeight) : null;
-  const picture = crop ? withCubes(fingerCurl(crop), jointCube(crop)) : null;
+  const view = state.lift ? (!state.ar && facingUser() ? [0, 0, -1] : [0, 0, 1]) : null;
+  const picture = crop ? withCubes(fingerCurl(crop), view ? jointCube(crop) : null, view) : null;
   if (state.ar) {
     // Passthrough: put the wrist on its own camera ray at its real distance,
     // so the 3D hand lands on top of the real one in the video.
