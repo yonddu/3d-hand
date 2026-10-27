@@ -3,7 +3,7 @@
 // makes of MediaPipe's reading of the picture. A training aid only: the real
 // score stays on the score-only takes (regress-split.json).
 //
-//   node tools/synth-eval.mjs [synthetic folder or .jsonl ...] [--worst N] [--score] [--picture readings.json]
+//   node tools/synth-eval.mjs [synthetic folder or .jsonl ...] [--worst N] [--score] [--picture readings.json] [--cube readings.json]
 //
 // --picture: the finger curl network's readings by sample id
 // (tools/palm/train_curl.py --predict), fed to the fit as the app does.
@@ -46,9 +46,12 @@ const splitFile = path.join(path.dirname(new URL(import.meta.url).pathname), 're
 const held = new Set(fs.existsSync(splitFile) ? JSON.parse(fs.readFileSync(splitFile, 'utf8')).syntheticHoldout || [] : []);
 const pictureFile = args.includes('--picture') ? args[args.indexOf('--picture') + 1] : null;
 const readings = pictureFile ? JSON.parse(fs.readFileSync(pictureFile, 'utf8')) : null;
+const cubeFile = args.includes('--cube') ? args[args.indexOf('--cube') + 1] : null;
+const cubes = cubeFile ? JSON.parse(fs.readFileSync(cubeFile, 'utf8')) : null;
 const KEYS = ['thumb', 'index', 'middle', 'ring', 'pinky'];
-const asPicture = (r) => Object.fromEntries(KEYS.map((k, f) => [k, [0, 1, 2].map((i) => ({ flex: r[0][f * 3 + i], sd: r[1][f * 3 + i] }))]));
-const inputs = args.filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--worst' && args[i - 1] !== '--picture');
+// Curl readings (r) and joint cube readings (c, tools/palm/train_cube.py --predict: 15 along then 15 nail), either may be missing.
+const asPicture = (r, c) => (r || c ? Object.fromEntries(KEYS.map((k, f) => [k, [0, 1, 2].map((i) => ({ ...(r ? { flex: r[0][f * 3 + i], sd: r[1][f * 3 + i] } : {}), ...(c ? { along: c[0][f * 3 + i], asd: c[1][f * 3 + i], nail: c[0][15 + f * 3 + i], nsd: c[1][15 + f * 3 + i] } : {}) }))])) : null);
+const inputs = args.filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--worst' && args[i - 1] !== '--picture' && args[i - 1] !== '--cube');
 if (!inputs.length) inputs.push('/mnt/project-files/hand-motion-studio/synthetic/');
 const lines = [];
 for (const a of inputs) {
@@ -95,7 +98,7 @@ for (const s of lines) {
   const P = raw.map((p) => new THREE.Vector3(p.x, -p.y, -p.z));
   const solver = solvers[side];
   solver.reset();
-  const res = solver.solve(P, { limits: true, fit: true, cup: raw.cup || 0, occluded: raw.occluded || null, smoothing: false, picture: readings && readings[s.id] ? asPicture(readings[s.id]) : null });
+  const res = solver.solve(P, { limits: true, fit: true, cup: raw.cup || 0, occluded: raw.occluded || null, smoothing: false, picture: asPicture(readings && readings[s.id], cubes && cubes[s.id]) });
   const rig = solver.rig;
   rig.group.position.set(0, 0, 0);
   const out = rig.landmarkPositions();

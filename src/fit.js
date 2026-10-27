@@ -30,6 +30,10 @@ const W_CLOSE = 0.8; // hidden joints follow the natural closing path
 const W_SHAPE = 0.7; // hidden joints take the nearest basic shape
 const W_PICTURE = 0.5; // the bend read from the picture (fingerCurl.js), per PICTURE_SD of its spread
 const PICTURE_SD = 20; // degrees
+const W_CUBE = 0.5; // how much each bone points at the camera, read from the picture (jointCube.js), per CUBE_SD of its spread
+const CUBE_SD = 0.25;
+const W_NAIL = 0; // how much each bone's nail side faces the camera, the same way
+const NAIL_AXIS = new THREE.Vector3(0, 0, -1);
 const W_SOLID = 40; // per palm length of one finger's bone inside another's (fingers are solid)
 const SQUEEZE = 0.005; // m two fingers may press into each other (skin gives; a folded thumb lies on the index)
 const RIG_PALM = 0.09; // m, the scale solid overlaps are weighed on
@@ -75,18 +79,20 @@ function forward(theta, ctx) {
   const pts = [];
   const p = new THREE.Vector3();
   const locals = [];
+  const frames = [];
   for (let k = 0; k < 3; k++) {
     const local = localFrom(ctx.chain[k], ctx.side, ang[k].flex, ang[k].abd, ang[k].roll);
     locals.push(local);
     g = g.multiply(local);
+    frames.push(g.clone());
     p.addScaledVector(Y.clone().applyQuaternion(g), ctx.len[k]);
     pts.push(p.clone());
   }
-  return { pts, locals, ang };
+  return { pts, locals, ang, frames };
 }
 
 function residuals(theta, ctx) {
-  const { pts, ang } = forward(theta, ctx);
+  const { pts, ang, frames } = forward(theta, ctx);
   const r = [];
   // Data: each joint against its tracked point.
   for (let k = 0; k < 3; k++) {
@@ -148,8 +154,20 @@ function residuals(theta, ctx) {
   // The bends the picture shows, each as sure as the network says it is.
   if (ctx.picture) {
     for (let k = 0; k < 3; k++) {
-      const { flex, sd } = ctx.picture[k];
-      r.push((ang[k].flex - flex) * D2R * W_PICTURE * (PICTURE_SD / Math.max(sd, 5)));
+      const { flex, sd, along, asd, nail, nsd } = ctx.picture[k];
+      if (flex !== undefined) r.push((ang[k].flex - flex) * D2R * W_PICTURE * (PICTURE_SD / Math.max(sd, 5)));
+      // The joint's cube: how much the bone points at the camera (+z here),
+      // the depth lean a curled finger and one pointing at the camera differ in.
+      if (along !== undefined) {
+        const dir = pts[k].clone().sub(k ? pts[k - 1] : new THREE.Vector3()).normalize();
+        r.push((dir.z - along) * W_CUBE * (CUBE_SD / Math.max(asd, 0.05)));
+      }
+      // ...and how much its nail side faces the camera (flexion turns a bone
+      // toward its +z, so the back of the finger is -z).
+      if (nail !== undefined && W_NAIL) {
+        const back = NAIL_AXIS.clone().applyQuaternion(frames[k]);
+        r.push((back.z - nail) * W_NAIL * (CUBE_SD / Math.max(nsd, 0.05)));
+      }
     }
   }
   // Time: unsure tracking leans on the last frame.
