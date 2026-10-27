@@ -295,5 +295,14 @@
   "fjump": 6,
   "fflip": 0,
   "asnap": 0
+ },
+ "thumb_track_21-49.glb": {
+  "swap": 0,
+  "flip": 1,
+  "jump": 78,
+  "gsw": 8,
+  "fjump": 30,
+  "fflip": 0,
+  "asnap": 0
  }
 }
