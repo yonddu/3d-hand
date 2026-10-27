@@ -42,16 +42,21 @@ if __name__ == '__main__':
             r = json.loads(line)
         except ValueError:  # a line cut short on the shared folder
             continue
-        t = r['truth']
-        if 'cubes' not in t:
-            continue
-        tw = t['image'][0]
-        hits = sorted(r['mp'], key=lambda h: np.hypot(h['lm'][0][0] - tw[0], h['lm'][0][1] - tw[1]))
-        if not hits or np.hypot(hits[0]['lm'][0][0] - tw[0], hits[0]['lm'][0][1] - tw[1]) > 0.1:
-            continue
-        im = Image.open(D + 'img/' + r['id']).convert('RGB')
-        X.append(cut(im, hits[0]['lm']))
-        ids.append(r['id'])
-        cube.append(cube_labels(t))
+        # Two-hand renders (SYNTH_TWO) hold one truth per hand; each hand
+        # found by MediaPipe near its true wrist gives its own crop.
+        two = r['truth'].get('two')
+        hands = r['truth']['hands'] if two else [r['truth']]
+        im = None
+        for t in hands:
+            if 'cubes' not in t:
+                continue
+            tw = t['image'][0]
+            hits = sorted(r['mp'], key=lambda h: np.hypot(h['lm'][0][0] - tw[0], h['lm'][0][1] - tw[1]))
+            if not hits or np.hypot(hits[0]['lm'][0][0] - tw[0], hits[0]['lm'][0][1] - tw[1]) > 0.1:
+                continue
+            im = im or Image.open(D + 'img/' + r['id']).convert('RGB')
+            X.append(cut(im, hits[0]['lm']))
+            ids.append(r['id'] + ('#' + t['side'] if two else ''))
+            cube.append(cube_labels(t))
     np.savez_compressed(out, x=np.array(X, np.uint8), ids=np.array(ids), cube=np.array(cube, np.float32))
     print(len(X), 'crops ->', out)

@@ -58,11 +58,16 @@ for (const a of inputs) {
   const list = fs.statSync(a).isDirectory() ? fs.readdirSync(a).filter((f) => f.endsWith('.jsonl') && held.has(f) === score).map((f) => path.join(a, f)) : [a];
   for (const f of list) for (const l of fs.readFileSync(f, 'utf8').split('\n')) {
     if (!l.trim()) continue;
+    let r;
     try {
-      lines.push(JSON.parse(l));
+      r = JSON.parse(l);
     } catch {
-      // a line cut short on the shared folder
+      continue; // a line cut short on the shared folder
     }
+    // Two-hand renders (SYNTH_TWO): each hand is scored as its own sample,
+    // id <picture>#<side> as tools/palm/crops_cube.py names its crop.
+    if (r.truth.two) for (const t of r.truth.hands) lines.push({ ...r, id: `${r.id}#${t.side}`, truth: { ...t, arm: r.truth.motion } });
+    else lines.push(r);
   }
 }
 
