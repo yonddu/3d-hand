@@ -368,6 +368,7 @@ $('show-joints').onchange = (e) => {
   syncArmVisibility();
 };
 $('show-raw').onchange = (e) => SIDES.forEach((s) => (rawDots[s].visible = e.target.checked));
+$('show-cubes').onchange = (e) => SIDES.forEach((s) => realHands[s] && realHands[s].setCubesVisible(e.target.checked));
 const MATERIALS = { quest: questMaterial, skin: skinMat, ghost: ghostMat };
 function applyLook() {
   const make = MATERIALS[$('look').value];
@@ -436,6 +437,7 @@ Promise.all(
     scene.add(real.root);
     rigs[side].mesh.visible = false;
     realHands[side] = real;
+    real.setCubesVisible($('show-cubes').checked);
   }),
 )
   .catch((err) => {
