@@ -201,40 +201,66 @@ export function handsDepth(rigs, hl, hr) {
   const near = (P) => P.reduce((s, p) => s + Math.hypot(...p), 0) / P.length;
   return { depth: hits.length ? hits[0].depth : 0, leftNearer: near(A) < near(B) };
 }
+// Runs of frames that are eased together: both hands seen, no gap in time
+// longer than RUN_GAP, and (for the hands' order in depth) the same hand
+// nearer the camera. Corrections never cross from one run into another
+// (review 2026-10-27: a neighbour's push, sign and all, flipped which hand
+// was in front; a push leaked across frames with no hands).
+const RUN_GAP = 0.15; // s
+function runsOf(frames, key = () => 0) {
+  const run = [];
+  let id = -1;
+  frames.forEach((f, i) => {
+    const both = f.hands.left && f.hands.right && f.hands.left.fingers && f.hands.right.fingers;
+    if (!both) {
+      run.push(null);
+      return;
+    }
+    const prev = i > 0 && run[i - 1] !== null;
+    if (!prev || f.t - frames[i - 1].t > RUN_GAP || key(i) !== key(i - 1)) id++;
+    run.push(id);
+  });
+  return run;
+}
+// Widen each frame's value to the largest in its run within SEP_SPREAD
+// frames, then average over the same window: a correction eases in and out.
+function easeInRuns(vals, run, size, widen, mean) {
+  const near = (i, src) => {
+    const out = [];
+    for (let j = Math.max(0, i - SEP_SPREAD); j <= Math.min(vals.length - 1, i + SEP_SPREAD); j++) if (run[j] === run[i] && src[j] !== null) out.push(src[j]);
+    return out;
+  };
+  const wide = vals.map((v, i) => (v === null ? null : near(i, vals).reduce((m, x) => (size(x) > size(m) ? x : m), widen)));
+  return vals.map((v, i) => (v === null ? null : mean(near(i, wide))));
+}
 export function separateHands(frames, makeRig) {
   const rigs = { left: (sepRigs.left ||= makeRig('left')), right: (sepRigs.right ||= makeRig('right')) };
-  // How far (m) each hand moves back (+) along its ray, each frame.
-  const push = frames.map((f) => {
+  // How far (m) the two hands move apart along their rays each frame, and
+  // which one is nearer the camera (it stays nearer).
+  const order = [];
+  const gap = frames.map((f, i) => {
     const hl = f.hands.left;
     const hr = f.hands.right;
     if (!hl || !hr || !hl.fingers || !hr.fingers) return null;
     const a = { ...hl };
     const b = { ...hr };
     let total = 0;
-    let order = null;
     for (let s = 0; s < HANDS_STEPS; s++) {
       const r = handsDepth(rigs, a, b);
-      if (order === null) order = r.leftNearer;
+      if (order[i] === undefined) order[i] = r.leftNearer;
       if (r.depth < HANDS_MIN) break;
       total = Math.min(total + r.depth + 0.001, HANDS_MAX);
-      a.wrist = along(hl.wrist, order ? -total / 2 : total / 2);
-      b.wrist = along(hr.wrist, order ? total / 2 : -total / 2);
+      a.wrist = along(hl.wrist, order[i] ? -total / 2 : total / 2);
+      b.wrist = along(hr.wrist, order[i] ? total / 2 : -total / 2);
       if (total >= HANDS_MAX) break;
     }
-    return total ? (order ? -total / 2 : total / 2) : 0;
+    return total;
   });
-  const eased = push.map((p, i) => {
-    if (p === null) return null;
-    let best = 0;
-    for (let j = Math.max(0, i - SEP_SPREAD); j <= Math.min(frames.length - 1, i + SEP_SPREAD); j++) if (push[j] !== null && Math.abs(push[j]) > Math.abs(best)) best = push[j];
-    return best;
-  });
-  eased.forEach((p, i) => {
-    if (!p) return;
-    let sum = 0;
-    let n = 0;
-    for (let j = Math.max(0, i - SEP_SPREAD); j <= Math.min(frames.length - 1, i + SEP_SPREAD); j++) if (eased[j] !== null) (sum += eased[j]), n++;
-    const d = sum / n;
+  const run = runsOf(frames, (i) => order[i]);
+  const eased = easeInRuns(gap, run, (x) => x, 0, (xs) => xs.reduce((s, x) => s + x, 0) / xs.length);
+  eased.forEach((g, i) => {
+    if (!g) return;
+    const d = order[i] ? -g / 2 : g / 2; // the left hand's move back
     const f = frames[i];
     f.hands.left = moveBack(f.hands.left, d);
     f.hands.right = moveBack(f.hands.right, -d);
@@ -282,7 +308,8 @@ function crossFingers(frames, rigs) {
     };
     let last = Infinity;
     let undo = null;
-    for (let step = 0; step < CROSS_STEPS; step++) {
+    // One more look than there are steps, so the last step is checked too.
+    for (let step = 0; step <= CROSS_STEPS; step++) {
       const w = worstOf();
       const total = w ? w.depth : 0;
       if (total >= last) {
@@ -290,7 +317,7 @@ function crossFingers(frames, rigs) {
         break;
       }
       last = total;
-      if (!w) break;
+      if (!w || step === CROSS_STEPS) break;
       const out = w.c1.clone().sub(w.c2);
       if (out.lengthSq() < 1e-12) break;
       out.normalize();
@@ -321,27 +348,23 @@ function crossFingers(frames, rigs) {
     }
     return out;
   });
+  const run = runsOf(frames);
+  const mean = (qs) => {
+    const avg = new THREE.Vector4();
+    for (const x of qs) {
+      const sg = x.w < 0 ? -1 : 1;
+      avg.x += x.x * sg;
+      avg.y += x.y * sg;
+      avg.z += x.z * sg;
+      avg.w += x.w * sg;
+    }
+    return new THREE.Quaternion(avg.x, avg.y, avg.z, avg.w).normalize();
+  };
   for (const side of ['left', 'right']) for (const k of keys) {
     const name = rigs[side].chains[k][0].bone.name;
     const c = corr.map((x) => (x ? x[side][k] || new THREE.Quaternion() : null));
-    const near = (i, pick) => {
-      const out = [];
-      for (let j = Math.max(0, i - SEP_SPREAD); j <= Math.min(frames.length - 1, i + SEP_SPREAD); j++) if (c[j]) out.push(pick(j));
-      return out;
-    };
-    const wide = c.map((q, i) => (q ? near(i, (j) => c[j]).reduce((m, x) => (angle(x) > angle(m) ? x : m), new THREE.Quaternion()) : null));
-    c.forEach((q, i) => {
-      if (!q) return;
-      const avg = new THREE.Vector4();
-      for (const x of near(i, (j) => wide[j])) {
-        const sg = x.w < 0 ? -1 : 1;
-        avg.x += x.x * sg;
-        avg.y += x.y * sg;
-        avg.z += x.z * sg;
-        avg.w += x.w * sg;
-      }
-      const turn = new THREE.Quaternion(avg.x, avg.y, avg.z, avg.w).normalize();
-      if (angle(turn) < 1e-4) return;
+    easeInRuns(c, run, angle, new THREE.Quaternion(), mean).forEach((turn, i) => {
+      if (!turn || angle(turn) < 1e-4) return;
       const h = frames[i].hands[side];
       if (!h.fingers[name]) return;
       h.fingers = { ...h.fingers, [name]: turn.multiply(new THREE.Quaternion().fromArray(h.fingers[name])).toArray() };
@@ -352,6 +375,7 @@ function crossFingers(frames, rigs) {
 // A point moved d (m) further from the camera along its own ray.
 function along(p, d) {
   const L = Math.hypot(...p);
+  if (!(L > 1e-6)) return p.slice(); // no line of sight from the camera itself
   return p.map((v) => v * (1 + d / L));
 }
 function moveBack(h, d) {

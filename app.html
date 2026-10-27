@@ -324,14 +324,14 @@
         <label class="check"><input type="checkbox" id="show-arm" checked> 아래팔·팔꿈치</label>
         <label class="check"><input type="checkbox" id="show-upper"> 위팔</label>
       </div>
-      <div class="row">
-        <label for="look">손 재질</label>
-        <select id="look" class="grow">
-          <option value="quest">퀘스트 스타일</option>
-          <option value="skin">피부</option>
-          <option value="ghost">귀신 손</option>
-        </select>
-      </div>
+      <!-- The hands are always drawn in the Quest look (user 2026-10-27); the
+           hidden choice stays for the training renders (tools/synth-render.mjs
+           switches it to plain skin). -->
+      <select id="look" hidden>
+        <option value="quest" selected>퀘스트 스타일</option>
+        <option value="skin">피부</option>
+        <option value="ghost">귀신 손</option>
+      </select>
     </section>
 
     <section>
