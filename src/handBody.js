@@ -8,6 +8,7 @@
 // The two models are not exact mirrors (the left index is 3 mm shorter).
 import * as THREE from 'three';
 import { FINGERS } from './skeleton.js';
+import { handOverlaps, palmFrame } from './collide.js';
 
 export const BODY = {
   right: {
@@ -167,4 +168,87 @@ export function separateFrames(frames, makeRig) {
     });
   }
   return frames;
+}
+
+// One hand kept out of the other (clasped, stacked or interlaced hands: user
+// take 2026-10-27 03:59). Where the hands overlap on the drawn model, they are
+// moved apart along the camera's line of sight, each along its own wrist's
+// ray, so both stay where they are in the picture: how far each hand is from
+// the camera is the one thing the picture cannot tell. The hand already
+// nearer the camera stays nearer. Shifts are eased over neighbouring frames
+// like separateFrames. frames: finished frames (cleanTake); changes wrist and
+// elbow of each hand frame.
+const HANDS_MIN = 0.001; // m inside before anything is moved
+const HANDS_STEPS = 8;
+const HANDS_MAX = 0.03; // m the two hands may be moved apart in all: past that the overlap is not one of depth (interlaced fingers)
+export function handPoints(rig, h) {
+  rig.setPose({ bones: h.fingers });
+  rig.group.position.fromArray(h.wrist);
+  rig.wrist.quaternion.fromArray(h.handQ);
+  return bodyPoints(rig).map((v) => v.toArray());
+}
+function handFrame(L, side) {
+  const w = new THREE.Vector3(...L[0]);
+  const n = new THREE.Vector3(...L[5]).sub(w).cross(new THREE.Vector3(...L[17]).sub(w)).normalize();
+  if (side === 'left') n.negate();
+  return palmFrame(L[0], L[5], L[17], L[9], n.toArray());
+}
+export function handsDepth(rigs, hl, hr) {
+  const A = handPoints(rigs.left, hl);
+  const B = handPoints(rigs.right, hr);
+  const scale = Math.hypot(...BODY.right.base.middle) / 0.09;
+  const hits = handOverlaps(A, B, handFrame(A, 'left'), handFrame(B, 'right'), scale, 0);
+  const near = (P) => P.reduce((s, p) => s + Math.hypot(...p), 0) / P.length;
+  return { depth: hits.length ? hits[0].depth : 0, leftNearer: near(A) < near(B) };
+}
+export function separateHands(frames, makeRig) {
+  const rigs = { left: (sepRigs.left ||= makeRig('left')), right: (sepRigs.right ||= makeRig('right')) };
+  // How far (m) each hand moves back (+) along its ray, each frame.
+  const push = frames.map((f) => {
+    const hl = f.hands.left;
+    const hr = f.hands.right;
+    if (!hl || !hr || !hl.fingers || !hr.fingers) return null;
+    const a = { ...hl };
+    const b = { ...hr };
+    let total = 0;
+    let order = null;
+    for (let s = 0; s < HANDS_STEPS; s++) {
+      const r = handsDepth(rigs, a, b);
+      if (order === null) order = r.leftNearer;
+      if (r.depth < HANDS_MIN) break;
+      total = Math.min(total + r.depth + 0.001, HANDS_MAX);
+      a.wrist = along(hl.wrist, order ? -total / 2 : total / 2);
+      b.wrist = along(hr.wrist, order ? total / 2 : -total / 2);
+      if (total >= HANDS_MAX) break;
+    }
+    return total ? (order ? -total / 2 : total / 2) : 0;
+  });
+  const eased = push.map((p, i) => {
+    if (p === null) return null;
+    let best = 0;
+    for (let j = Math.max(0, i - SEP_SPREAD); j <= Math.min(frames.length - 1, i + SEP_SPREAD); j++) if (push[j] !== null && Math.abs(push[j]) > Math.abs(best)) best = push[j];
+    return best;
+  });
+  eased.forEach((p, i) => {
+    if (!p) return;
+    let sum = 0;
+    let n = 0;
+    for (let j = Math.max(0, i - SEP_SPREAD); j <= Math.min(frames.length - 1, i + SEP_SPREAD); j++) if (eased[j] !== null) (sum += eased[j]), n++;
+    const d = sum / n;
+    const f = frames[i];
+    f.hands.left = moveBack(f.hands.left, d);
+    f.hands.right = moveBack(f.hands.right, -d);
+  });
+  return frames;
+}
+// A point moved d (m) further from the camera along its own ray.
+function along(p, d) {
+  const L = Math.hypot(...p);
+  return p.map((v) => v * (1 + d / L));
+}
+function moveBack(h, d) {
+  const off = along(h.wrist, d).map((v, k) => v - h.wrist[k]);
+  const out = { ...h, wrist: h.wrist.map((v, k) => v + off[k]) };
+  if (h.elbow) out.elbow = h.elbow.map((v, k) => v + off[k]);
+  return out;
 }

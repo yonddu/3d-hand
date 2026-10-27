@@ -257,7 +257,15 @@ await page.evaluate(async ([seed, W, H, EXTRAS, HOLD]) => {
       const XR = { thumb: 'thumb-metacarpal thumb-phalanx-proximal thumb-phalanx-distal thumb-tip' };
       for (const k of ['index', 'middle', 'ring', 'pinky']) XR[k] = ['phalanx-proximal', 'phalanx-intermediate', 'phalanx-distal', 'tip'].map((n) => `${k}-finger-${n}`).join(' ');
       const L = [rh.joints.wrist.getWorldPosition(new THREE.Vector3())];
-      for (const k of Object.keys(XR)) for (const n of XR[k].split(' ')) L.push(rh.joints[n].getWorldPosition(new THREE.Vector3()));
+      // Each joint as a small cube: its turn in camera space (the model's
+      // joint axes, WebXR hand convention), so a picture model can learn which
+      // face (nail side, pad side, finger sides) is toward the camera.
+      const camQ = new THREE.Quaternion().setFromRotationMatrix(S.camera.matrixWorldInverse);
+      const cubes = [camQ.clone().multiply(rh.joints.wrist.getWorldQuaternion(new THREE.Quaternion())).toArray()];
+      for (const k of Object.keys(XR)) for (const n of XR[k].split(' ')) {
+        L.push(rh.joints[n].getWorldPosition(new THREE.Vector3()));
+        cubes.push(camQ.clone().multiply(rh.joints[n].getWorldQuaternion(new THREE.Quaternion())).toArray());
+      }
       if (EXTRAS) wearThings(side, L, J.E);
       else {
         extras.clear();
@@ -281,7 +289,7 @@ await page.evaluate(async ([seed, W, H, EXTRAS, HOLD]) => {
           return [(q.x + 1) / 2, (1 - q.y) / 2];
         }),
       };
-      return { side, arm: ap.id, armAngles: ap.arm, shape: shape.id, h: shape.h, cup: shape.cup, handQ: handQ.toArray(), joints: cam.map((p) => p.toArray()), image: img, object };
+      return { side, arm: ap.id, armAngles: ap.arm, shape: shape.id, h: shape.h, cup: shape.cup, handQ: handQ.toArray(), joints: cam.map((p) => p.toArray()), cubes: cubes.map((q) => q.map((v) => +v.toFixed(4))), image: img, object };
     },
     async detect(dataUrl) {
       const im = new Image();

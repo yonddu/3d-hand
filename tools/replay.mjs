@@ -37,7 +37,7 @@
 import fs from 'fs';
 import path from 'path';
 import { overlaps, palmFrame, palmDepth, RADIUS } from '../src/collide.js';
-import { BODY, bodyPoints, separateThumb, separateFrames } from '../src/handBody.js';
+import { BODY, bodyPoints, separateThumb, separateFrames, separateHands, handsDepth } from '../src/handBody.js';
 import * as THREE from 'three';
 import { HandTracker, chirality, dedupe, resolveSides } from '../src/tracker.js';
 import { liftToPicture } from '../src/lift.js';
@@ -337,7 +337,8 @@ function pass(take, plans, logs = null, keep = false) {
   });
   if (logs) for (const side of ['left', 'right']) for (let i = 0; i < take.frames.length; i++) logs[side][i] ||= null;
   else {
-    const motion = process.env.NOSEP ? cleanTake(made) : separateFrames(cleanTake(made), (side) => new HandRig(side));
+    let motion = process.env.NOSEP ? cleanTake(made) : separateFrames(cleanTake(made), (side) => new HandRig(side));
+    if (!process.env.NOHANDS) motion = Object.assign(separateHands(motion, (side) => new HandRig(side)), { together: motion.together });
     out.together = motion.together;
     for (const t of motion.together.times) guess(t, 'both', 'together', 'one hand behind the other');
     finished(motion, out);
@@ -357,7 +358,18 @@ function thumbGap(side, fingers) {
   return L[4].distanceTo(L[5]) / L[0].distanceTo(L[9]);
 }
 
+const handRigs = {};
 function finished(frames, out) {
+  // hpierce (marks only): one hand inside the other on the drawn model by
+  // more than PIERCE.
+  handRigs.left ||= new HandRig('left');
+  handRigs.right ||= new HandRig('right');
+  for (const f of frames) {
+    const { left, right } = f.hands;
+    if (!left || !right || !left.fingers || !right.fingers) continue;
+    const r = handsDepth(handRigs, left, right);
+    if (r.depth > PIERCE) out.marks.push({ t: f.t, side: 'both', kind: 'hpierce', n: 1, about: `${Math.round(r.depth * 1000)}mm` });
+  }
   // topen (marks only): frames whose thumb looks open, for issues about a
   // folded thumb shown open in one stretch of a take.
   for (const f of frames) for (const side of ['left', 'right']) {

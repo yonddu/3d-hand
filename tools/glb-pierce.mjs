@@ -6,7 +6,7 @@
 //   node tools/glb-pierce.mjs take.glb [more.glb ...] [--list]
 import fs from 'fs';
 import * as THREE from 'three';
-import { overlaps, palmFrame, palmDepth, RADIUS } from '../src/collide.js';
+import { overlaps, handOverlaps, palmFrame, palmDepth, RADIUS } from '../src/collide.js';
 
 const PIERCE = 0.008; // as tools/replay.mjs
 const FINGERS = ['Thumb', 'Index', 'Middle', 'Ring', 'Pinky'];
@@ -47,7 +47,7 @@ export function measureGlb(path) {
   });
   const times = tracks.reduce((a, t) => (t.times.length > a.length ? t.times : a), []);
   const byName = Object.fromEntries(nodes.map((o) => [o.name, o]));
-  const out = { frames: times.length, pierce: 0, ppierce: 0, thumb: 0, marks: [], gaps: [] };
+  const out = { frames: times.length, pierce: 0, ppierce: 0, thumb: 0, hpierce: 0, both: 0, marks: [], gaps: [] };
   const v = new THREE.Vector3();
   for (let fi = 0; fi < times.length; fi++) {
     const t = times[fi];
@@ -61,6 +61,7 @@ export function measureGlb(path) {
       else tr.node.scale.fromArray(val);
     }
     root.updateMatrixWorld(true);
+    const seen = {};
     for (const side of ['Left', 'Right']) {
       const hand = byName[`${side}Hand`];
       if (!hand || hand.getWorldScale(v).x < 1e-3) continue; // hand not in this frame
@@ -79,12 +80,23 @@ export function measureGlb(path) {
       const n = new THREE.Vector3(...L[5]).sub(w).cross(new THREE.Vector3(...L[17]).sub(w)).normalize();
       if (side === 'Left') n.negate();
       const pf = palmFrame(L[0], L[5], L[17], L[9], n.toArray());
+      seen[side] = { L, pf, scale: Math.hypot(...L[9].map((v, i) => v - L[0][i])) / 0.09 };
       for (const [key, idx] of [['thumb', [3, 4]], ['index', [7, 8]], ['middle', [11, 12]], ['ring', [15, 16]], ['pinky', [19, 20]]]) {
         const deep = Math.max(...idx.map((i) => palmDepth(L[i], RADIUS[key], pf)));
         if (deep > PIERCE) {
           out.ppierce++;
           out.marks.push({ t: +t.toFixed(2), side, kind: 'ppierce', about: `${key} ${Math.round(deep * 1000)}mm` });
         }
+      }
+    }
+    // One hand inside the other.
+    if (seen.Left && seen.Right) {
+      out.both++;
+      const sc = (seen.Left.scale + seen.Right.scale) / 2;
+      const hits = handOverlaps(seen.Left.L, seen.Right.L, seen.Left.pf, seen.Right.pf, sc, PIERCE);
+      if (hits.length) {
+        out.hpierce++;
+        out.marks.push({ t: +t.toFixed(2), side: 'both', kind: 'hpierce', about: hits.slice(0, 3).map((h) => `L${h.a}-R${h.b} ${Math.round(h.depth * 1000)}mm`).join(', ') });
       }
     }
   }
@@ -95,7 +107,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const list = process.argv.includes('--list');
   for (const p of process.argv.slice(2).filter((a) => !a.startsWith('--'))) {
     const r = measureGlb(p);
-    console.log(`${p.split('/').pop()}: ${r.frames} frames, pierce ${r.pierce} (thumb ${r.thumb}), ppierce ${r.ppierce}`);
+    console.log(`${p.split('/').pop()}: ${r.frames} frames, pierce ${r.pierce} (thumb ${r.thumb}), ppierce ${r.ppierce}, both hands ${r.both} frames, one hand in the other ${r.hpierce}`);
     if (list) for (const m of r.marks) console.log(`  ${m.t}s ${m.side} ${m.kind} ${m.about}`);
   }
 }

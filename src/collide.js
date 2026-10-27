@@ -117,3 +117,49 @@ export function palmDepth(p, r, f, scale = 1) {
   if (h >= front || h <= -back) return 0;
   return front - h; // the way out is to the palm side
 }
+
+// One hand inside the other (clasped, stacked or interlaced hands): finger
+// bones of A against finger bones of B, and each hand's finger joints against
+// the other's palm slab (left by whichever face is nearer). A, B: 21 points
+// each; fa, fb: their palmFrame()s. Returns the overlaps deeper than min.
+export function handOverlaps(A, B, fa, fb, scale = 1, min = 0) {
+  const PA = A.map((p) => (Array.isArray(p) ? p : [p.x, p.y, p.z]));
+  const PB = B.map((p) => (Array.isArray(p) ? p : [p.x, p.y, p.z]));
+  const out = [];
+  for (const a of KEYS) {
+    for (const b of KEYS) {
+      const reach = (RADIUS[a] + RADIUS[b]) * scale;
+      let deepest = 0;
+      let bones = null;
+      BONES[a].forEach(([s0, s1], i) => BONES[b].forEach(([t0, t1], j) => {
+        const d = reach - segDist(PA[s0], PA[s1], PB[t0], PB[t1]);
+        if (d > deepest) [deepest, bones] = [d, [i, j]];
+      }));
+      if (deepest > min) out.push({ kind: 'finger', a, b, depth: deepest, bones });
+    }
+  }
+  const inPalm = (P, f, who) => {
+    for (const k of KEYS) {
+      let deepest = 0;
+      for (const [s0, s1] of BONES[k]) for (const i of [s1, s0]) deepest = Math.max(deepest, slabDepth(P[i], RADIUS[k] * scale, f, scale));
+      if (deepest > min) out.push({ kind: 'palm', a: who === 'a' ? k : 'palm', b: who === 'a' ? 'palm' : k, depth: deepest });
+    }
+  };
+  inPalm(PA, fb, 'a');
+  inPalm(PB, fa, 'b');
+  return out.sort((x, y) => y.depth - x.depth);
+}
+
+// Like palmDepth, but the way out is through the nearer face (a hand coming
+// from either side).
+function slabDepth(p, r, f, scale) {
+  const d = sub(p, f.o);
+  const a = dot(d, f.u);
+  const b = dot(d, f.v) / f.L;
+  if (a < f.lo || a > f.hi || b < 0.2 || b > 0.9) return 0;
+  const h = dot(d, f.n);
+  const front = PALM_FRONT * scale + r;
+  const back = PALM_BACK * scale + r;
+  if (h >= front || h <= -back) return 0;
+  return Math.min(front - h, h + back);
+}
