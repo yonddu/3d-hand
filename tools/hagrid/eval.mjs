@@ -102,7 +102,8 @@ for (const l of fs.readFileSync(args.find((a) => !a.startsWith('--') && a !== St
   const read = {
     mp: curls(h.world.map(([x, y, z]) => new THREE.Vector3(x, -y, -z))),
     app: curls(solve(h, side, r.aspect, null)),
-    cubes: curls(solve(h, side, r.aspect, withCubes(h.curl, h.cube))),
+    // P is lift's picture frame, not turned: its line of sight is +z (jointCube.js withCubes)
+    cubes: curls(solve(h, side, r.aspect, withCubes(h.curl, h.cube, [0, 0, 1]))),
   };
   for (const way of WAYS) {
     let all = true;
