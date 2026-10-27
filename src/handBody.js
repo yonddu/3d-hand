@@ -53,31 +53,31 @@ export function bodyPoints(rig) {
 // deep (m) the thumb was in at the start.
 const SEP_STEPS = 6;
 const SEP_MIN = 0.001; // m inside before anything is moved
+// Closest points of segments p1-q1 and p2-q2 (THREE.Vector3).
+function closest(p1, q1, p2, q2) {
+  const d1 = q1.clone().sub(p1);
+  const d2 = q2.clone().sub(p2);
+  const r = p1.clone().sub(p2);
+  const a = d1.lengthSq();
+  const e = d2.lengthSq();
+  const f = d2.dot(r);
+  const c = d1.dot(r);
+  const b = d1.dot(d2);
+  const den = a * e - b * b;
+  let s = den > 1e-12 ? THREE.MathUtils.clamp((b * f - c * e) / den, 0, 1) : 0;
+  let t = e > 1e-12 ? (b * s + f) / e : 0;
+  if (t < 0) {
+    t = 0;
+    s = a > 1e-12 ? THREE.MathUtils.clamp(-c / a, 0, 1) : 0;
+  } else if (t > 1) {
+    t = 1;
+    s = a > 1e-12 ? THREE.MathUtils.clamp((b - c) / a, 0, 1) : 0;
+  }
+  return [p1.clone().addScaledVector(d1, s), p2.clone().addScaledVector(d2, t)];
+}
 export function separateThumb(rig, scale = Math.hypot(...BODY[rig.side].base.middle) / 0.09) {
   const RADIUS = { thumb: 0.0095, index: 0.0085, middle: 0.0085, ring: 0.008, pinky: 0.007 };
   const BONES = { index: [[5, 6], [6, 7], [7, 8]], middle: [[9, 10], [10, 11], [11, 12]], ring: [[13, 14], [14, 15], [15, 16]], pinky: [[17, 18], [18, 19], [19, 20]] };
-  const closest = (p1, q1, p2, q2) => {
-    // Closest points of segments p1-q1 and p2-q2 (THREE.Vector3).
-    const d1 = q1.clone().sub(p1);
-    const d2 = q2.clone().sub(p2);
-    const r = p1.clone().sub(p2);
-    const a = d1.lengthSq();
-    const e = d2.lengthSq();
-    const f = d2.dot(r);
-    const c = d1.dot(r);
-    const b = d1.dot(d2);
-    const den = a * e - b * b;
-    let s = den > 1e-12 ? THREE.MathUtils.clamp((b * f - c * e) / den, 0, 1) : 0;
-    let t = e > 1e-12 ? (b * s + f) / e : 0;
-    if (t < 0) {
-      t = 0;
-      s = a > 1e-12 ? THREE.MathUtils.clamp(-c / a, 0, 1) : 0;
-    } else if (t > 1) {
-      t = 1;
-      s = a > 1e-12 ? THREE.MathUtils.clamp((b - c) / a, 0, 1) : 0;
-    }
-    return [p1.clone().addScaledVector(d1, s), p2.clone().addScaledVector(d2, t)];
-  };
   const base = rig.chains.thumb[0].bone;
   let first = 0;
   let lastTotal = Infinity;
@@ -239,6 +239,114 @@ export function separateHands(frames, makeRig) {
     f.hands.left = moveBack(f.hands.left, d);
     f.hands.right = moveBack(f.hands.right, -d);
   });
+  return crossFingers(frames, rigs);
+}
+
+// Fingers of one hand kept out of the other's (interlaced fingers, which
+// moving the hands apart cannot undo). Each step turns the two fingers in
+// deepest at their bases, each half the way out from the other, within
+// CROSS_MAX of where they were; a step that does not lessen the deepest
+// overlap is taken back. Turns are eased over the frames around, as in
+// separateFrames.
+const CROSS_STEPS = 6;
+const CROSS_MAX = (15 * Math.PI) / 180; // a knuckle's sideways play
+const CROSS_BONES = { thumb: [[2, 3], [3, 4]], index: [[5, 6], [6, 7], [7, 8]], middle: [[9, 10], [10, 11], [11, 12]], ring: [[13, 14], [14, 15], [15, 16]], pinky: [[17, 18], [18, 19], [19, 20]] };
+const CROSS_RADIUS = { thumb: 0.0095, index: 0.0085, middle: 0.0085, ring: 0.008, pinky: 0.007 };
+const KNUCKLE = { thumb: 1, index: 5, middle: 9, ring: 13, pinky: 17 };
+function crossFingers(frames, rigs) {
+  const scale = Math.hypot(...BODY.right.base.middle) / 0.09;
+  const keys = Object.keys(CROSS_BONES);
+  const angle = (q) => 2 * Math.acos(Math.min(1, Math.abs(q.w)));
+  // corr[i] = { left: { key: quaternion }, right: {...} } or null
+  const corr = frames.map((f) => {
+    const hl = f.hands.left;
+    const hr = f.hands.right;
+    if (!hl || !hr || !hl.fingers || !hr.fingers) return null;
+    const hands = { left: hl, right: hr };
+    for (const side of ['left', 'right']) handPoints(rigs[side], hands[side]);
+    const start = {};
+    for (const side of ['left', 'right']) for (const k of keys) start[side + k] = rigs[side].chains[k][0].bone.quaternion.clone();
+    const worstOf = () => {
+      const A = bodyPoints(rigs.left);
+      const B = bodyPoints(rigs.right);
+      let worst = null;
+      for (const a of keys) for (const b of keys) {
+        const reach = (CROSS_RADIUS[a] + CROSS_RADIUS[b]) * scale;
+        for (const [s0, s1] of CROSS_BONES[a]) for (const [t0, t1] of CROSS_BONES[b]) {
+          const [c1, c2] = closest(A[s0], A[s1], B[t0], B[t1]);
+          const depth = reach - c1.distanceTo(c2);
+          if (depth > SEP_MIN && (!worst || depth > worst.depth)) worst = { depth, a, b, c1, c2, A, B };
+        }
+      }
+      return worst;
+    };
+    let last = Infinity;
+    let undo = null;
+    for (let step = 0; step < CROSS_STEPS; step++) {
+      const w = worstOf();
+      const total = w ? w.depth : 0;
+      if (total >= last) {
+        for (const [side, k, q] of undo) rigs[side].chains[k][0].bone.quaternion.copy(q);
+        break;
+      }
+      last = total;
+      if (!w) break;
+      const out = w.c1.clone().sub(w.c2);
+      if (out.lengthSq() < 1e-12) break;
+      out.normalize();
+      undo = [];
+      for (const [side, key, c, P, dir] of [['left', w.a, w.c1, w.A, 1], ['right', w.b, w.c2, w.B, -1]]) {
+        const bone = rigs[side].chains[key][0].bone;
+        undo.push([side, key, bone.quaternion.clone()]);
+        const pivot = P[KNUCKLE[key]];
+        const from = c.clone().sub(pivot);
+        const to = c.clone().addScaledVector(out, (dir * w.depth) / 2).sub(pivot);
+        if (from.lengthSq() < 1e-10) continue;
+        const R = new THREE.Quaternion().setFromUnitVectors(from.normalize(), to.normalize());
+        bone.parent.updateMatrixWorld(true);
+        const parent = bone.parent.getWorldQuaternion(new THREE.Quaternion());
+        const next = bone.quaternion.clone().premultiply(parent.clone().invert().multiply(R).multiply(parent));
+        // Within the knuckle's play from where the finger was.
+        const s0 = start[side + key];
+        const d = next.clone().multiply(s0.clone().invert());
+        if (angle(d) > CROSS_MAX) next.copy(new THREE.Quaternion().slerp(d, CROSS_MAX / angle(d)).multiply(s0));
+        bone.quaternion.copy(next);
+      }
+      for (const side of ['left', 'right']) rigs[side].group.updateMatrixWorld(true);
+    }
+    const out = { left: {}, right: {} };
+    for (const side of ['left', 'right']) for (const k of keys) {
+      const d = rigs[side].chains[k][0].bone.quaternion.clone().multiply(start[side + k].clone().invert());
+      if (angle(d) > 1e-4) out[side][k] = d;
+    }
+    return out;
+  });
+  for (const side of ['left', 'right']) for (const k of keys) {
+    const name = rigs[side].chains[k][0].bone.name;
+    const c = corr.map((x) => (x ? x[side][k] || new THREE.Quaternion() : null));
+    const near = (i, pick) => {
+      const out = [];
+      for (let j = Math.max(0, i - SEP_SPREAD); j <= Math.min(frames.length - 1, i + SEP_SPREAD); j++) if (c[j]) out.push(pick(j));
+      return out;
+    };
+    const wide = c.map((q, i) => (q ? near(i, (j) => c[j]).reduce((m, x) => (angle(x) > angle(m) ? x : m), new THREE.Quaternion()) : null));
+    c.forEach((q, i) => {
+      if (!q) return;
+      const avg = new THREE.Vector4();
+      for (const x of near(i, (j) => wide[j])) {
+        const sg = x.w < 0 ? -1 : 1;
+        avg.x += x.x * sg;
+        avg.y += x.y * sg;
+        avg.z += x.z * sg;
+        avg.w += x.w * sg;
+      }
+      const turn = new THREE.Quaternion(avg.x, avg.y, avg.z, avg.w).normalize();
+      if (angle(turn) < 1e-4) return;
+      const h = frames[i].hands[side];
+      if (!h.fingers[name]) return;
+      h.fingers = { ...h.fingers, [name]: turn.multiply(new THREE.Quaternion().fromArray(h.fingers[name])).toArray() };
+    });
+  }
   return frames;
 }
 // A point moved d (m) further from the camera along its own ray.
