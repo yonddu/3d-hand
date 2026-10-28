@@ -32,8 +32,6 @@ import { loadJointCube, jointCube, jointCubeSize, withCubes, packPicture } from 
 import { focalW } from './camera.js';
 
 const CONFIG = window.HMS_CONFIG || {};
-const NATIVE = CONFIG.nativeTracking === true;
-const nativeInput = { width: 720, height: 1280, consume: null, active: true };
 // The large files stay on the phone between visits (sw.js).
 if (CONFIG.serviceWorker && 'serviceWorker' in navigator && window.isSecureContext) {
   navigator.serviceWorker.register(CONFIG.serviceWorker).catch((err) => console.warn('service worker not registered', err));
@@ -475,7 +473,7 @@ function graspOptions(input) {
   if (mode === 'hand') return { correct, handOnly: true };
   return { correct, vision: manualObject(mode), forced: true };
 }
-const handModelsReady = Promise.all(
+Promise.all(
   SIDES.map(async (side) => {
     const src = CONFIG.handModels && CONFIG.handModels[side];
     if (!src) return;
@@ -517,10 +515,10 @@ const facingUser = () => state.source === 'camera' && $('facing').value === 'use
 // MediaPipe hand -> rig-oriented world points + scene anchor for the wrist.
 function fromMediaPipe(hand) {
   // Image axes (x right, y down, z away) -> scene axes (x right, y up, z toward camera).
-  const aspect = NATIVE ? nativeInput.width / nativeInput.height : (video.videoWidth || 4) / (video.videoHeight || 3);
+  const aspect = (video.videoWidth || 4) / (video.videoHeight || 3);
   // Rebuild the 3D points from the picture (see lift.js): MediaPipe's own 3D
   // guess is often turned against what the camera shows.
-  const firstPerson = NATIVE || (state.source === 'camera' && !facingUser()) || (state.source === 'video' && $('video-fp').checked);
+  const firstPerson = (state.source === 'camera' && !facingUser()) || (state.source === 'video' && $('video-fp').checked);
   const raw = state.lift ? liftToPicture(hand.world, hand.landmarks, aspect, hand.side, liftMemory[hand.side], firstPerson) : hand.world;
   // A filmed take may lift this frame again with the whole clip known (mirrorPass.js).
   const relift = rec.offline && raw.mirror ? { world: hand.world.map(({ x, y, z }) => ({ x, y, z })), image: hand.landmarks.map(({ x, y, z }) => ({ x, y, z })), aspect, firstPerson, flip: !state.ar && facingUser(), mirror: raw.mirror } : null;
@@ -787,7 +785,7 @@ function fitArCamera() {
 // view must not flip out of passthrough then (that resets all tracking).
 const arWanted = () => $('ar').checked && (state.source === 'camera' || state.source === 'video') && (!state.frozen || !!(review.take && review.take.videoUrl)) && (video.readyState >= 2 || video.seeking || (rec.on && rec.offline));
 function syncAr() {
-  $('ar-btn').hidden = NATIVE || state.source === 'demo';
+  $('ar-btn').hidden = state.source === 'demo';
   const on = arWanted();
   if (on) fitArCamera();
   if (on === state.ar) return;
@@ -838,7 +836,6 @@ let tableT = 0;
 
 function tick(now) {
   syncAr();
-  let nativeAdvanced = false;
   // Recording a video file steps through it frame by frame on video time.
   const offline = rec.on && rec.offline;
   const t = offline ? rec.frameTime : now / 1000;
@@ -863,12 +860,6 @@ function tick(now) {
       const inputs = demo.frame(t);
       feed(inputs, t);
       state.gesture = inputs[1].gesture;
-    } else if (NATIVE && state.source === 'native' && nativeInput.consume) {
-      const hands = nativeInput.consume(now);
-      if (hands) {
-        feed(hands.map(fromMediaPipe), t);
-        nativeAdvanced = true;
-      }
     } else if (tracker && video.readyState >= 2 && !(state.source === 'camera' && !state.liveTrack)) {
       if (offline) {
         // Every frame counts here: detect objects and the body on a fixed frame stride.
@@ -937,7 +928,7 @@ function tick(now) {
   stepReview(now);
   if (rec.on) $('rec-time').textContent = `● ${(rec.frames.length > 1 ? rec.frames[rec.frames.length - 1].t - rec.frames[0].t : 0).toFixed(1)}초`;
   if (rec.on && !state.frozen) {
-    if (!offline && (!NATIVE || nativeAdvanced)) sampleRecording(now);
+    if (!offline) sampleRecording(now);
     else if (rec.frameReady) stepOffline();
   }
   if (!state.ar) controls.update();
@@ -945,7 +936,7 @@ function tick(now) {
   // The heel of the hand shares the wrist's bend with the arm skin (only
   // when the arm is shown; a hand ending at the wrist keeps its own shape).
   for (const side of SIDES) if (realHands[side]) realHands[side].syncBend(!(arms[side].group.visible && $('show-arm').checked));
-  if (!document.hidden && (!NATIVE || nativeInput.active)) renderer.render(scene, camera);
+  if (!document.hidden) renderer.render(scene, camera);
 
   frames++;
   if (now - fpsT > 500) {
@@ -1244,7 +1235,6 @@ async function saveJson(obj, filename) {
   out.value = text;
   out.hidden = false;
   try {
-    if (NATIVE && window.HMSNative?.saveFile) return await window.HMSNative.saveFile(new TextEncoder().encode(text), filename);
     if (window.claude && window.claude.use) {
       const downloads = await window.claude.use('downloads');
       if (downloads) {
@@ -1952,7 +1942,6 @@ function savePoseGlb(pose) {
 // .glb is not on the artifact viewer's download list, so there it goes out zipped.
 async function saveBinary(buffer, filename) {
   try {
-    if (NATIVE && window.HMSNative?.saveFile) return await window.HMSNative.saveFile(new Uint8Array(buffer), filename);
     if (window.claude && window.claude.use) {
       const downloads = await window.claude.use('downloads');
       if (downloads) {
@@ -1978,20 +1967,3 @@ renderLibrary();
 renderTable();
 requestAnimationFrame(tick);
 window.__hms = { GESTURES, applyGesture, ARM_POSES, showArmPose, takes, forearmFinder, fallbackToCPU, camera, controls, realHands, arms, rec, startRecording, stopRecording, trimFrames, exportSkins, exportGlb, savePoseGlb, armResults: () => armResults, tracker: () => ensureTracker(), handFeatures, grasps, scene, rigs, solvers, state, capture, viewPose };
-
-// Input transport hooks only: native uses the very same solver, meshes and export above.
-if (NATIVE) window.__hms.native = {
-  input: nativeInput, handModelsReady, feed, fromMediaPipe, tick, liveFrame, resetTracking,
-  setTracker(t) { tracker = t; },
-  reset() {
-    resetTracking();
-    SIDES.forEach(s => {
-      imageFilters[s].reset(); depthFilters[s].reset();
-      jumps[s] = 0; lastFrameQ[s] = null;
-      rigs[s].group.visible = false;
-      arms[s].lastPivot = arms[s].calmPivot = null;
-      arms[s].elbow.set(s === 'right' ? .2 : -.2, -.4, -.15);
-    });
-  },
-  setStatus, toast,
-};

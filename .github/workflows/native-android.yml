@@ -4,9 +4,9 @@ concurrency:
   cancel-in-progress: true
 on:
   push:
-    paths: ['native/android/**', '.github/workflows/native-android.yml', 'vendor/models/hand_landmarker.task', 'src/**', 'app.html', 'tools/build-native.mjs', 'tools/test-native-web*.mjs', 'package*.json']
+    paths: ['native/android/**', '.github/workflows/native-android.yml', 'vendor/models/hand_landmarker.task']
   pull_request:
-    paths: ['native/android/**', '.github/workflows/native-android.yml', 'vendor/models/hand_landmarker.task', 'src/**', 'app.html', 'tools/build-native.mjs', 'tools/test-native-web*.mjs', 'package*.json']
+    paths: ['native/android/**', '.github/workflows/native-android.yml', 'vendor/models/hand_landmarker.task']
   workflow_dispatch:
 permissions:
   contents: read
@@ -23,15 +23,6 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-      - run: npm ci --ignore-scripts --no-audit --no-fund
-      - run: node tools/test-native-web-input.mjs
-      - run: node tools/build-native.mjs
-      - run: npx playwright install --with-deps chromium
-      - run: node tools/test-native-web-studio.mjs
       - name: Build and test native app
         working-directory: native/android
         run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug :app:lintDebug

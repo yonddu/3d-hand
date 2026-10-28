@@ -8,15 +8,6 @@ import android.graphics.Matrix
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
-import android.view.View
-import android.webkit.WebView
-import android.webkit.WebViewClient
-import android.webkit.WebChromeClient
-import android.webkit.WebResourceRequest
-import android.webkit.WebResourceResponse
-import androidx.webkit.WebViewAssetLoader
-import java.io.ByteArrayInputStream
-import java.io.File
 import android.view.Gravity
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -45,7 +36,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.Locale
 
-/** Native detection with an isolated, offline Quest-hand Studio. No rig priors or NPU claims. */
+/** Native-only detection baseline. No JavaScript, rig priors or NPU claims. */
 class MainActivity : ComponentActivity() {
     private val worker = Executors.newSingleThreadExecutor()
     private val uiQueued = AtomicBoolean(false)
@@ -62,13 +53,6 @@ class MainActivity : ComponentActivity() {
     @Volatile private var backend = Delegate.GPU
     private var recordedBackend = "mediapipe-gpu"
     private lateinit var saveButton: Button
-    private lateinit var studio: WebView
-    private lateinit var studioExport: StudioExport
-    @Volatile private var studioReady = false
-    @Volatile private var studioVisible = true
-    @Volatile private var modelSession = 0
-    private var pendingGlb: File? = null
-    private var resumed = false
     private val timing = Timing()
     @Volatile private var ready = false
     @Volatile private var recording = false
@@ -99,30 +83,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private val saveGlb = registerForActivityResult(object : ActivityResultContracts.CreateDocument("application/octet-stream") {
-        override fun createIntent(context: android.content.Context, input: String): android.content.Intent =
-            super.createIntent(context, input).setType(if (input.endsWith(".json")) "application/json" else "model/gltf-binary")
-    }) { uri ->
-        val source = pendingGlb
-        pendingGlb = null
-        worker.execute {
-            var ok = false
-            var message = "GLB 저장 취소"
-            try {
-                if (uri != null && source != null) {
-                    contentResolver.openOutputStream(uri)?.use { out -> source.inputStream().use { it.copyTo(out) } }
-                        ?: error("저장 파일을 열 수 없습니다.")
-                    ok = true; message = "GLB 저장 완료"
-                }
-            } catch (e: Exception) { message = "GLB 저장 실패: ${e.message}" }
-            finally {
-                studioExport.clear()
-                runOnUiThread { if (!destroyed) studio.evaluateJavascript("window.HMSNative?.exportResult($ok,${JSONObject.quote(message)})", null) }
-            }
-        }
-    }
-
-    @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -135,7 +95,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         val title = TextView(this).apply {
-            text = "Hand Motion · 네이티브 + Quest 손\nGPU / CPU 비교 · NPU 미적용"
+            text = "Hand Motion · 네이티브 측정\nGPU / CPU 비교 · NPU 미적용"
             textSize = 18f
         }
         root.addView(title)
@@ -147,39 +107,6 @@ class MainActivity : ComponentActivity() {
         overlay = LandmarkOverlay(this)
         stage.addView(preview, FrameLayout.LayoutParams(-1, -1))
         stage.addView(overlay, FrameLayout.LayoutParams(-1, -1))
-        studioExport = StudioExport(cacheDir, {
-            runOnUiThread { if (!destroyed) {
-                studioReady = true
-                studio.evaluateJavascript("window.HMSNative?.setActive($studioVisible)", null)
-            } }
-        }, { file, name -> runOnUiThread { if (!destroyed) {
-            pendingGlb = file
-            saveGlb.launch(name)
-        } } })
-        val assetLoader = WebViewAssetLoader.Builder()
-            .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this)).build()
-        studio = WebView(this).apply {
-            settings.javaScriptEnabled = true
-            settings.domStorageEnabled = true
-            settings.allowFileAccess = false
-            settings.allowContentAccess = false
-            settings.blockNetworkLoads = true
-            settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
-            addJavascriptInterface(studioExport, "HMSAndroid")
-            webChromeClient = WebChromeClient()
-            webViewClient = object : WebViewClient() {
-                override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean = true
-                override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse {
-                    val u = request.url
-                    if (u.scheme == "https" && u.host == "appassets.androidplatform.net" && u.path?.startsWith("/assets/studio/") == true) {
-                        assetLoader.shouldInterceptRequest(u)?.let { return it }
-                    }
-                    return WebResourceResponse("text/plain", "utf-8", 403, "Blocked", emptyMap(), ByteArrayInputStream(ByteArray(0)))
-                }
-            }
-        }
-        stage.addView(studio, FrameLayout.LayoutParams(-1, -1))
-        studio.loadUrl("https://appassets.androidplatform.net/assets/studio/index.html")
         root.addView(stage, LinearLayout.LayoutParams(-1, 0, 1f))
         status = TextView(this).apply { text = "손 검출 모델 준비 중…"; textSize = 14f }
         root.addView(status)
@@ -243,20 +170,8 @@ class MainActivity : ComponentActivity() {
         }
         root.addView(handsButton)
         root.addView(buttons)
-        buttons.visibility = View.GONE
-        val modeButton = Button(this).apply {
-            text = "원본 관절점 측정 화면으로"
-            setOnClickListener {
-                studioVisible = !studioVisible
-                studio.visibility = if (studioVisible) View.VISIBLE else View.GONE
-                buttons.visibility = if (studioVisible) View.GONE else View.VISIBLE
-                studio.evaluateJavascript("window.HMSNative?.setActive($studioVisible)", null)
-                text = if (studioVisible) "원본 관절점 측정 화면으로" else "Quest 손 스튜디오로"
-            }
-        }
-        root.addView(modeButton)
         val note = TextView(this).apply {
-            text = "후면 카메라 · Quest 손 녹화 → 리뷰 → GLB 저장\n카메라 영상은 저장하지 않습니다. 앱을 닫기 전에 GLB를 저장하세요."
+            text = "후면 카메라 · 원본 관절점 확인용\n카메라 영상은 저장하지 않습니다. 모델은 기기 안에서 실행합니다."
             textSize = 12f
         }
         root.addView(note)
@@ -266,8 +181,6 @@ class MainActivity : ComponentActivity() {
 
     private fun startModel() {
         ready = false
-        modelSession++
-        if (::studio.isInitialized) studio.evaluateJavascript("window.HMSNative?.pause()", null)
         recordButton.isEnabled = false
         backendButton.isEnabled = false
         handsButton.isEnabled = false
@@ -331,9 +244,6 @@ class MainActivity : ComponentActivity() {
                         .setTargetAspectRatio(androidx.camera.core.AspectRatio.RATIO_16_9)
                         .build()
                     analysis.setAnalyzer(worker) { image ->
-                        val sessionAtEntry = modelSession
-                        val backendAtEntry = backend
-                        val handsAtEntry = maxHands
                         val entered = SystemClock.elapsedRealtimeNanos()
                         var source: Bitmap? = null
                         var cropped: Bitmap? = null
@@ -360,18 +270,18 @@ class MainActivity : ComponentActivity() {
                             timing.add(at, preMs, inferMs, callbackMs)
                             processed++
                             if (result.landmarks().isEmpty()) empty++
-                            val hands = JSONArray()
-                            result.landmarks().forEachIndexed { i, points ->
-                                val category = result.handedness()[i][0]
-                                val lm = JSONArray()
-                                points.forEach { lm.put(it.x().toDouble()).put(it.y().toDouble()).put(it.z().toDouble()) }
-                                val world = JSONArray()
-                                result.worldLandmarks()[i].forEach { world.put(it.x().toDouble()).put(it.y().toDouble()).put(it.z().toDouble()) }
-                                hands.put(JSONObject().put("label", category.categoryName().lowercase(Locale.ROOT))
-                                    .put("score", category.score().toDouble()).put("lm", lm).put("world", world))
-                            }
                             if (recording) {
                                 if (startedAt == 0L) startedAt = entered
+                                val hands = JSONArray()
+                                result.landmarks().forEachIndexed { i, points ->
+                                    val category = result.handedness()[i][0]
+                                    val lm = JSONArray()
+                                    points.forEach { lm.put(it.x().toDouble()).put(it.y().toDouble()).put(it.z().toDouble()) }
+                                    val world = JSONArray()
+                                    result.worldLandmarks()[i].forEach { world.put(it.x().toDouble()).put(it.y().toDouble()).put(it.z().toDouble()) }
+                                    hands.put(JSONObject().put("label", category.categoryName().lowercase(Locale.ROOT))
+                                        .put("score", category.score().toDouble()).put("lm", lm).put("world", world))
+                                }
                                 frames.put(JSONObject().put("t", (entered - startedAt) / 1e9).put("hands", hands)
                                     .put("maxHands", recordedMaxHands).put("delegate", recordedBackend)
                                     .put("sourceWidth", image.width).put("sourceHeight", image.height)
@@ -396,19 +306,13 @@ class MainActivity : ComponentActivity() {
                                 Build.MODEL, Build.VERSION.RELEASE, backend.name, maxHands, w, h, timing.fps(), points.size,
                                 timing.percentile(1, .5), timing.percentile(2, .5), timing.percentile(2, .95),
                                 timing.percentile(3, .5), processed, empty, errors, frames.length()) else null
-                            val packet = if (studioReady && studioVisible) JSONObject()
-                                .put("session", sessionAtEntry).put("tMs", entered / 1e6)
-                                .put("captureTimestampNs", image.imageInfo.timestamp.toString())
-                                .put("width", w).put("height", h).put("hands", hands)
-                                .put("backend", backendAtEntry.name.lowercase(Locale.ROOT)).put("maxHands", handsAtEntry).toString() else null
                             if (uiQueued.compareAndSet(false, true)) runOnUiThread {
-                                if (!destroyed) {
-                                    if (!studioVisible) overlay.update(points, w, h)
-                                    if (summary != null) status.text = summary
-                                    if (packet != null && studioVisible && resumed && ready && sessionAtEntry == modelSession) {
-                                        studio.evaluateJavascript("window.HMSNative?.receive($packet)") { uiQueued.set(false) }
-                                    } else uiQueued.set(false)
-                                } else uiQueued.set(false)
+                                try {
+                                    if (!destroyed) {
+                                        overlay.update(points, w, h)
+                                        if (summary != null) status.text = summary
+                                    }
+                                } finally { uiQueued.set(false) }
                             }
                         } catch (e: Exception) {
                             errors++
@@ -448,31 +352,11 @@ class MainActivity : ComponentActivity() {
 
     private fun showError(message: String) = runOnUiThread { if (!destroyed) status.text = message }
 
-    override fun onResume() {
-        super.onResume()
-        resumed = true
-        if (::studio.isInitialized) studio.onResume()
-    }
-
-    override fun onPause() {
-        resumed = false
-        recording = false
-        if (::recordButton.isInitialized) recordButton.text = "새 측정"
-        if (::studio.isInitialized) {
-            studio.evaluateJavascript("window.HMSNative?.pause()", null)
-            studio.onPause()
-        }
-        super.onPause()
-    }
-
     override fun onDestroy() {
         destroyed = true
         recording = false
         provider?.unbindAll()
-        studioReady = false
-        studio.removeJavascriptInterface("HMSAndroid")
-        studio.destroy()
-        worker.execute { landmarker?.close(); landmarker = null; studioExport.clear() }
+        worker.execute { landmarker?.close(); landmarker = null }
         worker.shutdown()
         super.onDestroy()
     }
