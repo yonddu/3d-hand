@@ -256,11 +256,7 @@ async function ensureTracker() {
   if (!trackerLoading) {
     trackerLoading = (async () => {
       const { HandTracker } = await import('./tracker.js');
-      let preferCPU = false;
-      try {
-        preferCPU = localStorage.getItem('hms.gpuNoHands') === '1';
-      } catch {}
-      const t = new HandTracker({ ...CONFIG, preferCPU });
+      const t = new HandTracker(CONFIG);
       await t.init((s) => setStatus(s));
       tracker = t;
       // No virtual object goes in the hand (the user asked for none): the
