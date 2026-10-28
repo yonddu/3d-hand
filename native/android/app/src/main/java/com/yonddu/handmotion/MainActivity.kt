@@ -283,7 +283,7 @@ class MainActivity : ComponentActivity() {
                                         .put("score", category.score().toDouble()).put("lm", lm).put("world", world))
                                 }
                                 frames.put(JSONObject().put("t", (entered - startedAt) / 1e9).put("hands", hands)
-                                    .put("maxHands", maxHands).put("delegate", backend.name)
+                                    .put("maxHands", recordedMaxHands).put("delegate", recordedBackend)
                                     .put("sourceWidth", image.width).put("sourceHeight", image.height)
                                     .put("rotationDegrees", rotate)
                                     .put("preprocessMs", preMs).put("inferenceMs", inferMs)
