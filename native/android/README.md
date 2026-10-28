@@ -67,3 +67,16 @@ The final native Studio must retain the familiar recording/review/hand-pose cont
 ## GPU-first sequence
 
 Owner decision: native MediaPipe GPU first; compare CPU, consider NPU only if still too slow. Switching delegate stops recording and recreates the model on the same worker thread, including GPU context setup/use/close. A stopped recording retains its original backend label for saving. Starting a new measurement clears the old recording. Selecting a delegate alone does not certify actual hardware utilization; exports mark acceleratorExecutionVerified=false.
+
+## S25 first measurement and one/two-hand experiment
+
+Owner screenshots (not synchronized inputs): GPU requested 14.1 FPS, inference p50 49.3ms/p95 56.6ms, preprocessing p50 25.2ms, callback-to-result p50 75.2ms; CPU requested 11.9 FPS, inference p50 69.9ms/p95 89.3ms, preprocessing 14.3ms, callback-to-result 85.1ms. These do not prove hardware utilization or landmark accuracy. Different input poses, short windows, warm-up and device load can affect the comparison.
+
+Prediction before change: v0.10.21's graph only suppresses palm detection when previously tracked hand rectangles reach numHands. With numHands=2 and one visible hand, palm detection can run each frame. A deliberately selected one-hand mode should reduce repeated palm detection during stable one-hand tracking. No numeric FPS improvement is claimed before a physical-device test.
+
+The default remains two hands. The added button explicitly switches between maxHands=1 and 2, recreating the model and stopping recording. One-hand mode cannot track a second hand; it is not an equivalent two-hand performance result and must never filter regression takes. Saved recordings preserve their original backend and maximum-hand setting. New diagnostics display upright input dimensions and save source dimensions/rotation. No thresholds, pose priors, input resizing policy, global smoothing or temporal holds change.
+
+Reference (the actual pinned MediaPipe release):
+https://github.com/google-ai-edge/mediapipe/blob/v0.10.21/mediapipe/tasks/cc/vision/hand_landmarker/hand_landmarker_graph.cc
+
+Before an APK update, save any wanted measurement. CI debug signing identities are not yet persisted, so Android may require uninstalling the previous test app before installing a new build; this does not affect the web Studio.

@@ -46,6 +46,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var overlay: LandmarkOverlay
     private lateinit var status: TextView
     private lateinit var recordButton: Button
+    private lateinit var handsButton: Button
+    @Volatile private var maxHands = 2
+    private var recordedMaxHands = 2
     private lateinit var backendButton: Button
     @Volatile private var backend = Delegate.GPU
     private var recordedBackend = "mediapipe-gpu"
@@ -121,6 +124,7 @@ class MainActivity : ComponentActivity() {
                 } else worker.execute {
                     frames = JSONArray(); timing.clear(); startedAt = 0
                     processed = 0; empty = 0; errors = 0
+                    recordedMaxHands = maxHands
                     recordedBackend = "mediapipe-" + backend.name.lowercase(Locale.ROOT)
                     recording = true
                     runOnUiThread {
@@ -154,6 +158,17 @@ class MainActivity : ComponentActivity() {
         }
         buttons.addView(recordButton); buttons.addView(saveButton)
         root.addView(backendButton)
+        handsButton = Button(this).apply {
+            text = "현재 두 손 · 한 손 비교로 전환"; isEnabled = false
+            setOnClickListener {
+                recording = false
+                recordButton.text = "새 측정"
+                saveButton.isEnabled = frames.length() > 0
+                maxHands = if (maxHands == 2) 1 else 2
+                startModel()
+            }
+        }
+        root.addView(handsButton)
         root.addView(buttons)
         val note = TextView(this).apply {
             text = "후면 카메라 · 원본 관절점 확인용\n카메라 영상은 저장하지 않습니다. 모델은 기기 안에서 실행합니다."
@@ -168,6 +183,7 @@ class MainActivity : ComponentActivity() {
         ready = false
         recordButton.isEnabled = false
         backendButton.isEnabled = false
+        handsButton.isEnabled = false
         provider?.unbindAll()
         status.text = "${backend.name} 모델 준비 중…"
         worker.execute {
@@ -181,7 +197,7 @@ class MainActivity : ComponentActivity() {
                         .setModelAssetPath("hand_landmarker.task")
                         .setDelegate(backend).build())
                     .setRunningMode(RunningMode.VIDEO)
-                    .setNumHands(2)
+                    .setNumHands(maxHands)
                     .setMinHandDetectionConfidence(0.5f)
                     .setMinHandPresenceConfidence(0.5f)
                     .setMinTrackingConfidence(0.5f)
@@ -191,6 +207,8 @@ class MainActivity : ComponentActivity() {
                 runOnUiThread {
                     if (!destroyed) {
                         recordButton.isEnabled = true
+                        handsButton.isEnabled = true
+                        handsButton.text = if (maxHands == 2) "현재 두 손 · 한 손 비교로 전환" else "현재 한 손만 추적 · 두 손으로 전환"
                         backendButton.isEnabled = true
                         backendButton.text = if (backend == Delegate.GPU) "CPU로 전환" else "GPU로 전환"
                         startCamera()
@@ -265,6 +283,9 @@ class MainActivity : ComponentActivity() {
                                         .put("score", category.score().toDouble()).put("lm", lm).put("world", world))
                                 }
                                 frames.put(JSONObject().put("t", (entered - startedAt) / 1e9).put("hands", hands)
+                                    .put("maxHands", maxHands).put("delegate", backend.name)
+                                    .put("sourceWidth", image.width).put("sourceHeight", image.height)
+                                    .put("rotationDegrees", rotate)
                                     .put("preprocessMs", preMs).put("inferenceMs", inferMs)
                                     .put("callbackToResultMs", callbackMs))
                                 if (frames.length() >= 9000) {
@@ -281,8 +302,8 @@ class MainActivity : ComponentActivity() {
                             val updateStats = now - lastUi >= 300
                             if (updateStats) lastUi = now
                             val summary = if (updateStats) String.format(Locale.KOREA,
-                                "%s · Android %s · %s 요청\n처리 %.1f FPS · 손 %d개\n전처리 p50 %.1fms · 추론 p50 %.1fms / p95 %.1fms\n분석 콜백→결과 p50 %.1fms\n처리 %d · 손 없음 %d · 오류 %d · 기록 %d",
-                                Build.MODEL, Build.VERSION.RELEASE, backend.name, timing.fps(), points.size,
+                                "%s · Android %s · %s 요청 · 최대 %d손\n입력 %d×%d · 처리 %.1f FPS · 손 %d개\n전처리 p50 %.1fms · 추론 p50 %.1fms / p95 %.1fms\n분석 콜백→결과 p50 %.1fms\n처리 %d · 손 없음 %d · 오류 %d · 기록 %d",
+                                Build.MODEL, Build.VERSION.RELEASE, backend.name, maxHands, w, h, timing.fps(), points.size,
                                 timing.percentile(1, .5), timing.percentile(2, .5), timing.percentile(2, .95),
                                 timing.percentile(3, .5), processed, empty, errors, frames.length()) else null
                             if (uiQueued.compareAndSet(false, true)) runOnUiThread {
@@ -317,6 +338,8 @@ class MainActivity : ComponentActivity() {
         .put("device", JSONObject().put("model", Build.MODEL).put("soc", Build.SOC_MODEL)
             .put("android", Build.VERSION.RELEASE).put("sdk", Build.VERSION.SDK_INT))
         .put("backend", recordedBackend)
+        .put("maxHands", recordedMaxHands)
+        .put("imageWidth", frameWidth).put("imageHeight", frameHeight)
         .put("acceleratorExecutionVerified", false)
         .put("npuVerified", false)
         .put("preprocessing", "CameraX YUV to Bitmap, viewport crop, rotation; CPU copies included")
