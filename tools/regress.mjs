@@ -26,7 +26,7 @@ const TOL = 0.05; // 5% ...
 const NOISE = 2; // ... plus two events
 
 const args = process.argv.slice(2);
-const folder = args.find((a) => !a.startsWith('--')) || '/mnt/project-files/hand-motion-studio/takes/';
+const folder = args.find((a) => !a.startsWith('--')) || (fs.existsSync('/mnt/project-files/hand-motion-studio/takes/') ? '/mnt/project-files/hand-motion-studio/takes/' : new URL('../data/takes/', import.meta.url).pathname);
 const base = fs.existsSync(BASE) ? JSON.parse(fs.readFileSync(BASE, 'utf8')) : {};
 const issues = fs.existsSync(ISSUES) ? JSON.parse(fs.readFileSync(ISSUES, 'utf8')) : [];
 const holdout = new Set(fs.existsSync(SPLIT) ? JSON.parse(fs.readFileSync(SPLIT, 'utf8')).holdout : []);

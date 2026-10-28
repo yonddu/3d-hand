@@ -32,3 +32,19 @@ jobs:
           path: native/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
+  web-regression:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: node build.mjs
+      - name: Require committed web build to match sources
+        run: git diff --exit-code -- index.html app.bundle.js
+      - name: Replay all regression takes
+        run: npm run regress

@@ -25,7 +25,7 @@ import { BONES, RADIUS, segDist, slabDepth, palmFrame, PALM_FRONT, PALM_BACK, PA
 import { measureGlb } from './glb-pierce.mjs';
 
 await RAPIER.init();
-const folder = process.argv[2] || '/mnt/project-files/hand-motion-studio/takes/';
+const folder = process.argv[2] || (fs.existsSync('/mnt/project-files/hand-motion-studio/takes/') ? '/mnt/project-files/hand-motion-studio/takes/' : new URL('../data/takes/', import.meta.url).pathname);
 const TOL = 0.0002; // m: 0.2 mm
 const PIERCE = 0.008; // as tools/replay.mjs and glb-pierce.mjs
 const KEYS = Object.keys(BONES);

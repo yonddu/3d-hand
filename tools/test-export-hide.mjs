@@ -12,7 +12,7 @@ import { readTake, replay } from './replay.mjs';
 
 const { chromium } = createRequire(import.meta.url)('playwright'); // global install, as test-sw-models.cjs
 const repo = path.join(path.dirname(new URL(import.meta.url).pathname), '..');
-const motion = replay(readTake('/mnt/project-files/hand-motion-studio/takes/left_pop_20-47.glb'), { keep: true }).motion;
+const motion = replay(readTake(new URL('../data/takes/left_pop_20-47.glb', import.meta.url).pathname), { keep: true }).motion;
 // Right seen throughout; left (a copy of the right) seen at frames 100-109,
 // then 112-119 after a 2-frame gap, then 200-204 after a long gap.
 const frames = motion.filter((f) => f.hands.right).slice(0, 260).map((f, i) => ({
