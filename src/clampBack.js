@@ -15,7 +15,7 @@ import * as THREE from 'three';
 import { FINGERS, limitsFor, sideSign } from './skeleton.js';
 
 const D2R = Math.PI / 180;
-const THUMB_BACK = [-20, -25]; // thumb base: least flexion, least abduction (degrees)
+export const THUMB_BACK = [-20, -25]; // thumb base: least flexion, least abduction (degrees)
 const e = new THREE.Euler();
 const q = new THREE.Quaternion();
 const inv = new THREE.Quaternion();

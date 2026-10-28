@@ -8,7 +8,7 @@ import fs from 'fs';
 import * as THREE from 'three';
 import { overlaps, handOverlaps, palmFrame, palmDepth, RADIUS } from '../src/collide.js';
 
-const PIERCE = 0.008; // as tools/replay.mjs
+const PIERCE = +(process.env.PIERCE || 0.008); // as tools/replay.mjs
 const FINGERS = ['Thumb', 'Index', 'Middle', 'Ring', 'Pinky'];
 const TYPES = { SCALAR: 1, VEC3: 3, VEC4: 4 };
 

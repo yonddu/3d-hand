@@ -4,7 +4,7 @@
   "flip": 7,
   "jump": 92,
   "gsw": 6,
-  "fjump": 10,
+  "fjump": 9,
   "fflip": 0,
   "asnap": 0
  },
@@ -13,7 +13,7 @@
   "flip": 2,
   "jump": 142,
   "gsw": 13,
-  "fjump": 64,
+  "fjump": 63,
   "fflip": 0,
   "asnap": 0
  },
@@ -40,7 +40,7 @@
   "flip": 3,
   "jump": 163,
   "gsw": 4,
-  "fjump": 125,
+  "fjump": 124,
   "fflip": 0,
   "asnap": 6
  },
@@ -157,7 +157,7 @@
   "flip": 3,
   "jump": 183,
   "gsw": 5,
-  "fjump": 142,
+  "fjump": 141,
   "fflip": 0,
   "asnap": 6
  },
@@ -202,7 +202,7 @@
   "flip": 10,
   "jump": 182,
   "gsw": 3,
-  "fjump": 43,
+  "fjump": 42,
   "fflip": 0,
   "asnap": 0
  },
@@ -220,7 +220,7 @@
   "flip": 26,
   "jump": 370,
   "gsw": 29,
-  "fjump": 108,
+  "fjump": 107,
   "fflip": 0,
   "asnap": 0
  },
@@ -265,7 +265,7 @@
   "flip": 3,
   "jump": 225,
   "gsw": 5,
-  "fjump": 76,
+  "fjump": 75,
   "fflip": 0,
   "asnap": 0
  },
@@ -302,6 +302,15 @@
   "jump": 78,
   "gsw": 8,
   "fjump": 30,
+  "fflip": 0,
+  "asnap": 0
+ },
+ "thumb_on_index_00-39.glb": {
+  "swap": 0,
+  "flip": 0,
+  "jump": 113,
+  "gsw": 5,
+  "fjump": 29,
   "fflip": 0,
   "asnap": 0
  }
