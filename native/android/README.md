@@ -2,7 +2,7 @@
 
 Target device: Samsung Galaxy S25 SM-S931N, Snapdragon 8 Elite (SM8750), Android 16.
 
-This is the first native measurement app, **not the complete 3D studio and not NPU inference**. It runs CameraX and MediaPipe HandLandmarker 0.10.21 directly, with the same task asset and confidence thresholds as the web app. The screen explicitly says CPU / NPU not applied. No WebView, JavaScript pose fitting, picture networks, collision passes, GLB rendering, network permission, cloud inference or paid service is included.
+This is the first native measurement app, **not the complete 3D studio and not NPU inference**. It runs CameraX and MediaPipe HandLandmarker 0.10.21 directly, with the same task asset and confidence thresholds as the web app. The default delegate is GPU, with an explicit CPU comparison button. It does not silently fall back when GPU creation fails. The screen labels NPU as not applied. No WebView, JavaScript pose fitting, picture networks, collision passes, GLB rendering, network permission, cloud inference or paid service is included.
 
 ## Install and use
 
@@ -63,3 +63,7 @@ CameraX/AndroidX and MediaPipe are Apache-2.0; the official hand tracking model 
 ## Product requirement (owner 2026-10-28)
 
 The final native Studio must retain the familiar recording/review/hand-pose controls and export skeletal GLB animation for games. This separate benchmark is a temporary engineering tool, not a replacement product UI. Porting detection must preserve the 21-point coordinate/hand-ID conventions and compare final GLB bone names, bind pose, units, timing, finger tracks and hidden-hand behavior with the web exporter. NPU speed alone is not completion. Existing Quest-only review presentation remains the target; raw landmark overlay belongs only to diagnostics.
+
+## GPU-first sequence
+
+Owner decision: native MediaPipe GPU first; compare CPU, consider NPU only if still too slow. Switching delegate stops recording and recreates the model on the same worker thread, including GPU context setup/use/close. A stopped recording retains its original backend label for saving. Starting a new measurement clears the old recording. Selecting a delegate alone does not certify actual hardware utilization; exports mark acceleratorExecutionVerified=false.

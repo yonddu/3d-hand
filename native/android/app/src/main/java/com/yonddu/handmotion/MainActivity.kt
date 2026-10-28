@@ -46,6 +46,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var overlay: LandmarkOverlay
     private lateinit var status: TextView
     private lateinit var recordButton: Button
+    private lateinit var backendButton: Button
+    @Volatile private var backend = Delegate.GPU
+    private var recordedBackend = "mediapipe-gpu"
     private lateinit var saveButton: Button
     private val timing = Timing()
     @Volatile private var ready = false
@@ -89,7 +92,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         val title = TextView(this).apply {
-            text = "Hand Motion · 네이티브 측정\nCPU 기준 / NPU 미적용"
+            text = "Hand Motion · 네이티브 측정\nGPU / CPU 비교 · NPU 미적용"
             textSize = 18f
         }
         root.addView(title)
@@ -118,6 +121,7 @@ class MainActivity : ComponentActivity() {
                 } else worker.execute {
                     frames = JSONArray(); timing.clear(); startedAt = 0
                     processed = 0; empty = 0; errors = 0
+                    recordedBackend = "mediapipe-" + backend.name.lowercase(Locale.ROOT)
                     recording = true
                     runOnUiThread {
                         recordButton.text = "측정 중지"; recordButton.isEnabled = true
@@ -138,7 +142,18 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        backendButton = Button(this).apply {
+            text = "CPU로 전환"; isEnabled = false
+            setOnClickListener {
+                recording = false
+                recordButton.text = "새 측정"
+                saveButton.isEnabled = frames.length() > 0
+                backend = if (backend == Delegate.GPU) Delegate.CPU else Delegate.GPU
+                startModel()
+            }
+        }
         buttons.addView(recordButton); buttons.addView(saveButton)
+        root.addView(backendButton)
         root.addView(buttons)
         val note = TextView(this).apply {
             text = "후면 카메라 · 원본 관절점 확인용\n카메라 영상은 저장하지 않습니다. 모델은 기기 안에서 실행합니다."
@@ -146,12 +161,25 @@ class MainActivity : ComponentActivity() {
         }
         root.addView(note)
         setContentView(root)
+        startModel()
+    }
+
+    private fun startModel() {
+        ready = false
+        recordButton.isEnabled = false
+        backendButton.isEnabled = false
+        provider?.unbindAll()
+        status.text = "${backend.name} 모델 준비 중…"
         worker.execute {
             try {
+                landmarker?.close()
+                landmarker = null
+                timing.clear(); processed = 0; empty = 0; errors = 0
+                lastTimestamp = -1
                 val options = HandLandmarker.HandLandmarkerOptions.builder()
                     .setBaseOptions(BaseOptions.builder()
                         .setModelAssetPath("hand_landmarker.task")
-                        .setDelegate(Delegate.CPU).build())
+                        .setDelegate(backend).build())
                     .setRunningMode(RunningMode.VIDEO)
                     .setNumHands(2)
                     .setMinHandDetectionConfidence(0.5f)
@@ -161,13 +189,24 @@ class MainActivity : ComponentActivity() {
                 landmarker = HandLandmarker.createFromOptions(this, options)
                 ready = true
                 runOnUiThread {
-                    if (!destroyed) { recordButton.isEnabled = true; startCamera() }
+                    if (!destroyed) {
+                        recordButton.isEnabled = true
+                        backendButton.isEnabled = true
+                        backendButton.text = if (backend == Delegate.GPU) "CPU로 전환" else "GPU로 전환"
+                        startCamera()
+                    }
                 }
-            } catch (e: Exception) { showError("모델 시작 실패: ${e.message}") }
+            } catch (e: Exception) {
+                showError("${backend.name} 시작 실패: ${e.message}\n다른 실행 방식을 선택할 수 있습니다.")
+                runOnUiThread { if (!destroyed) {
+                    backendButton.isEnabled = true
+                    backendButton.text = if (backend == Delegate.GPU) "CPU로 전환" else "GPU로 전환"
+                } }
+            }
         }
     }
 
-    @SuppressLint("MissingPermission") // Runtime permission is checked before asynchronous binding.
+    @SuppressLint("MissingPermission")
     private fun startCamera() {
         if (!ready || destroyed) return
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
@@ -242,8 +281,8 @@ class MainActivity : ComponentActivity() {
                             val updateStats = now - lastUi >= 300
                             if (updateStats) lastUi = now
                             val summary = if (updateStats) String.format(Locale.KOREA,
-                                "%s · Android %s\n처리 %.1f FPS · 손 %d개\n전처리 p50 %.1fms · 추론 p50 %.1fms / p95 %.1fms\n분석 콜백→결과 p50 %.1fms\n처리 %d · 손 없음 %d · 오류 %d · 기록 %d",
-                                Build.MODEL, Build.VERSION.RELEASE, timing.fps(), points.size,
+                                "%s · Android %s · %s 요청\n처리 %.1f FPS · 손 %d개\n전처리 p50 %.1fms · 추론 p50 %.1fms / p95 %.1fms\n분석 콜백→결과 p50 %.1fms\n처리 %d · 손 없음 %d · 오류 %d · 기록 %d",
+                                Build.MODEL, Build.VERSION.RELEASE, backend.name, timing.fps(), points.size,
                                 timing.percentile(1, .5), timing.percentile(2, .5), timing.percentile(2, .95),
                                 timing.percentile(3, .5), processed, empty, errors, frames.length()) else null
                             if (uiQueued.compareAndSet(false, true)) runOnUiThread {
@@ -277,7 +316,8 @@ class MainActivity : ComponentActivity() {
         .put("schema", "hms-native-baseline-v1")
         .put("device", JSONObject().put("model", Build.MODEL).put("soc", Build.SOC_MODEL)
             .put("android", Build.VERSION.RELEASE).put("sdk", Build.VERSION.SDK_INT))
-        .put("backend", "mediapipe-cpu")
+        .put("backend", recordedBackend)
+        .put("acceleratorExecutionVerified", false)
         .put("npuVerified", false)
         .put("preprocessing", "CameraX YUV to Bitmap, viewport crop, rotation; CPU copies included")
         .put("timingScope", "analysis callback to synchronous result; excludes sensor exposure and display presentation")
