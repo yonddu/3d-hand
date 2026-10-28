@@ -57,8 +57,7 @@ export async function loadHandGLB(source) {
 }
 
 export class RealHand {
-  constructor(gltf, rig, material, { correctPose = true } = {}) {
-    this.correctPose = correctPose;
+  constructor(gltf, rig, material) {
     this.rig = rig;
     this.side = rig.side;
     this.root = gltf.scene;
@@ -282,25 +281,23 @@ export class RealHand {
     // The contact passes below adjust the rig's finger bones. update() runs
     // every rendered frame but the solver only on new camera frames, so start
     // each pass from the solved pose: re-adjusting an adjusted pose drifts.
-    if (this.correctPose) {
-      const links = Object.values(rig.chains).flat();
-      if (!this.solvedQ) {
-        this.solvedQ = links.map((l) => l.bone.quaternion.clone());
-        this.writtenQ = links.map((l) => l.bone.quaternion.clone());
-      }
-      links.forEach((l, i) => {
-        if (l.bone.quaternion.equals(this.writtenQ[i])) l.bone.quaternion.copy(this.solvedQ[i]);
-        else this.solvedQ[i].copy(l.bone.quaternion); // new pose from the solver
-      });
-      if (this.contacts) {
-        this.closeFist();
-        if (this.thumbWrap > 0) this.wrapThumb();
-        if (this.pinches.length) this.solvePinches();
-      }
-      // The thumb stays out of the other fingers whatever moved it (handBody.js).
-      separateThumb(rig);
-      links.forEach((l, i) => this.writtenQ[i].copy(l.bone.quaternion));
+    const links = Object.values(rig.chains).flat();
+    if (!this.solvedQ) {
+      this.solvedQ = links.map((l) => l.bone.quaternion.clone());
+      this.writtenQ = links.map((l) => l.bone.quaternion.clone());
     }
+    links.forEach((l, i) => {
+      if (l.bone.quaternion.equals(this.writtenQ[i])) l.bone.quaternion.copy(this.solvedQ[i]);
+      else this.solvedQ[i].copy(l.bone.quaternion); // new pose from the solver
+    });
+    if (this.contacts) {
+      this.closeFist();
+      if (this.thumbWrap > 0) this.wrapThumb();
+      if (this.pinches.length) this.solvePinches();
+    }
+    // The thumb stays out of the other fingers whatever moved it (handBody.js).
+    separateThumb(rig);
+    links.forEach((l, i) => this.writtenQ[i].copy(l.bone.quaternion));
     for (const finger of FINGERS) {
       const chain = drivenChain(finger.key);
       const { pos, boneQ } = this.chainPose(finger.key);

@@ -20,7 +20,7 @@
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { FINGERS, wristName, boneName } from './skeleton.js';
-import { ArmRig, UPPER, FORE, ARM_BIND, armLocals, limitedArmLocals, wristPivot, pivotLoop, WRIST_PIVOT } from './arm.js';
+import { ArmRig, UPPER, FORE, ARM_BIND, limitedArmLocals, wristPivot, pivotLoop, WRIST_PIVOT } from './arm.js';
 import { wristLoop, buildArm } from './armMesh.js';
 
 const SIDES = ['left', 'right'];
@@ -261,13 +261,11 @@ function objectTransform(o, type) {
 
 // Game rigs keep bone lengths fixed, so each frame is re-solved with the fixed
 // upper arm / forearm lengths (arm.js armLocals, the same solve the app shows).
-function sideLocals(f, side, directTracking = false) {
+function sideLocals(f, side) {
   // Same forearm range limit as the app shows.
   // The hand bone sits on the wrist pivot (arm.js WRIST_PIVOT), as in the app.
   const handQ = new THREE.Quaternion().fromArray(f.handQ);
-  const args = [new THREE.Vector3().fromArray(f.shoulder), new THREE.Vector3().fromArray(f.elbow), wristPivot(new THREE.Vector3().fromArray(f.wrist), handQ), handQ, { side, ...f.armOpts }];
-  // Native baseline retains the detected hand orientation; the inferred arm follows it.
-  const L = directTracking ? armLocals(...args) : limitedArmLocals(...args).L;
+  const { L } = limitedArmLocals(new THREE.Vector3().fromArray(f.shoulder), new THREE.Vector3().fromArray(f.elbow), wristPivot(new THREE.Vector3().fromArray(f.wrist), handQ), handQ, { side, ...f.armOpts });
   return { shoulderPos: L.S.toArray(), arm: L.arm.toArray(), fore: L.fore.toArray(), hand: L.hand.toArray() };
 }
 
@@ -287,7 +285,7 @@ function completeFrame(side, f) {
 // frames: [{ t: seconds, hands: { left: frame|null, right: frame|null } }]
 // skins: { left, right } from RealHand/HandRig.exportSkin()
 // Returns an ArrayBuffer (binary glTF).
-export async function exportGlb({ frames, skins, name = 'HMS_Motion', includeObjects = true, raw = null, directTracking = false, webArmWrist = false }) {
+export async function exportGlb({ frames, skins, name = 'HMS_Motion', includeObjects = true, raw = null }) {
   const sides = SIDES.filter((s) => frames.some((fr) => fr.hands[s]));
   if (!sides.length) throw new Error('내보낼 손 데이터가 없습니다.');
 
@@ -314,7 +312,7 @@ export async function exportGlb({ frames, skins, name = 'HMS_Motion', includeObj
     let last = -1;
     seen.forEach((v, i) => {
       if (!v) return;
-      if (!directTracking && last >= 0 && i - last > 1 && frames[i].t - frames[last].t <= HIDE_GAP) shown[side].fill(true, last + 1, i);
+      if (last >= 0 && i - last > 1 && frames[i].t - frames[last].t <= HIDE_GAP) shown[side].fill(true, last + 1, i);
       last = i;
     });
   }
@@ -373,7 +371,7 @@ export async function exportGlb({ frames, skins, name = 'HMS_Motion', includeObj
 
   for (const side of sides) {
     const P = prefix(side);
-    const locals = filled[side].map((f) => sideLocals(f, side, directTracking && !webArmWrist));
+    const locals = filled[side].map((f) => sideLocals(f, side));
     vecTrack(`${P}Shoulder`, 'position', locals.flatMap((l) => l.shoulderPos));
     vecTrack(`${P}Shoulder`, 'scale', shown[side].flatMap((v) => (v ? [1, 1, 1] : [0, 0, 0])));
     quatTrack(`${P}Arm`, locals.flatMap((l) => l.arm));
@@ -404,7 +402,6 @@ export async function exportGlb({ frames, skins, name = 'HMS_Motion', includeObj
 
   root.userData = {
     generator: 'Hand Motion Studio',
-    ...(directTracking ? { tracking: 'native-direct-v1', armPose: 'inferred; not observed by a body model', hiddenHands: 'no gap filling', ...(webArmWrist ? { armPipeline: 'web-arm-wrist-v1' } : {}) } : {}),
     naming: 'mixamo',
     units: 'meters',
     frames: frames.length,
