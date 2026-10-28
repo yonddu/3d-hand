@@ -18,6 +18,7 @@ import { ARM_POSES, ARM_CATEGORIES, armPoseJoints, armPoseData } from './armPose
 import { liftToPicture } from './lift.js';
 import { clampBack } from './clampBack.js';
 import { clearThumbCore } from './thumbCore.js';
+import { findTouches } from './contactPass.js';
 import { cleanTake, lerpHand } from './cleanTake.js';
 import { replanGrips } from './gripPass.js';
 import { POSE_ARM, compactPose, poseElbowAR, lineElbow } from './elbowHint.js';
@@ -1523,7 +1524,9 @@ function stopRecording() {
       rec.finishing = null;
       let done;
       try {
-        done = clearThumbCore(clampBack(separateHands(separateFrames(cleanTake(frames), (side) => new HandRig(side)), (side) => new HandRig(side)), (side) => new HandRig(side)), (side) => new HandRig(side));
+        const rigFor = (side) => new HandRig(side);
+        const parted = clampBack(separateHands(separateFrames(cleanTake(frames), rigFor), rigFor), rigFor);
+        done = clearThumbCore(parted, rigFor, findTouches(parted, rigFor));
       } catch (e) {
         // A failed clean-up must not lose the take: keep it as solved.
         console.error(e);

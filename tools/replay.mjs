@@ -43,6 +43,7 @@ import { HandTracker, chirality, dedupe, resolveSides, insideBox, INSIDE } from 
 import { liftToPicture } from '../src/lift.js';
 import { clampBack, handBack } from '../src/clampBack.js';
 import { clearThumbCore, coreDepth } from '../src/thumbCore.js';
+import { findTouches } from '../src/contactPass.js';
 import { objectForHand, objectOcclusion, HeldObject } from '../src/objects.js';
 import { HandRig, handFrameQuat } from '../src/handRig.js';
 import { HandSolver } from '../src/solver.js';
@@ -349,7 +350,10 @@ function pass(take, plans, logs = null, keep = false) {
     let motion = process.env.NOSEP ? cleanTake(made) : separateFrames(cleanTake(made), (side) => new HandRig(side));
     if (!process.env.NOHANDS) motion = Object.assign(separateHands(motion, (side) => new HandRig(side)), { together: motion.together });
     motion = Object.assign(clampBack(motion, (side) => new HandRig(side)), { together: motion.together });
-    if (!process.env.NOCORE) motion = Object.assign(clearThumbCore(motion, (side) => new HandRig(side)), { together: motion.together });
+    const touches = process.env.NOTOUCH ? null : findTouches(motion, (side) => new HandRig(side));
+    if (touches) out.touch = ['left', 'right'].reduce((n, s) => n + touches[s].filter(Boolean).length, 0);
+    if (touches) out.touchStarts = ['left', 'right'].reduce((n, s) => n + touches[s].filter((k, i) => k && !touches[s][i - 1]).length, 0);
+    if (!process.env.NOCORE) motion = Object.assign(clearThumbCore(motion, (side) => new HandRig(side), touches), { together: motion.together });
     out.together = motion.together;
     for (const t of motion.together.times) guess(t, 'both', 'together', 'one hand behind the other');
     finished(motion, out);
