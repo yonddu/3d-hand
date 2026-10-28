@@ -166,16 +166,33 @@ const octx = overlay.getContext('2d');
 // --- input sources ------------------------------------------------------------
 
 // GPU tracking that never finds a hand (some phone GPUs return nothing) is
-// rebuilt on the CPU once. Counted over frames actually processed.
-const gpuWatch = { frames: 0, found: false, since: 0 };
+// rebuilt on the CPU once. Counted over frames actually processed. Before
+// that the CPU model looks at the same frame: if it finds no hand either,
+// there was simply no hand in view (v102: phones used to drop to the slow
+// CPU when nobody showed a hand for 4 s after opening the app).
+const gpuWatch = { frames: 0, found: false, since: 0, probes: 0 };
 function watchGpu(count, now) {
-  if (!tracker || tracker.delegate !== 'GPU' || gpuWatch.found) return;
+  if (!tracker || tracker.delegate !== 'GPU' || gpuWatch.found || switching) return;
   if (count) {
     gpuWatch.found = true;
     return;
   }
   if (!gpuWatch.frames++) gpuWatch.since = now;
-  if (gpuWatch.frames > 60 && now - gpuWatch.since > 4000) fallbackToCPU('GPU에서 손을 못 찾음');
+  if (gpuWatch.frames > 60 && now - gpuWatch.since > 4000) {
+    switching = true;
+    tracker
+      .cpuSees(video, now)
+      .then((n) => {
+        switching = false;
+        if (n) fallbackToCPU('GPU에서 손을 못 찾음');
+        else if (++gpuWatch.probes >= 5) gpuWatch.found = true; // stop checking
+        else gpuWatch.frames = 0;
+      })
+      .catch((err) => {
+        switching = false;
+        console.warn(err);
+      });
+  }
 }
 let switching = false;
 function fallbackToCPU(why) {
@@ -213,7 +230,9 @@ const POSE_EVERY = MOBILE ? 300 : 100; // ms
 // index from ~100 deg to 15-30 deg (take fist_cup_05-19). User decision
 // 2026-10-28: off until they are scored on real labelled hands
 // (data/real-labels). Off, nothing loads or runs (362 KB, ~5 ms a hand).
-const PICTURE_MODELS = false;
+// User decision 2026-10-28 (v102): on again (finger tracking without them
+// is too jumpy); they run on the GPU where WebGL2 allows (gpuNet.js).
+const PICTURE_MODELS = true;
 const CROP_EVERY = 5; // recorded frames between saved hand crops (save-crops)
 // The option stays on across visits (it is for collecting scoring takes).
 try {
@@ -239,7 +258,7 @@ async function ensureTracker() {
       // The pose model gives the elbows.
       t.initObjects()
         .catch((err) => console.warn('object model unavailable', err));
-      // Finger curl and joint cubes from the pixels: off (PICTURE_MODELS).
+      // Finger curl and joint cubes from the pixels (PICTURE_MODELS).
       if (PICTURE_MODELS) {
         loadFingerCurl().catch((err) => console.warn('finger curl model unavailable', err));
         loadJointCube().catch((err) => console.warn('joint cube model unavailable', err));

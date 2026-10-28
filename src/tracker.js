@@ -55,16 +55,27 @@ export class HandTracker {
       console.warn('GPU delegate failed, falling back to CPU', err);
       this.landmarker = await HandLandmarker.createFromOptions(fileset, options('CPU'));
       this.delegate = 'CPU';
+      this.gpuFailed = true;
     }
-    onStatus(`추적 준비됨 (${this.delegate})`);
+    onStatus(`추적 준비됨 (${this.delegate}${this.gpuFailed ? ', 이 브라우저에서 GPU 시작 실패' : ''})`);
     this.fileset = fileset;
+  }
+
+  // Hands the CPU model finds in this frame (a check before giving up on the
+  // GPU: no hands for a while may just mean no hand in view). The CPU model
+  // is built once and kept for useCPU.
+  async cpuSees(video, nowMs) {
+    this.cpuProbe ||= await HandLandmarker.createFromOptions(this.fileset, this.handOptions('CPU'));
+    this.lastProbeAt = Math.max(nowMs, (this.lastProbeAt ?? -1) + 1);
+    return this.cpuProbe.detectForVideo(video, this.lastProbeAt).landmarks.length;
   }
 
   // Some phone GPUs run the model but return no hands; rebuild on the CPU.
   async useCPU() {
     if (this.delegate === 'CPU') return;
     const old = this.landmarker;
-    this.landmarker = await HandLandmarker.createFromOptions(this.fileset, this.handOptions('CPU'));
+    this.landmarker = this.cpuProbe || (await HandLandmarker.createFromOptions(this.fileset, this.handOptions('CPU')));
+    this.cpuProbe = null;
     this.delegate = 'CPU';
     this.lastDetectAt = -1;
     old.close();

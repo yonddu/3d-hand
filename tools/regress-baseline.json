@@ -209,7 +209,7 @@
  "interlace_10-10.glb": {
   "swap": 1,
   "flip": 25,
-  "jump": 339,
+  "jump": 340,
   "gsw": 98,
   "fjump": 25,
   "fflip": 0,
@@ -218,7 +218,7 @@
  "clasp_same_14-10.glb": {
   "swap": 0,
   "flip": 25,
-  "jump": 371,
+  "jump": 376,
   "gsw": 28,
   "fjump": 74,
   "fflip": 0,
@@ -308,45 +308,45 @@
  "thumb_on_index_00-39.glb": {
   "swap": 0,
   "flip": 0,
-  "jump": 162,
+  "jump": 113,
   "gsw": 5,
-  "fjump": 40,
+  "fjump": 26,
   "fflip": 0,
   "asnap": 0
  },
  "left_pop2_02-04.glb": {
   "swap": 0,
   "flip": 8,
-  "jump": 159,
+  "jump": 129,
   "gsw": 10,
-  "fjump": 22,
+  "fjump": 3,
   "fflip": 0,
   "asnap": 0
  },
  "pen_grip_02-41.glb": {
   "swap": 0,
   "flip": 0,
-  "jump": 105,
+  "jump": 86,
   "gsw": 4,
-  "fjump": 29,
+  "fjump": 12,
   "fflip": 0,
   "asnap": 0
  },
  "fist_cup_05-19.glb": {
   "swap": 0,
   "flip": 0,
-  "jump": 113,
+  "jump": 68,
   "gsw": 6,
-  "fjump": 36,
+  "fjump": 18,
   "fflip": 0,
   "asnap": 0
  },
  "fist_thumb_05-26.glb": {
   "swap": 0,
   "flip": 0,
-  "jump": 106,
+  "jump": 131,
   "gsw": 8,
-  "fjump": 46,
+  "fjump": 19,
   "fflip": 0,
   "asnap": 0
  },
