@@ -188,6 +188,7 @@ export class HandTracker {
   keepSides(hands, nowMs, swap = false, aspect = 0) {
     const prev = (this.tracks || []).filter((k) => nowMs - k.t < 400 && nowMs >= k.t);
     this.dropGhost(hands, prev, nowMs);
+    if (hands.length === 2) this.twoAt = nowMs;
     this.tracks = hands.map((h) => {
       const x = h.landmarks[0].x;
       const y = h.landmarks[0].y;
@@ -253,8 +254,9 @@ export class HandTracker {
     return hands;
   }
 
-  // A second hand that appears inside the box of the one already tracked is
-  // most often the model reading that hand twice under the other label (user
+  // A second hand that appears inside the box of the one already tracked, or
+  // anywhere but at the picture's edge, is most often the model reading that
+  // hand twice under the other label (user
   // GLB 2026-10-27 20:47: a "left" hand on top of the right one, 13 broken-up
   // frames over 0.9 s, mean point gap 0.27-0.49 palm so dedupe kept it). It is
   // taken only once it has been there for GHOST_FRAMES frames; a hand already
@@ -269,7 +271,14 @@ export class HandTracker {
     const d = hands.map((h) => Math.hypot(h.landmarks[0].x - k.x, h.landmarks[0].y - k.y));
     const same = hands.map((h) => h.side === k.side);
     const i = same[0] !== same[1] ? (same[0] ? 1 : 0) : d[0] > d[1] ? 0 : 1;
-    if (insideBox(hands[i].landmarks, hands[1 - i].landmarks) < INSIDE) return;
+    // Held back too when it did not come in at the picture's edge: a new hand
+    // enters the view, it does not appear in the middle next to the tracked
+    // one (user take 2026-10-28 02:04: "left" readings of the right hand at
+    // 70-77% inside its box, and one apart from it, for a frame each).
+    // (Not when two hands were tracked a moment ago: a hand lost behind the
+    // other and found again is no new one; clasped hands, take interlace_10-10.)
+    const recent = this.twoAt !== undefined && nowMs - this.twoAt < RECENT_TWO && nowMs >= this.twoAt;
+    if (insideBox(hands[i].landmarks, hands[1 - i].landmarks) < INSIDE && (recent || atEdge(hands[i].landmarks))) return;
     this.ghost = { t: nowMs, n: was + 1 };
     if (this.ghost.n < GHOST_FRAMES) hands.splice(i, 1);
   }
@@ -327,6 +336,12 @@ export function dedupe(hands) {
 // (0..1). A second reading of one hand sits inside it (user GLB 2026-10-27
 // 20:47: a "left" hand read on top of the right one, 85-100% inside).
 export const INSIDE = 0.8;
+const RECENT_TWO = 2000; // ms after two hands were tracked during which a hand found again needs no edge
+const EDGE = 0.04; // picture units from the border within which a hand counts as coming in
+// Whether a hand's points reach the picture's border.
+function atEdge(L) {
+  return L.some((p) => p.x < EDGE || p.x > 1 - EDGE || p.y < EDGE || p.y > 1 - EDGE);
+}
 const GHOST_FRAMES = 10; // 1/3 s
 export function insideBox(A, B) {
   const box = (L) => {

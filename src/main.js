@@ -272,7 +272,10 @@ function resetTracking() {
     if (typeof grasps !== 'undefined') grasps[side].reset();
     state.lastSeen[side] = -1;
   }
-  if (tracker) tracker.tracks = [];
+  if (tracker) {
+    tracker.tracks = [];
+    tracker.twoAt = undefined;
+  }
 }
 
 async function setSource(src) {

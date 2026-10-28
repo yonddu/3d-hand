@@ -13,7 +13,7 @@
   "flip": 2,
   "jump": 142,
   "gsw": 13,
-  "fjump": 63,
+  "fjump": 62,
   "fflip": 0,
   "asnap": 0
  },
@@ -31,7 +31,7 @@
   "flip": 3,
   "jump": 207,
   "gsw": 5,
-  "fjump": 91,
+  "fjump": 90,
   "fflip": 0,
   "asnap": 6
  },
@@ -85,7 +85,7 @@
   "flip": 3,
   "jump": 224,
   "gsw": 5,
-  "fjump": 102,
+  "fjump": 101,
   "fflip": 0,
   "asnap": 6
  },
@@ -121,7 +121,7 @@
   "flip": 3,
   "jump": 212,
   "gsw": 4,
-  "fjump": 130,
+  "fjump": 129,
   "fflip": 0,
   "asnap": 6
  },
@@ -148,7 +148,7 @@
   "flip": 3,
   "jump": 219,
   "gsw": 5,
-  "fjump": 96,
+  "fjump": 95,
   "fflip": 0,
   "asnap": 6
  },
@@ -157,7 +157,7 @@
   "flip": 3,
   "jump": 183,
   "gsw": 5,
-  "fjump": 141,
+  "fjump": 139,
   "fflip": 0,
   "asnap": 6
  },
@@ -184,7 +184,7 @@
   "flip": 8,
   "jump": 186,
   "gsw": 18,
-  "fjump": 76,
+  "fjump": 75,
   "fflip": 0,
   "asnap": 1
  },
@@ -211,15 +211,15 @@
   "flip": 25,
   "jump": 339,
   "gsw": 98,
-  "fjump": 104,
+  "fjump": 102,
   "fflip": 0,
   "asnap": 3
  },
  "clasp_same_14-10.glb": {
   "swap": 0,
-  "flip": 26,
+  "flip": 25,
   "jump": 370,
-  "gsw": 29,
+  "gsw": 28,
   "fjump": 107,
   "fflip": 0,
   "asnap": 0
@@ -247,7 +247,7 @@
   "flip": 0,
   "jump": 83,
   "gsw": 6,
-  "fjump": 39,
+  "fjump": 37,
   "fflip": 0,
   "asnap": 0
  },
@@ -256,7 +256,7 @@
   "flip": 0,
   "jump": 127,
   "gsw": 2,
-  "fjump": 39,
+  "fjump": 37,
   "fflip": 0,
   "asnap": 0
  },
@@ -283,7 +283,7 @@
   "flip": 19,
   "jump": 477,
   "gsw": 46,
-  "fjump": 145,
+  "fjump": 144,
   "fflip": 2,
   "asnap": 0
  },
@@ -311,6 +311,15 @@
   "jump": 113,
   "gsw": 5,
   "fjump": 29,
+  "fflip": 0,
+  "asnap": 0
+ },
+ "left_pop2_02-04.glb": {
+  "swap": 0,
+  "flip": 8,
+  "jump": 129,
+  "gsw": 10,
+  "fjump": 10,
   "fflip": 0,
   "asnap": 0
  }
