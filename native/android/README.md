@@ -2,7 +2,21 @@
 
 Target device: Samsung Galaxy S25 SM-S931N, Snapdragon 8 Elite (SM8750), Android 16.
 
-This is the first native measurement app, **not the complete 3D studio and not NPU inference**. It runs CameraX and MediaPipe HandLandmarker 0.10.21 directly, with the same task asset and confidence thresholds as the web app. The default delegate is GPU, with an explicit CPU comparison button. It does not silently fall back when GPU creation fails. The screen labels NPU as not applied. No WebView, JavaScript pose fitting, picture networks, collision passes, GLB rendering, network permission, cloud inference or paid service is included.
+Version 0.3 adds an offline **hybrid Quest-style Studio** to the original native measurement app. CameraX and MediaPipe HandLandmarker 0.10.21 remain native (GPU requested by default, explicit CPU comparison). The same task asset and confidence thresholds are retained. No automatic CPU fallback and no NPU support are added.
+
+The packaged WebView reuses `app.html`, three.js, `RealHand` and the existing skeletal GLB exporter. A separate `src/nativeStudio.js` entry never imports the web tracker or picture networks. It maps each native world-landmark segment directly to a bone direction in `src/nativePose.js`, without lift, fitting, synergy, anatomical clamps, temporal filters, collisions or finished-take passes. `RealHand(correctPose:false)` also bypasses its display-time contact/thumb corrections. Existing web defaults are retained.
+
+Prediction before this change: removing all those extra pose stages from the native path should prevent those stages from distorting the detected pose. It cannot improve MediaPipe's original 3D estimates or recover hidden fingers. No numerical accuracy/FPS improvement is claimed before a device recording. Fixed model bone lengths differ from the person's actual hand, so direct direction mapping does not guarantee pixel-perfect joint positions.
+
+Studio provides the familiar recording dock, take review/playback and **저장 (GLB)**. It records one key per native result actually delivered to JavaScript (a bounded latest-result transport may skip results; it never synthesizes 30 FPS). Original detection timestamps, landmarks, backend and max-hand settings ride in GLB extras. Camera images/audio are not stored. The camera-only diagnostic JSON recording remains separate. No new learned model is included.
+
+Wrist placement uses a fixed work plane, not measured absolute depth. Arm transforms in the GLB are inferred to support the existing game skeleton, not tracked by a body model. The native exporter preserves the detected global wrist orientation and bypasses short-gap hand visibility filling. A missing hand is hidden immediately. Hand-overlap prediction is deliberately deferred. No temporal pose state is reused across label changes, model restarts or reappearance because retargeting is stateless. Duplicate same-side readings keep only the more confident reading, with no invented second hand. A user-controlled left/right swap is available before recording.
+
+Android saves GLB through its document picker using bounded base64 chunks into an app-private temporary file (64 MiB maximum), not unsupported WebView blob downloads. External navigation/resources and file/content access are blocked; all JS, three.js and meshes ship in APK assets via WebViewAssetLoader. Three.js MIT and WebXR mesh MIT notices are included alongside Apache notices. No internet permission is added. Active takes are in memory: save before closing the app. Backgrounding, changing execution mode or leaving Studio stops active Studio recording without erasing a completed take.
+
+## Original measurement screen
+
+The raw 21-point diagnostic view is still available using **원본 관절점 측정 화면으로**. Its delegate and hand-count settings are shared with Studio.
 
 ## Install and use
 
@@ -28,7 +42,7 @@ This is a diagnostic camera screen showing original 21-point detections, not the
 
 ## Build
 
-Java 17, Android SDK 35, Gradle 8.11.1. From this directory:
+Java 17, Android SDK 35, Gradle 8.11.1. From the repository first run `npm ci` and `node tools/build-native.mjs`; then from this directory:
 
 ```sh
 gradle :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
@@ -80,3 +94,11 @@ Reference (the actual pinned MediaPipe release):
 https://github.com/google-ai-edge/mediapipe/blob/v0.10.21/mediapipe/tasks/cc/vision/hand_landmarker/hand_landmarker_graph.cc
 
 Before an APK update, save any wanted measurement. CI debug signing identities are not yet persisted, so Android may require uninstalling the previous test app before installing a new build; this does not affect the web Studio.
+
+## Validation and release gate (2026-10-29)
+
+`node tools/test-native-pose.mjs` checks exact per-bone direction for both sides under strong rotation/non-rigid finger bends, stateless reappearance, invalid inputs and duplicate labels. `node tools/test-native-studio.mjs` is the browser integration check with a stub Android bridge; it does not test physical camera/GPU or Android document-provider behavior. Build native assets first; Playwright 1.56.1 + Chromium are needed only for that development check.
+
+The new native JS/HTML/mesh assets total about 1.55 MiB uncompressed before APK compression, plus AndroidX WebKit library overhead. Runtime adds a WebGL hand renderer and per-result retargeting; physical S25 frame time and thermal behavior must be measured. This increase was reported before implementation. No additional inference models are packaged.
+
+Full web regression is still blocked by 18 absent baseline JSON recordings (raw_take2..17.json, raw_w2take2..3.json). The corpus gate remains mandatory; no limit/exclusion/baseline changes are allowed. A native test APK is not permission to merge until the full corpus and regression pass.
