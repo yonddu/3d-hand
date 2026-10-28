@@ -39,9 +39,15 @@ want(out[5] === 1 && out[6] === 1, 'one-frame reading on top is dropped');
   want(kept.length === 1 && kept[0].landmarks[0].x === 0.76, 'the hand under the other label is the one held back, though its wrist is closer');
 }
 
-// A second hand coming in elsewhere is taken at once.
-out = run([...Array(5).fill(() => [hand('right', 0.8, 0.6)]), () => [hand('right', 0.8, 0.6), hand('left', 0.2, 0.6)]]);
-want(out[5] === 2, 'a hand appearing apart from the other is taken at once');
+// A second hand coming in at the picture's edge is taken at once.
+out = run([...Array(5).fill(() => [hand('right', 0.8, 0.6)]), () => [hand('right', 0.8, 0.6), hand('left', 0.06, 0.6)]]);
+want(out[5] === 2, 'a hand coming in at the edge is taken at once');
+// One appearing apart in the middle of the picture waits like one on top (take left_pop2_02-04).
+out = run([...Array(5).fill(() => [hand('right', 0.8, 0.6)]), ...Array(12).fill(() => [hand('right', 0.8, 0.6), hand('left', 0.4, 0.6)])]);
+want(out.slice(5, 14).every((n) => n === 1) && out[14] === 2, 'a hand appearing in the middle is held back 9 frames, then taken');
+// But a hand found again soon after both were tracked is taken at once.
+out = run([...Array(5).fill(() => [hand('right', 0.8, 0.6), hand('left', 0.4, 0.6)]), ...Array(10).fill(() => [hand('right', 0.8, 0.6)]), () => [hand('right', 0.8, 0.6), hand('left', 0.4, 0.6)]]);
+want(out[15] === 2, 'a hand found again within 2 s of two hands is taken at once');
 
 // Two hands tracked apart, then one over the other (clasped): both stay.
 out = run([...Array(5).fill(() => [hand('right', 0.7, 0.6), hand('left', 0.3, 0.6)]), ...Array(5).fill(() => [hand('right', 0.7, 0.6), hand('left', 0.69, 0.57, 0.15)])]);
