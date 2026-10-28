@@ -4,10 +4,11 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { HandRig } from './handRig.js';
 import { loadHandGLB, RealHand, questMaterial } from './realHand.js';
-import { armLocals, wristPivot } from './arm.js';
-import { exportGlb } from './exportGlb.js';
+import { ArmRig } from './arm.js';
+import { wristLoop } from './armMesh.js';
+import { NativeArmDriver } from './nativeArm.js';
+import { exportGlb, frameFromLive } from './exportGlb.js';
 import { nativeHands, retargetNative } from './nativePose.js';
-import { focalW } from './camera.js';
 
 const $ = id => document.getElementById(id);
 const SIDES = ['left', 'right'];
@@ -15,7 +16,7 @@ const SIDES = ['left', 'right'];
 for (const id of ['start', 'ar-btn', 'pose-banner', 'gesture', 'object-info', 'slow-hint', 'guide', 'busy']) $(id).hidden = true;
 for (const section of document.querySelectorAll('.rail section')) section.hidden = true;
 const opts = document.createElement('section');
-opts.innerHTML = '<h2>네이티브 원본 추적</h2><p>MediaPipe 관절 방향 → Quest 스타일 손 → GLB</p><p class="hint">사진 모델·자세 보정·시간 필터·충돌 보정은 적용하지 않습니다. 가려진 손은 숨깁니다. 깊이와 팔 위치는 실측이 아닙니다.</p><label class="check"><input id="native-swap" type="checkbox"> 왼손·오른손 바꾸기</label><p class="hint">MediaPipe의 좌우 표시가 실제 손과 반대일 때만 바꾸세요. 녹화 중에는 변경할 수 없습니다.</p>';
+opts.innerHTML = '<h2>네이티브 원본 추적</h2><p>MediaPipe 관절 방향 → Quest 스타일 손 → GLB</p><p class="hint">손가락은 원본 관절 방향을 따릅니다. 팔·손목은 기존 웹 방식으로 연결합니다. 가려진 손은 숨깁니다. 깊이와 팔 위치는 실측이 아닙니다.</p><label class="check"><input id="native-swap" type="checkbox"> 왼손·오른손 바꾸기</label><p class="hint">MediaPipe의 좌우 표시가 실제 손과 반대일 때만 바꾸세요. 녹화 중에는 변경할 수 없습니다.</p>';
 $('rail').appendChild(opts);
 $('stage-status').textContent = 'Quest 손 모델 준비 중…';
 $('rec-info').textContent = '네이티브 원본 관절 방향 · GLB';
@@ -41,10 +42,14 @@ new ResizeObserver(() => {
   camera.fov = Math.max(34, THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(46) / 2) / camera.aspect)));
   camera.updateProjectionMatrix();
 }).observe($('viewport'));
-const rigs = {}, realHands = {};
+const rigs = {}, realHands = {}, arms = {}, armDrivers = {};
+let seenSides = new Set();
 for (const side of SIDES) {
   rigs[side] = new HandRig(side); rigs[side].mesh.visible = false; rigs[side].setJointsVisible(false);
   rigs[side].group.visible = false; scene.add(rigs[side].group);
+  arms[side] = new ArmRig(side); arms[side].group.visible = false;
+  arms[side].setVisible(true, false, false); scene.add(arms[side].group);
+  armDrivers[side] = new NativeArmDriver(arms[side]);
 }
 let ready = false, active = true, latest = null, lastT = -Infinity, session = null;
 let recording = false, recordFrames = [], recordRaw = [], rawMeta = null, recordName = '';
@@ -52,8 +57,8 @@ let review = null, playing = false, reviewT = 0, reviewNow = 0;
 const takes = [];
 let exportBusy = false;
 function status(message) { $('stage-status').textContent = message; }
-function hideHands() { for (const s of SIDES) { rigs[s].group.visible = false; if (realHands[s]) realHands[s].root.visible = false; $(`seen-${s}`).textContent = '없음'; } }
-function updateMeshes() { for (const s of SIDES) if (realHands[s]) { realHands[s].update(); realHands[s].syncBend(true); } }
+function hideHands() { for (const s of SIDES) { rigs[s].group.visible = false; arms[s].group.visible = false; if (realHands[s]) realHands[s].root.visible = false; $(`seen-${s}`).textContent = '없음'; } }
+function updateMeshes() { for (const s of SIDES) if (realHands[s]) { realHands[s].update(); realHands[s].syncBend(!arms[s].group.visible); } }
 function options(open) { document.querySelector('.app').classList.toggle('options-open', open); $('opt-open').setAttribute('aria-expanded', open); }
 $('opt-open').onclick = () => options(!document.querySelector('.app').classList.contains('options-open'));
 $('opt-close').onclick = () => options(false);
@@ -75,7 +80,8 @@ function stopRecording() {
   } else status('녹화한 구간에 손이 없습니다.');
   updateDock();
 }
-function pause() { stopRecording(); latest = null; if (!review) { hideHands(); updateMeshes(); } }
+function resetArmTracking() { for (const s of SIDES) armDrivers[s].reset(); seenSides = new Set(); }
+function pause() { stopRecording(); resetArmTracking(); latest = null; if (!review) { hideHands(); updateMeshes(); } }
 function receive(packet) {
   if (!ready || !active || !packet || !Number.isFinite(packet.tMs) || !(packet.width > 0 && packet.height > 0)) return;
   if (packet.session !== session) { pause(); session = packet.session; lastT = -Infinity; }
@@ -86,31 +92,32 @@ function receive(packet) {
   const swap = $('native-swap').checked;
   const hands = { left: null, right: null };
   const aspect = packet.width / packet.height;
-  const focal = focalW(aspect);
+  const nowSeen = new Set();
   hideHands();
   for (const [label, h] of Object.entries(selected)) {
     const side = swap ? (label === 'left' ? 'right' : 'left') : label;
     const rig = rigs[side];
     if (!retargetNative(rig, h)) continue;
-    // Work-plane placement only, not observed absolute camera distance.
-    rig.group.position.set((h.lm[0] - .5) * .42 / focal, -(h.lm[1] - .5) * .42 / (aspect * focal), -.42);
+    if (!seenSides.has(side)) armDrivers[side].reset();
+    nowSeen.add(side);
     rig.group.visible = true;
-    // Stateless inferred arm. It never changes the detected wrist orientation.
-    const q = rig.wrist.quaternion;
-    const W = wristPivot(rig.group.position, q);
-    const L = armLocals(new THREE.Vector3(side === 'right' ? .18 : -.18, -.12, -.12), W.clone().add(new THREE.Vector3(0, -.1, .23)), W, q, { side });
-    hands[side] = { shoulder: L.S.toArray(), elbow: L.E.toArray(), wrist: rig.group.position.toArray(), upperQ: L.upperQ.toArray(), foreQ: L.foreQ.toArray(), handQ: q.toArray(), fingers: rig.getPose().bones, cup: [0], object: null, armOpts: { side } };
+    armDrivers[side].update(rig, h, aspect, packet.tMs / 1000);
+    arms[side].group.visible = true;
+    hands[side] = frameFromLive(side, rig, arms[side], null);
     $(`seen-${side}`).textContent = '추적 중';
   }
+  for (const s of SIDES) if (!nowSeen.has(s)) armDrivers[s].reset();
+  seenSides = nowSeen;
   updateMeshes();
   if (recording) {
     recordFrames.push({ t: packet.tMs / 1000, hands });
     recordRaw.push({ t: packet.tMs / 1000, hands: packet.hands, captureTimestampNs: packet.captureTimestampNs });
-    rawMeta = { pipeline: 'native-direct-v1', aspect, firstPerson: true, swap, rightOnImageRight: true, offline: false, backend: packet.backend, maxHands: packet.maxHands };
+    rawMeta = { pipeline: 'native-direct-v1', armPipeline: 'web-arm-wrist-v1', aspect, firstPerson: true, swap, rightOnImageRight: true, offline: false, backend: packet.backend, maxHands: packet.maxHands };
     updateDock();
     if (recordFrames.length >= 9000) { stopRecording(); status('9000프레임에 도달해 녹화를 멈췄습니다. 리뷰에서 저장하세요.'); }
   }
 }
+$('native-swap').onchange = () => { resetArmTracking(); hideHands(); updateMeshes(); };
 $('rec').onclick = () => {
   if (!ready || exportBusy) return;
   if (recording) return stopRecording();
@@ -128,7 +135,13 @@ function seek(t) {
   const frame = review.frames[lo];
   for (const side of SIDES) {
     const h = frame.hands[side]; rigs[side].group.visible = !!h;
-    if (h) rigs[side].setPose({ position: h.wrist, wrist: h.handQ, bones: h.fingers, cup: 0 });
+    arms[side].group.visible = !!h;
+    if (h) {
+      rigs[side].setPose({ position: h.wrist, wrist: h.handQ, bones: h.fingers, cup: 0 });
+      arms[side].setFromSaved({ shoulder: h.shoulder, elbow: h.elbow, wrist: h.wrist });
+      arms[side].opts = { side, ...h.armOpts };
+      arms[side].pose(rigs[side].group.position, rigs[side].wrist.quaternion);
+    }
   }
   updateMeshes();
   $('rv-seek').value = duration() ? reviewT / duration() : 0;
@@ -136,7 +149,7 @@ function seek(t) {
 }
 function openReview(take = takes[0]) {
   if (!take || recording || exportBusy) return;
-  review = take; playing = true; reviewNow = performance.now();
+  resetArmTracking(); review = take; playing = true; reviewNow = performance.now();
   $('review').hidden = false; $('dock').hidden = true; $('rv-play').textContent = '❚❚';
   $('rv-take').replaceChildren(...takes.map(t => { const o = document.createElement('option'); o.value = t.id; o.textContent = t.name; return o; }));
   $('rv-take').value = take.id;
@@ -144,7 +157,7 @@ function openReview(take = takes[0]) {
 }
 function closeReview() {
   if (exportBusy) return;
-  review = null; playing = false; $('review').hidden = true; $('dock').hidden = false; hideHands(); updateMeshes();
+  review = null; playing = false; resetArmTracking(); $('review').hidden = true; $('dock').hidden = false; hideHands(); updateMeshes();
   updateDock();
 }
 $('review-open').onclick = () => openReview();
@@ -177,7 +190,7 @@ $('rv-glb').onclick = async () => {
   status('GLB 만드는 중…');
   try {
     const skins = Object.fromEntries(SIDES.map(s => [s, realHands[s].exportSkin()]));
-    const data = await exportGlb({ frames: review.frames, skins, name: review.name, includeObjects: false, raw: review.raw, directTracking: true });
+    const data = await exportGlb({ frames: review.frames, skins, name: review.name, includeObjects: false, raw: review.raw, directTracking: true, webArmWrist: true });
     await saveNative(data, `${review.name}.glb`);
     status('저장할 위치를 선택하세요.');
   } catch (e) { status(`저장 실패: ${e.message}`); }
@@ -202,12 +215,17 @@ requestAnimationFrame(draw);
 Promise.all(SIDES.map(async side => {
   const gltf = await loadHandGLB({ url: `hand-${side}.glb` });
   const real = new RealHand(gltf, rigs[side], questMaterial(), { correctPose: false });
-  real.contacts = false; real.setWristFade(true); real.root.visible = false;
+  real.contacts = false; real.setWristFade(false); real.root.visible = false;
+  const arm = arms[side];
+  arm.setSkin(wristLoop(real.exportSkin()), real.mesh.material);
+  arm.setVisible(true, false, false);
+  real.setSeamNormals(arm.skinData.seam);
+  real.setBendSource(arm.bones.mid, arm.bones.hand);
   realHands[side] = real; scene.add(real.root);
 })).then(() => {
   ready = true; $('rec').disabled = false;
-  status('네이티브 MediaPipe → Quest 손 · 추가 자세 보정 없음');
+  status('네이티브 MediaPipe → Quest 손 · 팔·손목은 기존 웹 방식');
   window.HMSAndroid?.ready();
 }).catch(e => status(`Quest 손 모델을 불러오지 못했습니다: ${e.message}`));
 // Read-only inspection hooks for the bridge/GLB integration test.
-window.__nativeStudio = { rigs, realHands, takes, get recording() { return recording; }, get latest() { return latest; }, get ready() { return ready; } };
+window.__nativeStudio = { rigs, realHands, arms, armDrivers, takes, get recording() { return recording; }, get latest() { return latest; }, get ready() { return ready; } };

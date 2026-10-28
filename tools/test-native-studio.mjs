@@ -38,10 +38,13 @@ try {
   await send(packet(1000, [hand]));
   assert.equal(await page.evaluate(() => window.__nativeStudio.realHands.right.root.visible), true);
   assert.equal(await page.evaluate(() => window.__nativeStudio.realHands.right.correctPose), false);
+  assert.equal(await page.evaluate(() => window.__nativeStudio.arms.right.group.visible && window.__nativeStudio.arms.right.mesh.visible), true, 'web arm mesh visible');
+  assert.equal(await page.evaluate(() => window.__nativeStudio.arms.right.elbowDot.visible), false, 'no elbow debug marker');
   await page.click('#rec');
   await send(packet(1100, [hand]));
   await send(packet(1200, []));
   assert.equal(await page.evaluate(() => window.__nativeStudio.realHands.right.root.visible), false, 'missing hand hidden immediately');
+  assert.equal(await page.evaluate(() => window.__nativeStudio.arms.right.group.visible), false, 'lost arm also hidden');
   await send(packet(1300, [hand]));
   await page.click('#rec');
   assert.equal(await page.evaluate(() => window.__nativeStudio.takes[0].frames.length), 3, 'one key per delivered native result');
@@ -56,6 +59,7 @@ try {
   assert.ok(gltf.skins?.length && gltf.animations?.length, 'skeletal mesh and animation exported');
   const root = gltf.scenes.find(n => n.extras?.tracking === 'native-direct-v1');
   assert.ok(root); assert.equal(root.extras.raw.frames.length, 3);
+  assert.equal(root.extras.armPipeline, 'web-arm-wrist-v1');
   const anim = gltf.animations[0], bin = 20 + jsonLen + 8;
   const tracks = {};
   for (const c of anim.channels) {
@@ -70,7 +74,7 @@ try {
   const wantedWrist = await page.evaluate(() => window.__nativeStudio.takes[0].frames[0].hands.right.handQ);
   const globalWrist = new THREE.Quaternion();
   for (const bone of ['RightArm', 'RightForeArm', wristName('right')]) globalWrist.multiply(new THREE.Quaternion().fromArray(tracks[`${bone}.rotation`].slice(0,4)));
-  assert.ok(Math.abs(globalWrist.dot(new THREE.Quaternion().fromArray(wantedWrist))) > .99999, 'GLB preserves detected global wrist orientation');
+  assert.ok(Math.abs(globalWrist.dot(new THREE.Quaternion().fromArray(wantedWrist))) > .99999, 'GLB matches displayed web wrist orientation');
   const expected = await page.evaluate(() => window.__nativeStudio.takes[0].frames[0].hands.right.fingers);
   let checked = 0;
   for (const [bone, q] of Object.entries(expected)) {

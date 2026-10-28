@@ -287,7 +287,7 @@ function completeFrame(side, f) {
 // frames: [{ t: seconds, hands: { left: frame|null, right: frame|null } }]
 // skins: { left, right } from RealHand/HandRig.exportSkin()
 // Returns an ArrayBuffer (binary glTF).
-export async function exportGlb({ frames, skins, name = 'HMS_Motion', includeObjects = true, raw = null, directTracking = false }) {
+export async function exportGlb({ frames, skins, name = 'HMS_Motion', includeObjects = true, raw = null, directTracking = false, webArmWrist = false }) {
   const sides = SIDES.filter((s) => frames.some((fr) => fr.hands[s]));
   if (!sides.length) throw new Error('내보낼 손 데이터가 없습니다.');
 
@@ -373,7 +373,7 @@ export async function exportGlb({ frames, skins, name = 'HMS_Motion', includeObj
 
   for (const side of sides) {
     const P = prefix(side);
-    const locals = filled[side].map((f) => sideLocals(f, side, directTracking));
+    const locals = filled[side].map((f) => sideLocals(f, side, directTracking && !webArmWrist));
     vecTrack(`${P}Shoulder`, 'position', locals.flatMap((l) => l.shoulderPos));
     vecTrack(`${P}Shoulder`, 'scale', shown[side].flatMap((v) => (v ? [1, 1, 1] : [0, 0, 0])));
     quatTrack(`${P}Arm`, locals.flatMap((l) => l.arm));
@@ -404,7 +404,7 @@ export async function exportGlb({ frames, skins, name = 'HMS_Motion', includeObj
 
   root.userData = {
     generator: 'Hand Motion Studio',
-    ...(directTracking ? { tracking: 'native-direct-v1', armPose: 'inferred; not observed by a body model', hiddenHands: 'no gap filling' } : {}),
+    ...(directTracking ? { tracking: 'native-direct-v1', armPose: 'inferred; not observed by a body model', hiddenHands: 'no gap filling', ...(webArmWrist ? { armPipeline: 'web-arm-wrist-v1' } : {}) } : {}),
     naming: 'mixamo',
     units: 'meters',
     frames: frames.length,
