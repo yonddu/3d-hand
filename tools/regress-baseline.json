@@ -144,7 +144,7 @@
   "asnap": 6
  },
  "raw_take8.json": {
-  "swap": 2,
+  "swap": 1,
   "flip": 3,
   "jump": 219,
   "gsw": 5,
@@ -200,7 +200,7 @@
  "book_turn_08-19.glb": {
   "swap": 0,
   "flip": 10,
-  "jump": 182,
+  "jump": 179,
   "gsw": 3,
   "fjump": 9,
   "fflip": 0,
@@ -281,9 +281,9 @@
  "two_hands_03-59.glb": {
   "swap": 1,
   "flip": 19,
-  "jump": 477,
+  "jump": 470,
   "gsw": 46,
-  "fjump": 146,
+  "fjump": 144,
   "fflip": 3,
   "asnap": 2
  },
@@ -349,5 +349,23 @@
   "fjump": 46,
   "fflip": 0,
   "asnap": 0
+ },
+ "left_pop3_06-15.glb": {
+  "swap": 0,
+  "flip": 12,
+  "jump": 95,
+  "gsw": 7,
+  "fjump": 0,
+  "fflip": 0,
+  "asnap": 0
+ },
+ "left_pop4_06-22.glb": {
+  "swap": 2,
+  "flip": 20,
+  "jump": 207,
+  "gsw": 13,
+  "fjump": 2,
+  "fflip": 2,
+  "asnap": 4
  }
 }

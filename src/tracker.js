@@ -189,7 +189,7 @@ export class HandTracker {
     const prev = (this.tracks || []).filter((k) => nowMs - k.t < 400 && nowMs >= k.t);
     this.dropGhost(hands, prev, nowMs);
     if (hands.length === 2) this.twoAt = nowMs;
-    this.tracks = hands.map((h) => {
+    const tracks = hands.map((h) => {
       const x = h.landmarks[0].x;
       const y = h.landmarks[0].y;
       let best = null;
@@ -200,6 +200,14 @@ export class HandTracker {
           best = k;
           bestD = d;
         }
+      }
+      // All hands lost a moment ago and one shows up away from the picture's
+      // edge: no new hand came in (user rule 2026-10-28: a new hand enters
+      // the view, it does not appear in the middle), so it is the one that
+      // was lost, wherever it was last (take 06:22: a right fist gone for
+      // 0.7-0.9 s at a time came back mid-picture labelled left).
+      if (!best && !prev.length && this.seen && nowMs - this.seen.t < LOST_KEEP && nowMs >= this.seen.t && !atEdge(h.landmarks)) {
+        best = this.seen.tracks.reduce((a, k) => (!a || Math.hypot(k.x - x, k.y - y) < Math.hypot(a.x - x, a.y - y) ? k : a), null);
       }
       const shapeSide = (c) => (c > 0 !== swap ? 'right' : 'left');
       const arm = aspect ? armSide(h.landmarks, aspect) : null;
@@ -251,6 +259,12 @@ export class HandTracker {
       }
       return { side: h.side, x, y, t: nowMs, flips, armVotes, mirrored, mirrorVotes, chiral: best ? best.chiral * 0.4 + h.chiral * 0.6 : h.chiral };
     });
+    // A frame with no hand at all does not wipe the tracks: they are kept for
+    // the rest of their 400 ms. Before, the right hand found again in the
+    // same place 70 ms later was given a side afresh from its arm line, which
+    // said left, and stayed left for 5.6 s (user take 2026-10-28 06:15).
+    this.tracks = hands.length ? tracks : prev;
+    if (tracks.length) this.seen = { tracks, t: nowMs };
     return hands;
   }
 
@@ -336,6 +350,7 @@ export function dedupe(hands) {
 // (0..1). A second reading of one hand sits inside it (user GLB 2026-10-27
 // 20:47: a "left" hand read on top of the right one, 85-100% inside).
 export const INSIDE = 0.8;
+const LOST_KEEP = 1500; // ms after every hand was lost during which a hand found away from the edge is the lost one
 const RECENT_TWO = 2000; // ms after two hands were tracked during which a hand found again needs no edge
 const EDGE = 0.04; // picture units from the border within which a hand counts as coming in
 // Whether a hand's points reach the picture's border.

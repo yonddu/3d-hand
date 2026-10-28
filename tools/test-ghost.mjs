@@ -57,5 +57,16 @@ want(out.slice(5).every((n) => n === 2), 'hands tracked on their own are never h
 out = run([() => [hand('right', 0.7, 0.6), hand('left', 0.69, 0.57, 0.15)]]);
 want(out[0] === 2, 'two hands appearing together are both taken');
 
+// A hand missed for one frame is still remembered: found again in the same
+// place under the other label, it keeps its side (user take 2026-10-28 06:15,
+// right hand turned left for 5.6 s after a single empty frame).
+{
+  const tr = new HandTracker({});
+  for (let i = 0; i < 5; i++) tr.keepSides([hand('right', 0.5, 0.6)], i * 33);
+  tr.keepSides([], 5 * 33);
+  const sides = [6, 7].map((i) => tr.keepSides([hand('left', 0.49, 0.6)], i * 33)[0].side);
+  want(sides.every((s) => s === 'right'), `a hand found again after an empty frame keeps its side (${sides.join(', ')})`);
+}
+
 if (fail.length) process.exit(1);
 console.log('all ghost checks pass');
