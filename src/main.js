@@ -201,7 +201,14 @@ function fallbackToCPU(why) {
   setStatus(`${why} → CPU로 다시 시작하는 중…`);
   tracker
     .useCPU()
-    .then(() => setStatus('추적 준비됨 (CPU)'))
+    .then(() => {
+      setStatus('추적 준비됨 (CPU)');
+      try {
+        localStorage.setItem('hms.gpuNoHands', '1'); // next visits start on the CPU
+      } catch {}
+      // A video pass lost its first frames to the GPU: start it over.
+      if (rec.on && rec.offline) startRecording();
+    })
     .catch((err) => {
       console.error(err);
       setStatus('CPU 추적을 시작하지 못했습니다', true);
@@ -249,7 +256,11 @@ async function ensureTracker() {
   if (!trackerLoading) {
     trackerLoading = (async () => {
       const { HandTracker } = await import('./tracker.js');
-      const t = new HandTracker(CONFIG);
+      let preferCPU = false;
+      try {
+        preferCPU = localStorage.getItem('hms.gpuNoHands') === '1';
+      } catch {}
+      const t = new HandTracker({ ...CONFIG, preferCPU });
       await t.init((s) => setStatus(s));
       tracker = t;
       // No virtual object goes in the hand (the user asked for none): the

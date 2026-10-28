@@ -49,15 +49,18 @@ export class HandTracker {
     });
     this.handOptions = options;
     try {
+      // This phone's GPU found no hands before (main.js fallbackToCPU): the
+      // CPU from the start, so no frames are lost waiting to find out again.
+      if (this.config.preferCPU) throw new Error('GPU found no hands on this device before');
       this.landmarker = await HandLandmarker.createFromOptions(fileset, options('GPU'));
       this.delegate = 'GPU';
     } catch (err) {
       console.warn('GPU delegate failed, falling back to CPU', err);
       this.landmarker = await HandLandmarker.createFromOptions(fileset, options('CPU'));
       this.delegate = 'CPU';
-      this.gpuFailed = true;
+      this.gpuFailed = !this.config.preferCPU;
     }
-    onStatus(`추적 준비됨 (${this.delegate}${this.gpuFailed ? ', 이 브라우저에서 GPU 시작 실패' : ''})`);
+    onStatus(`추적 준비됨 (${this.delegate}${this.gpuFailed ? ', 이 브라우저에서 GPU 시작 실패' : this.config.preferCPU ? ', 이 기기 GPU는 손을 못 찾아서 CPU' : ''})`);
     this.fileset = fileset;
   }
 
