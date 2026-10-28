@@ -158,6 +158,11 @@ export class HandTracker {
     if (nowMs <= this.lastDetectAt) return null;
     this.lastDetectAt = nowMs;
     const res = this.landmarker.detectForVideo(video, nowMs);
+    return this.acceptResult(res, { swapHandedness, rightOnImageRight, firstPerson, trackMs, aspect: video.videoWidth / video.videoHeight });
+  }
+
+  // Identical post-detection path for browser and native MediaPipe results.
+  acceptResult(res, { swapHandedness = false, rightOnImageRight = true, firstPerson = false, trackMs = 0, aspect = 1 } = {}) {
     const hands = res.landmarks.map((lm, i) => {
       const cat = res.handedness[i][0];
       let side = cat.categoryName.toLowerCase();
@@ -177,7 +182,7 @@ export class HandTracker {
     }));
     dedupe(hands);
     this.lastHands = hands;
-    return resolveSides(this.keepSides(hands, trackMs, swapHandedness, firstPerson ? video.videoWidth / video.videoHeight : 0), rightOnImageRight !== swapHandedness);
+    return resolveSides(this.keepSides(hands, trackMs, swapHandedness, firstPerson ? aspect : 0), rightOnImageRight !== swapHandedness);
   }
 
   // Left or right. Seen from behind (first person), the back of a left hand and
