@@ -1,0 +1,32 @@
+name: Android native baseline
+on:
+  push:
+    paths: ['native/android/**', '.github/workflows/native-android.yml', 'vendor/models/hand_landmarker.task']
+  pull_request:
+    paths: ['native/android/**', '.github/workflows/native-android.yml', 'vendor/models/hand_landmarker.task']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Build and test native app
+        working-directory: native/android
+        run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hand-motion-native-baseline
+          path: native/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
