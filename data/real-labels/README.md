@@ -25,3 +25,6 @@ Why we need them: the app's picture models (finger curl and joint cubes) learned
 - Do not change the filled columns, row order, or any file outside `data/real-labels/`.
 
 Made by `tools/export-crops.py`.
+
+## Status (2026-10-28)
+`labels.csv` holds a GPT first pass. The owner checked the 20 hardest crops and judged nearly all wrong; sheet 079 is also wrong on a spot check. Do NOT use these labels for scoring or training.
