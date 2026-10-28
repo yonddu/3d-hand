@@ -4,7 +4,7 @@
   "flip": 7,
   "jump": 92,
   "gsw": 6,
-  "fjump": 9,
+  "fjump": 0,
   "fflip": 0,
   "asnap": 0
  },
@@ -13,7 +13,7 @@
   "flip": 2,
   "jump": 142,
   "gsw": 13,
-  "fjump": 62,
+  "fjump": 21,
   "fflip": 0,
   "asnap": 0
  },
@@ -22,7 +22,7 @@
   "flip": 3,
   "jump": 192,
   "gsw": 5,
-  "fjump": 91,
+  "fjump": 44,
   "fflip": 0,
   "asnap": 6
  },
@@ -31,7 +31,7 @@
   "flip": 3,
   "jump": 207,
   "gsw": 5,
-  "fjump": 90,
+  "fjump": 54,
   "fflip": 0,
   "asnap": 6
  },
@@ -40,7 +40,7 @@
   "flip": 3,
   "jump": 163,
   "gsw": 4,
-  "fjump": 124,
+  "fjump": 65,
   "fflip": 0,
   "asnap": 6
  },
@@ -49,7 +49,7 @@
   "flip": 3,
   "jump": 192,
   "gsw": 5,
-  "fjump": 91,
+  "fjump": 44,
   "fflip": 0,
   "asnap": 6
  },
@@ -58,7 +58,7 @@
   "flip": 3,
   "jump": 194,
   "gsw": 5,
-  "fjump": 145,
+  "fjump": 103,
   "fflip": 0,
   "asnap": 6
  },
@@ -67,7 +67,7 @@
   "flip": 3,
   "jump": 192,
   "gsw": 5,
-  "fjump": 91,
+  "fjump": 43,
   "fflip": 0,
   "asnap": 6
  },
@@ -76,7 +76,7 @@
   "flip": 3,
   "jump": 192,
   "gsw": 5,
-  "fjump": 91,
+  "fjump": 44,
   "fflip": 0,
   "asnap": 6
  },
@@ -85,7 +85,7 @@
   "flip": 3,
   "jump": 224,
   "gsw": 5,
-  "fjump": 101,
+  "fjump": 53,
   "fflip": 0,
   "asnap": 6
  },
@@ -94,7 +94,7 @@
   "flip": 3,
   "jump": 192,
   "gsw": 5,
-  "fjump": 91,
+  "fjump": 44,
   "fflip": 0,
   "asnap": 6
  },
@@ -103,7 +103,7 @@
   "flip": 3,
   "jump": 193,
   "gsw": 5,
-  "fjump": 91,
+  "fjump": 34,
   "fflip": 0,
   "asnap": 6
  },
@@ -112,7 +112,7 @@
   "flip": 3,
   "jump": 192,
   "gsw": 5,
-  "fjump": 93,
+  "fjump": 44,
   "fflip": 0,
   "asnap": 6
  },
@@ -121,7 +121,7 @@
   "flip": 3,
   "jump": 212,
   "gsw": 4,
-  "fjump": 129,
+  "fjump": 76,
   "fflip": 0,
   "asnap": 6
  },
@@ -130,7 +130,7 @@
   "flip": 3,
   "jump": 192,
   "gsw": 5,
-  "fjump": 93,
+  "fjump": 46,
   "fflip": 0,
   "asnap": 6
  },
@@ -139,7 +139,7 @@
   "flip": 3,
   "jump": 193,
   "gsw": 5,
-  "fjump": 91,
+  "fjump": 44,
   "fflip": 0,
   "asnap": 6
  },
@@ -148,7 +148,7 @@
   "flip": 3,
   "jump": 219,
   "gsw": 5,
-  "fjump": 95,
+  "fjump": 51,
   "fflip": 0,
   "asnap": 6
  },
@@ -157,7 +157,7 @@
   "flip": 3,
   "jump": 183,
   "gsw": 5,
-  "fjump": 139,
+  "fjump": 86,
   "fflip": 0,
   "asnap": 6
  },
@@ -166,7 +166,7 @@
   "flip": 4,
   "jump": 108,
   "gsw": 8,
-  "fjump": 23,
+  "fjump": 0,
   "fflip": 0,
   "asnap": 0
  },
@@ -175,7 +175,7 @@
   "flip": 5,
   "jump": 92,
   "gsw": 9,
-  "fjump": 10,
+  "fjump": 1,
   "fflip": 0,
   "asnap": 0
  },
@@ -184,7 +184,7 @@
   "flip": 8,
   "jump": 186,
   "gsw": 18,
-  "fjump": 75,
+  "fjump": 22,
   "fflip": 0,
   "asnap": 1
  },
@@ -193,7 +193,7 @@
   "flip": 5,
   "jump": 137,
   "gsw": 7,
-  "fjump": 31,
+  "fjump": 0,
   "fflip": 0,
   "asnap": 0
  },
@@ -202,7 +202,7 @@
   "flip": 10,
   "jump": 182,
   "gsw": 3,
-  "fjump": 42,
+  "fjump": 9,
   "fflip": 0,
   "asnap": 0
  },
@@ -211,7 +211,7 @@
   "flip": 25,
   "jump": 339,
   "gsw": 98,
-  "fjump": 102,
+  "fjump": 25,
   "fflip": 0,
   "asnap": 3
  },
@@ -220,7 +220,7 @@
   "flip": 25,
   "jump": 370,
   "gsw": 28,
-  "fjump": 107,
+  "fjump": 74,
   "fflip": 0,
   "asnap": 0
  },
@@ -229,7 +229,7 @@
   "flip": 0,
   "jump": 119,
   "gsw": 0,
-  "fjump": 48,
+  "fjump": 13,
   "fflip": 0,
   "asnap": 0
  },
@@ -238,7 +238,7 @@
   "flip": 3,
   "jump": 134,
   "gsw": 2,
-  "fjump": 50,
+  "fjump": 2,
   "fflip": 0,
   "asnap": 0
  },
@@ -247,7 +247,7 @@
   "flip": 0,
   "jump": 83,
   "gsw": 6,
-  "fjump": 37,
+  "fjump": 8,
   "fflip": 0,
   "asnap": 0
  },
@@ -256,7 +256,7 @@
   "flip": 0,
   "jump": 127,
   "gsw": 2,
-  "fjump": 37,
+  "fjump": 19,
   "fflip": 0,
   "asnap": 0
  },
@@ -265,7 +265,7 @@
   "flip": 3,
   "jump": 225,
   "gsw": 5,
-  "fjump": 75,
+  "fjump": 4,
   "fflip": 0,
   "asnap": 0
  },
@@ -274,7 +274,7 @@
   "flip": 0,
   "jump": 81,
   "gsw": 4,
-  "fjump": 24,
+  "fjump": 2,
   "fflip": 0,
   "asnap": 0
  },
@@ -292,7 +292,7 @@
   "flip": 6,
   "jump": 41,
   "gsw": 9,
-  "fjump": 6,
+  "fjump": 0,
   "fflip": 0,
   "asnap": 0
  },
@@ -301,7 +301,7 @@
   "flip": 1,
   "jump": 78,
   "gsw": 8,
-  "fjump": 30,
+  "fjump": 19,
   "fflip": 0,
   "asnap": 0
  },
@@ -310,7 +310,7 @@
   "flip": 0,
   "jump": 113,
   "gsw": 5,
-  "fjump": 29,
+  "fjump": 26,
   "fflip": 0,
   "asnap": 0
  },
@@ -319,7 +319,16 @@
   "flip": 8,
   "jump": 129,
   "gsw": 10,
-  "fjump": 10,
+  "fjump": 3,
+  "fflip": 0,
+  "asnap": 0
+ },
+ "pen_grip_02-41.glb": {
+  "swap": 0,
+  "flip": 0,
+  "jump": 86,
+  "gsw": 4,
+  "fjump": 12,
   "fflip": 0,
   "asnap": 0
  }

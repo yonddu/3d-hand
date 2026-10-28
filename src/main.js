@@ -17,6 +17,7 @@ import { GESTURES, CATEGORIES, applyGesture, gestureData } from './gestures.js';
 import { ARM_POSES, ARM_CATEGORIES, armPoseJoints, armPoseData } from './armPoses.js';
 import { liftToPicture } from './lift.js';
 import { clampBack } from './clampBack.js';
+import { stillPass } from './stillPass.js';
 import { clearThumbCore } from './thumbCore.js';
 import { findTouches } from './contactPass.js';
 import { cleanTake, lerpHand } from './cleanTake.js';
@@ -145,6 +146,7 @@ const state = {
   lastSolve: { left: null, right: null },
   solveIn: { left: null, right: null }, // solver input of the last frame, kept for a filmed take (gripPass.js)
   rawLandmarks: { left: null, right: null },
+  picLandmarks: { left: null, right: null },
   tableSide: 'right',
   detections: [],
   detAt: -1e9,
@@ -531,7 +533,7 @@ function fromMediaPipe(hand) {
     // Facing the camera, the body (and so the shoulders) is behind the hands.
     const sgn = hand.side === 'right' ? 1 : -1;
     const shoulder = facingUser() ? new THREE.Vector3(-0.18 * sgn, anchor.y - 0.12, Math.min(anchor.z - 0.3, -0.5)) : null;
-    return { side: hand.side, world, occluded, cup, anchor, vision, elbow, shoulder, ray, image: { x: a.x, y: a.y }, depth: z, relift, picture };
+    return { side: hand.side, world, occluded, cup, anchor, vision, elbow, shoulder, ray, image: { x: a.x, y: a.y }, depth: z, relift, picture, pic: hand.landmarks };
   }
   // Lay hands out on a work plane at WORK_DEPTH so they stay in frame; real
   // depth changes still move the hand, at half strength.
@@ -545,7 +547,7 @@ function fromMediaPipe(hand) {
     anchor.set(-anchor.x, anchor.y, -2 * WORK_DEPTH - anchor.z);
     if (elbow) elbow.set(-elbow.x, elbow.y, -2 * WORK_DEPTH - elbow.z);
   }
-  return { side: hand.side, world, occluded, cup, anchor, vision, elbow, relift, picture };
+  return { side: hand.side, world, occluded, cup, anchor, vision, elbow, relift, picture, pic: hand.landmarks };
 }
 
 // Elbow seen by the pose model, placed relative to this hand's wrist.
@@ -613,6 +615,7 @@ function feed(inputs, t) {
     }
     state.lastSeen[side] = t;
     state.rawLandmarks[side] = input.world;
+    state.picLandmarks[side] = input.pic || null;
     // A recording is smoothed afterwards, both ways and without lag
     // (cleanTake.js), so it skips the live filters, which always trail a little.
     const smooth = rec.offline ? input.world.map((p) => p.clone()) : filters[side].filter(input.world.map((p) => [p.x, p.y, p.z]), t).map((a) => new THREE.Vector3(...a));
@@ -1390,6 +1393,8 @@ function liveFrame(t) {
     if (hands[side] && state.rawLandmarks[side]) {
       hands[side].landmarks = state.rawLandmarks[side].map((v) => [v.x, v.y, v.z].map((x) => Math.round(x * 1e4) / 1e4));
     }
+    // The picture points too, for stillPass.js (a finger standing still on the hand).
+    if (hands[side] && state.picLandmarks[side]) hands[side].pic = state.picLandmarks[side].map((v) => [v.x, v.y].map((x) => Math.round(x * 1e4) / 1e4));
   }
   return hands;
 }
@@ -1528,7 +1533,7 @@ function stopRecording() {
       let done;
       try {
         const rigFor = (side) => new HandRig(side);
-        const parted = clampBack(separateHands(separateFrames(cleanTake(frames), rigFor), rigFor), rigFor);
+        const parted = clampBack(separateHands(separateFrames(stillPass(cleanTake(frames), rigFor, rec.rawMeta ? rec.rawMeta.aspect : 1), rigFor), rigFor), rigFor);
         done = clearThumbCore(parted, rigFor, findTouches(parted, rigFor));
       } catch (e) {
         // A failed clean-up must not lose the take: keep it as solved.

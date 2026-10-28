@@ -45,6 +45,7 @@ import { clampBack, handBack } from '../src/clampBack.js';
 import { clearThumbCore, coreDepth } from '../src/thumbCore.js';
 import { findTouches } from '../src/contactPass.js';
 import { objectForHand, objectOcclusion, HeldObject } from '../src/objects.js';
+import { stillPass } from '../src/stillPass.js';
 import { HandRig, handFrameQuat } from '../src/handRig.js';
 import { HandSolver } from '../src/solver.js';
 import { ArmRig } from '../src/arm.js';
@@ -243,7 +244,7 @@ function pass(take, plans, logs = null, keep = false) {
       const nR = rv(5).sub(rv(0)).cross(rv(17).sub(rv(0)));
       if (nW.dot(nR) < 0) out.marks.push({ t, side, kind: 'wdis', n: 1 });
       // The same object handling as main.js fromMediaPipe.
-      const vision = held[side].update(objectForHand(f.objects, h, take.aspect), t);
+      const vision = held[side].update(process.env.NOOBJ ? null : objectForHand(f.objects, h, take.aspect), t);
       const occluded = vision && vision.box ? objectOcclusion(h.landmarks, vision.box, raw.occluded) : raw.occluded || null;
       const prev = last[side];
       if (!prev || t - prev.t > 0.6) solvers[side].reset();
@@ -289,7 +290,7 @@ function pass(take, plans, logs = null, keep = false) {
       const palmN = new THREE.Vector3(0, 0, 1).applyQuaternion(rig.wrist.quaternion).toArray();
       if (!logs && raw.mirror && raw.mirror.unsure) guess(t, side, 'facing', `${where(anchor)}, ${facing(palmN)} or ${facing([palmN[0], palmN[1], -palmN[2]])}`);
       if (!logs && !elbow && arms[side].priorTrust < ARM_TRUST) guess(t, side, 'arm', `${where(anchor)}, ${facing(palmN)}`);
-      made[fi].hands[side] = { wrist: anchor.toArray(), handQ: rig.wrist.quaternion.toArray(), upperQ: m.upperArmQuat, foreQ: m.forearmQuat, elbow: m.elbow, shoulder: m.shoulder, fingers: rig.getPose().bones, cup: [rig.cup || 0] };
+      made[fi].hands[side] = { wrist: anchor.toArray(), handQ: rig.wrist.quaternion.toArray(), upperQ: m.upperArmQuat, foreQ: m.forearmQuat, elbow: m.elbow, shoulder: m.shoulder, fingers: rig.getPose().bones, cup: [rig.cup || 0], pic: h.landmarks.map((p) => [p.x, p.y]) };
       for (const [key, n] of straightInPicture(h.landmarks, take.aspect)) {
         const a = res.angles[key];
         if (a[1].flex + a[2].flex > BENT_PIC) out.marks.push({ t, side, kind: 'bentpic', n });
@@ -347,7 +348,9 @@ function pass(take, plans, logs = null, keep = false) {
   });
   if (logs) for (const side of ['left', 'right']) for (let i = 0; i < take.frames.length; i++) logs[side][i] ||= null;
   else {
-    let motion = process.env.NOSEP ? cleanTake(made) : separateFrames(cleanTake(made), (side) => new HandRig(side));
+    let motion = cleanTake(made);
+    if (!process.env.NOSTILL) motion = Object.assign(stillPass(motion, (side) => new HandRig(side), take.aspect, out), { together: motion.together });
+    if (!process.env.NOSEP) motion = Object.assign(separateFrames(motion, (side) => new HandRig(side)), { together: motion.together });
     if (!process.env.NOHANDS) motion = Object.assign(separateHands(motion, (side) => new HandRig(side)), { together: motion.together });
     motion = Object.assign(clampBack(motion, (side) => new HandRig(side)), { together: motion.together });
     const touches = process.env.NOTOUCH ? null : findTouches(motion, (side) => new HandRig(side));
