@@ -207,6 +207,13 @@ function setStatus(text, isError = false) {
 const MOBILE = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
 const OBJECT_EVERY = MOBILE ? 600 : 150; // ms
 const POSE_EVERY = MOBILE ? 300 : 100; // ms
+// The picture models (fingerCurl.js, jointCube.js) learned from rendered
+// hands only. On the user's real takes they read every finger 20-27 deg bent
+// whatever it does (correlation with MediaPipe 0-0.5), and pulled a fist's
+// index from ~100 deg to 15-30 deg (take fist_cup_05-19). User decision
+// 2026-10-28: off until they are scored on real labelled hands
+// (data/real-labels). Off, nothing loads or runs (362 KB, ~5 ms a hand).
+const PICTURE_MODELS = false;
 const CROP_EVERY = 5; // recorded frames between saved hand crops (save-crops)
 // The option stays on across visits (it is for collecting scoring takes).
 try {
@@ -232,10 +239,11 @@ async function ensureTracker() {
       // The pose model gives the elbows.
       t.initObjects()
         .catch((err) => console.warn('object model unavailable', err));
-      // Finger curl from the pixels, for filmed takes (151 KB).
-      loadFingerCurl().catch((err) => console.warn('finger curl model unavailable', err));
-      // Joint cubes from the pixels (which way each bone and nail faces), same use (211 KB).
-      loadJointCube().catch((err) => console.warn('joint cube model unavailable', err));
+      // Finger curl and joint cubes from the pixels: off (PICTURE_MODELS).
+      if (PICTURE_MODELS) {
+        loadFingerCurl().catch((err) => console.warn('finger curl model unavailable', err));
+        loadJointCube().catch((err) => console.warn('joint cube model unavailable', err));
+      }
       t.initPose()
         .then(() => t.pose && setStatus(`추적 + 팔꿈치 인식 준비됨 (${t.delegate})`))
         .catch((err) => console.warn('pose model unavailable; elbows use IK only', err));
@@ -517,7 +525,7 @@ function fromMediaPipe(hand) {
   // or -z once the hands are turned around for a camera facing the person
   // (below). Without the lift the points are MediaPipe's own, not in that
   // frame, and the cubes are left out.
-  const crop = rec.offline && state.fit ? cutHand(video, hand.landmarks, video.videoWidth, video.videoHeight) : null;
+  const crop = PICTURE_MODELS && rec.offline && state.fit ? cutHand(video, hand.landmarks, video.videoWidth, video.videoHeight) : null;
   const view = state.lift ? (!state.ar && facingUser() ? [0, 0, -1] : [0, 0, 1]) : null;
   const curl = crop ? fingerCurl(crop) : null;
   const cubes = crop && view ? jointCube(crop) : null;
