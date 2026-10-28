@@ -7,6 +7,8 @@
 //           palm lengths): a depth misread
 //   tpierce frames with the thumb inside another finger (more than PIERCE),
 //           the deepest, and the longest run in frames
+//   tback   frames with a thumb joint behind the back of the hand (wrist frame,
+//           deeper than BACK below the knuckles' plane; the thumb can't go there)
 //   stuck   fingers straight in the picture but bent past 60 deg (folded pose kept)
 //   opened  fingers folded in the picture (tip back past the knuckle) but under 60 deg
 //   off2d   mean distance of the 21 drawn joints from the picture's, in palm
@@ -25,6 +27,7 @@ const SNAP = 60; // as replay.mjs pstill
 const STILL = 0.12;
 const SPAN = 3; // frames
 const PIERCE = 0.008;
+const BACK = 0.012; // m behind the knuckles' plane: the back of the hand's skin (collide.js PALM_BACK)
 const BODY_SIZE = Math.hypot(...BODY.right.base.middle) / 0.09;
 const CH = { thumb: [1, 2, 3, 4], index: [5, 6, 7, 8], middle: [9, 10, 11, 12], ring: [13, 14, 15, 16], pinky: [17, 18, 19, 20] };
 const rigs = { left: new HandRig('left'), right: new HandRig('right') };
@@ -62,7 +65,7 @@ export function evalTake(file) {
     for (let i = 0; i < 21; i++) out.push([h.lm[i * d] * take.aspect, h.lm[i * d + 1]]);
     return out;
   };
-  const s = { frames: 0, snap: 0, snapDeg: 0, tpierce: 0, tdeep: 0, trun: 0, stuck: 0, opened: 0, off2d: 0, ms };
+  const s = { frames: 0, snap: 0, snapDeg: 0, tpierce: 0, tdeep: 0, tback: 0, trun: 0, stuck: 0, opened: 0, off2d: 0, ms };
   const prev = { left: [], right: [] };
   const run = { left: 0, right: 0 };
   r.motion.forEach((f, fi) => {
@@ -79,7 +82,9 @@ export function evalTake(file) {
       const P = rig.landmarkPositions();
       const B = bends(P);
       // thumb inside another finger
-      const th = overlaps(bodyPoints(rig), BODY_SIZE, PIERCE).filter((o) => o.a === 'thumb' || o.b === 'thumb');
+      const bp = bodyPoints(rig);
+      if ([2, 3, 4].some((i) => rig.wrist.worldToLocal(bp[i].clone()).z < -BACK)) s.tback++;
+      const th = overlaps(bp, BODY_SIZE, PIERCE).filter((o) => o.a === 'thumb' || o.b === 'thumb');
       if (th.length) {
         s.tpierce++;
         s.tdeep = Math.max(s.tdeep, ...th.map((o) => o.depth));
@@ -141,6 +146,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   for (const f of files) {
     const s = evalTake(f);
     if (process.argv.includes('--json')) console.log(JSON.stringify({ take: path.basename(f), ...s }));
-    else console.log(`${path.basename(f).padEnd(26)} snap ${s.snap} (${s.snapDeg} deg)  tpierce ${s.tpierce} deepest ${s.tdeep} mm longest ${s.trun} fr  stuck ${s.stuck}  opened ${s.opened}  off2d ${s.off2d.toFixed(3)}  topen ${s.topen}  pstill ${s.pstill}  fjump ${s.fjump}  jump ${s.jump}  ${s.ms.toFixed(1)} ms/fr`);
+    else console.log(`${path.basename(f).padEnd(26)} snap ${s.snap} (${s.snapDeg} deg)  tpierce ${s.tpierce} deepest ${s.tdeep} mm longest ${s.trun} fr  tback ${s.tback}  stuck ${s.stuck}  opened ${s.opened}  off2d ${s.off2d.toFixed(3)}  topen ${s.topen}  pstill ${s.pstill}  fjump ${s.fjump}  jump ${s.jump}  ${s.ms.toFixed(1)} ms/fr`);
   }
 }

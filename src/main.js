@@ -16,6 +16,7 @@ import { capturePose, validatePose, applyPose, loadLibrary, saveLibrary } from '
 import { GESTURES, CATEGORIES, applyGesture, gestureData } from './gestures.js';
 import { ARM_POSES, ARM_CATEGORIES, armPoseJoints, armPoseData } from './armPoses.js';
 import { liftToPicture } from './lift.js';
+import { clampBack } from './clampBack.js';
 import { cleanTake, lerpHand } from './cleanTake.js';
 import { replanGrips } from './gripPass.js';
 import { POSE_ARM, compactPose, poseElbowAR, lineElbow } from './elbowHint.js';
@@ -1521,7 +1522,7 @@ function stopRecording() {
       rec.finishing = null;
       let done;
       try {
-        done = separateHands(separateFrames(cleanTake(frames), (side) => new HandRig(side)), (side) => new HandRig(side));
+        done = clampBack(separateHands(separateFrames(cleanTake(frames), (side) => new HandRig(side)), (side) => new HandRig(side)), (side) => new HandRig(side));
       } catch (e) {
         // A failed clean-up must not lose the take: keep it as solved.
         console.error(e);

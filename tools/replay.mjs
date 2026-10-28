@@ -41,6 +41,7 @@ import { BODY, bodyPoints, separateThumb, separateFrames, separateHands, handsDe
 import * as THREE from 'three';
 import { HandTracker, chirality, dedupe, resolveSides, insideBox, INSIDE } from '../src/tracker.js';
 import { liftToPicture } from '../src/lift.js';
+import { clampBack, handBack } from '../src/clampBack.js';
 import { objectForHand, objectOcclusion, HeldObject } from '../src/objects.js';
 import { HandRig, handFrameQuat } from '../src/handRig.js';
 import { HandSolver } from '../src/solver.js';
@@ -346,6 +347,7 @@ function pass(take, plans, logs = null, keep = false) {
   else {
     let motion = process.env.NOSEP ? cleanTake(made) : separateFrames(cleanTake(made), (side) => new HandRig(side));
     if (!process.env.NOHANDS) motion = Object.assign(separateHands(motion, (side) => new HandRig(side)), { together: motion.together });
+    motion = Object.assign(clampBack(motion, (side) => new HandRig(side)), { together: motion.together });
     out.together = motion.together;
     for (const t of motion.together.times) guess(t, 'both', 'together', 'one hand behind the other');
     finished(motion, out);
@@ -376,6 +378,12 @@ function finished(frames, out) {
     if (!left || !right || !left.fingers || !right.fingers) continue;
     const r = handsDepth(handRigs, left, right);
     if (r.depth > PIERCE) out.marks.push({ t: f.t, side: 'both', kind: 'hpierce', n: 1, about: `${Math.round(r.depth * 1000)}mm` });
+  }
+  // back (marks only): a finger joint past its backward limit in the
+  // finished take (clampBack.js runs last, so any is a bug).
+  for (const f of frames) for (const side of ['left', 'right']) {
+    const h = f.hands[side];
+    if (h && h.fingers && handBack(h, side, handRigs[side])) out.marks.push({ t: f.t, side, kind: 'back', n: 1 });
   }
   // topen (marks only): frames whose thumb looks open, for issues about a
   // folded thumb shown open in one stretch of a take.
