@@ -1,5 +1,6 @@
 package com.yonddu.handmotion
 
+import android.annotation.SuppressLint
 import android.Manifest
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -166,6 +167,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    @SuppressLint("MissingPermission") // Runtime permission is checked before asynchronous binding.
     private fun startCamera() {
         if (!ready || destroyed) return
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {

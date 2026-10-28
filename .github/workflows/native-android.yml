@@ -1,4 +1,7 @@
 name: Android native baseline
+concurrency:
+  group: native-android-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 on:
   push:
     paths: ['native/android/**', '.github/workflows/native-android.yml', 'vendor/models/hand_landmarker.task']
@@ -17,7 +20,6 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'

@@ -59,3 +59,7 @@ CameraX/AndroidX and MediaPipe are Apache-2.0; the official hand tracking model 
 
 - https://github.com/google-ai-edge/mediapipe/blob/master/LICENSE
 - https://storage.googleapis.com/mediapipe-assets/Model%20Card%20Hand%20Tracking%20(Lite_Full)%20with%20Fairness%20Oct%202021.pdf
+
+## Product requirement (owner 2026-10-28)
+
+The final native Studio must retain the familiar recording/review/hand-pose controls and export skeletal GLB animation for games. This separate benchmark is a temporary engineering tool, not a replacement product UI. Porting detection must preserve the 21-point coordinate/hand-ID conventions and compare final GLB bone names, bind pose, units, timing, finger tracks and hidden-hand behavior with the web exporter. NPU speed alone is not completion. Existing Quest-only review presentation remains the target; raw landmark overlay belongs only to diagnostics.
