@@ -7,13 +7,16 @@
 #
 # The score-only crops (regress-split.json syntheticHoldout) only report the
 # final accuracy; nothing is chosen on them.
-import sys, json, time
+import os, sys, json, time
 import io
 import numpy as np
 from PIL import Image
 import jax, jax.numpy as jnp
 
 LAYERS = [(3, 16), (16, 32), (32, 48), (48, 64)]  # 3x3, stride 2: 64 -> 4
+S = int(os.environ.get('HMS_CROP', '64'))
+if S == 128:  # one more halving first: 128 -> 4
+    LAYERS = [(3, 16), (16, 16), (16, 32), (32, 48), (48, 64)]
 EDGE = 0.3  # |facing| below this: the hand is edge on, the label counts less
 
 
@@ -50,21 +53,22 @@ def augment(rng, x):
     flip = rng.random(n) < 0.5  # a mirrored hand faces the same way
     x[flip] = x[flip, :, ::-1]
     # Shift by up to 4 px (the app's crop follows MediaPipe's points, which wander).
-    pad = np.pad(x, ((0, 0), (4, 4), (4, 4), (0, 0)), mode='edge')
-    dx, dy = rng.integers(0, 9, n), rng.integers(0, 9, n)
-    x = np.stack([pad[i, dy[i]:dy[i] + 64, dx[i]:dx[i] + 64] for i in range(n)])
+    f = S // 64  # pixel sizes below are for a 64 crop
+    pad = np.pad(x, ((0, 0), (4 * f, 4 * f), (4 * f, 4 * f), (0, 0)), mode='edge')
+    dx, dy = rng.integers(0, 8 * f + 1, n), rng.integers(0, 8 * f + 1, n)
+    x = np.stack([pad[i, dy[i]:dy[i] + S, dx[i]:dx[i] + S] for i in range(n)])
     # Out of focus, motion smear (a moving hand at phone shutter speeds), and
     # phone video compression, each on some of the crops.
     for i in range(n):
         r = rng.random()
         if r < 0.25:
             k = int(rng.integers(1, 3))
-            for _ in range(k):  # box blur passes ~ gaussian
+            for _ in range(k * f * f):  # box blur passes ~ gaussian
                 x[i] = (x[i] + np.roll(x[i], 1, 0) + np.roll(x[i], -1, 0)) / 3
                 x[i] = (x[i] + np.roll(x[i], 1, 1) + np.roll(x[i], -1, 1)) / 3
         elif r < 0.5:
             a = rng.uniform(0, np.pi)
-            L = int(rng.integers(2, 7))
+            L = int(rng.integers(2, 7)) * f
             acc = np.zeros_like(x[i])
             for j in range(L):
                 acc += np.roll(x[i], (int(round(j * np.sin(a))), int(round(j * np.cos(a)))), (0, 1))

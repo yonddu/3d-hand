@@ -27,8 +27,8 @@ import { objectSize, heldFamily } from './gripPrior.js';
 import { initRomPanel } from './romPanel.js';
 import { ForearmFinder } from './forearm.js';
 import { cropJpeg, cutHand } from './palmFace.js';
-import { loadFingerCurl, fingerCurl } from './fingerCurl.js';
-import { loadJointCube, jointCube, withCubes, packPicture } from './jointCube.js';
+import { loadFingerCurl, fingerCurl, fingerCurlSize } from './fingerCurl.js';
+import { loadJointCube, jointCube, jointCubeSize, withCubes, packPicture } from './jointCube.js';
 import { focalW } from './camera.js';
 
 const CONFIG = window.HMS_CONFIG || {};
@@ -525,10 +525,11 @@ function fromMediaPipe(hand) {
   // or -z once the hands are turned around for a camera facing the person
   // (below). Without the lift the points are MediaPipe's own, not in that
   // frame, and the cubes are left out.
-  const crop = PICTURE_MODELS && rec.offline && state.fit ? cutHand(video, hand.landmarks, video.videoWidth, video.videoHeight) : null;
+  const cut = (size) => cutHand(video, hand.landmarks, video.videoWidth, video.videoHeight, size);
+  const crop = PICTURE_MODELS && rec.offline && state.fit ? cut(fingerCurlSize()) : null;
   const view = state.lift ? (!state.ar && facingUser() ? [0, 0, -1] : [0, 0, 1]) : null;
   const curl = crop ? fingerCurl(crop) : null;
-  const cubes = crop && view ? jointCube(crop) : null;
+  const cubes = crop && view ? jointCube(jointCubeSize() === fingerCurlSize() ? crop : cut(jointCubeSize())) : null;
   const picture = crop ? withCubes(curl, cubes, view) : null;
   // Kept with the take's raw readings, so a replay solves with them too.
   if (crop && rec.on && rec.lastRaw && (curl || cubes)) (rec.lastRaw.picture ||= {})[hand.side] = packPicture(curl, cubes, view);

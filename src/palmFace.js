@@ -118,34 +118,37 @@ export function cropBox(lm, W, H) {
   };
 }
 
-let canvas = null;
-let ctx = null;
+const canvases = {}; // one per crop side
 
-// The 64x64 crop as RGBA bytes. source: a video, image or canvas.
-export function cutHand(source, lm, W, H) {
-  if (!canvas) {
-    canvas = typeof document !== 'undefined' ? Object.assign(document.createElement('canvas'), { width: S, height: S }) : new OffscreenCanvas(S, S);
-    ctx = canvas.getContext('2d', { willReadFrequently: true });
+// The crop (64x64 unless size says otherwise) as RGBA bytes. source: a
+// video, image or canvas.
+export function cutHand(source, lm, W, H, size = S) {
+  if (!canvases[size]) {
+    const canvas = typeof document !== 'undefined' ? Object.assign(document.createElement('canvas'), { width: size, height: size }) : new OffscreenCanvas(size, size);
+    canvases[size] = { canvas, ctx: canvas.getContext('2d', { willReadFrequently: true }) };
   }
+  const { ctx } = canvases[size];
   const { tl, tr, bl } = cropBox(lm, W, H);
-  // Output pixel (x, y) shows source point tl + x/S (tr - tl) + y/S (bl - tl);
+  // Output pixel (x, y) shows source point tl + x/size (tr - tl) + y/size (bl - tl);
   // the canvas transform is the inverse map, set from its forward form.
-  const a = [(tr[0] - tl[0]) / S, (tr[1] - tl[1]) / S];
-  const b = [(bl[0] - tl[0]) / S, (bl[1] - tl[1]) / S];
+  const a = [(tr[0] - tl[0]) / size, (tr[1] - tl[1]) / size];
+  const b = [(bl[0] - tl[0]) / size, (bl[1] - tl[1]) / size];
   const det = a[0] * b[1] - a[1] * b[0];
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.fillStyle = '#000';
-  ctx.fillRect(0, 0, S, S);
+  ctx.fillRect(0, 0, size, size);
   ctx.setTransform(b[1] / det, -a[1] / det, -b[0] / det, a[0] / det, 0, 0);
   ctx.translate(-tl[0], -tl[1]);
   ctx.drawImage(source, 0, 0, W, H);
-  return ctx.getImageData(0, 0, S, S).data;
+  return ctx.getImageData(0, 0, size, size).data;
 }
 
-// The crop as a small JPEG data URL, for recordings (scoring on real video).
-export function cropJpeg(source, lm, W, H) {
-  cutHand(source, lm, W, H);
-  return canvas.toDataURL('image/jpeg', 0.8);
+// The crop as a small JPEG data URL, for recordings (scoring on real video
+// and hand labels; 128 since v101, sharp enough to see a finger's bend).
+export const SAVE_CROP = 128;
+export function cropJpeg(source, lm, W, H, size = SAVE_CROP) {
+  cutHand(source, lm, W, H, size);
+  return canvases[size].canvas.toDataURL('image/jpeg', 0.85);
 }
 
 // 3x3 stride 2 convolution with TensorFlow/JAX 'SAME' padding for an even

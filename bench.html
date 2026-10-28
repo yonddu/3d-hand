@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>사진 모델 속도</title>
+<style>
+  :root { color-scheme: light dark; --bg: #fff; --fg: #111; --mute: #666; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #111; --fg: #eee; --mute: #999; } }
+  body { background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, sans-serif; margin: 0; padding: 16px; }
+  table { border-collapse: collapse; width: 100%; }
+  td, th { padding: 6px 4px; border-bottom: 1px solid #8884; text-align: right; }
+  td:first-child, th:first-child { text-align: left; }
+  p { color: var(--mute); }
+  button { font-size: 18px; padding: 10px 18px; }
+</style>
+</head>
+<body>
+<h1>사진 모델 속도 측정</h1>
+<p>손 사진 한 장을 모델이 읽는 데 걸리는 시간(ms)을 휴대폰의 기존 방식(JS)과 GPU 방식으로 잽니다. 끝나면 이 화면을 캡처해서 보내 주세요.</p>
+<button id="go">측정 시작</button>
+<table id="out"><tr><th>모델</th><th>크기</th><th>JS</th><th>GPU</th><th>결과 차이</th></tr></table>
+<p id="note"></p>
+<script type="module">
+import { pictureNet } from './src/fingerCurl.js';
+import { conv, half } from './src/palmFace.js';
+
+// Models: the app's own, plus 128 candidates when they are in the folder.
+const MODELS = [
+  ['굽힘 64 (지금)', 'vendor/models/finger_curl.bin', 15],
+  ['큐브 64 (지금)', 'vendor/models/joint_cube.bin', 30],
+  ['굽힘 128 (후보)', 'vendor/models/candidates/finger_curl_128.bin', 15],
+  ['큐브 128 (후보)', 'vendor/models/candidates/joint_cube_128.bin', 30],
+];
+const L = { 64: [[3, 16], [16, 32], [32, 48], [48, 64]], 128: [[3, 16], [16, 16], [16, 32], [32, 48], [48, 64]] };
+
+async function bench([name, url, outs]) {
+  const net = pictureNet(url, outs);
+  try { await net.load(); } catch { return null; }
+  const S = net.size();
+  const h = new Uint16Array(await (await fetch(url)).arrayBuffer());
+  const all = Float32Array.from(h, half);
+  let o = 0;
+  const take = (n) => all.subarray(o, (o += n));
+  const w = L[S].map(([ci, co]) => ({ ci, co, w: take(9 * ci * co), b: take(co) }));
+  const dense = { w: take(1024 * 2 * outs), b: take(2 * outs) };
+  const js = (rgba) => {
+    let x = new Float32Array(S * S * 3);
+    for (let i = 0; i < S * S; i++) for (let c = 0; c < 3; c++) x[i * 3 + c] = rgba[i * 4 + c] / 255 - 0.5;
+    let size = S;
+    for (const l of w) { x = conv(x, size, l); size /= 2; }
+    const r = Array.from(dense.b);
+    for (let i = 0; i < 1024; i++) for (let c = 0; c < 2 * outs; c++) r[c] += x[i] * dense.w[i * 2 * outs + c];
+    return r;
+  };
+  const crops = [];
+  for (let k = 0; k < 8; k++) {
+    const rgba = new Uint8ClampedArray(S * S * 4);
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) for (let c = 0; c < 3; c++) rgba[(y * S + x) * 4 + c] = 128 + 100 * Math.sin((x * (c + 1) + y * (k + 2)) / 9);
+    crops.push(rgba);
+  }
+  let diff = 0;
+  if (net.gpu()) for (const c of crops) { const a = js(c), b = net.run(c); for (let i = 0; i < a.length; i++) diff = Math.max(diff, Math.abs(a[i] - b[i])); }
+  const time = (f) => { f(crops[0]); const t0 = performance.now(); for (let i = 0; i < 30; i++) f(crops[i % 8]); return (performance.now() - t0) / 30; };
+  return { name, S, js: time(js), gpu: net.gpu() ? time(net.run) : null, diff };
+}
+
+document.getElementById('go').onclick = async (e) => {
+  e.target.disabled = true;
+  const out = document.getElementById('out');
+  for (const m of MODELS) {
+    const r = await bench(m);
+    if (!r) continue;
+    const row = out.insertRow();
+    for (const v of [r.name, r.S, r.js.toFixed(1), r.gpu == null ? 'GPU 안 됨' : r.gpu.toFixed(1), r.gpu == null ? '-' : r.diff.toExponential(1)]) row.insertCell().textContent = v;
+    await new Promise((res) => setTimeout(res, 50));
+  }
+  document.getElementById('note').textContent = navigator.userAgent;
+  e.target.disabled = false;
+};
+</script>
+</body>
+</html>

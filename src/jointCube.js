@@ -15,6 +15,7 @@ const net = pictureNet('vendor/models/joint_cube.bin', 2 * J);
 // Loads the weights once (about 210 KB).
 export const loadJointCube = net.load;
 export const jointCubeReady = net.ready;
+export const jointCubeSize = net.size;
 
 // rgba: the 64x64 crop (palmFace.js cutHand). Returns { thumb: [{ along,
 // asd, nail, nsd } x3], ... } or null before the weights have loaded.

@@ -9,11 +9,11 @@
 # drawn hand's true joints, and the 15 joint flexions the hand was posed with
 # (degrees; thumb CMC/MCP/IP, then MCP/PIP/DIP of index..pinky, as
 # tools/synth-eval.mjs compares them) for the finger curl model.
-import json, sys
+import json, os, sys
 import numpy as np
 from PIL import Image
 
-S = 64
+S = int(os.environ.get('HMS_CROP', '64'))  # 128: the sharper crop (v101 test)
 
 
 def crop_box(lm, W, H):
