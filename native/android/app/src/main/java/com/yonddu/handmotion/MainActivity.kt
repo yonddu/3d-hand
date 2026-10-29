@@ -35,10 +35,12 @@ import org.json.JSONObject
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.Locale
+import java.io.File
 
 /** Native-only detection baseline. No JavaScript, rig priors or NPU claims. */
 class MainActivity : ComponentActivity() {
     private val worker = Executors.newSingleThreadExecutor()
+    private val exportWorker = Executors.newSingleThreadExecutor()
     private val uiQueued = AtomicBoolean(false)
     private var landmarker: HandLandmarker? = null // accessed only on worker
     private var provider: ProcessCameraProvider? = null
@@ -53,6 +55,9 @@ class MainActivity : ComponentActivity() {
     @Volatile private var backend = Delegate.GPU
     private var recordedBackend = "mediapipe-gpu"
     private lateinit var saveButton: Button
+    private lateinit var fbxButton: Button
+    @Volatile private var fbxBusy = false
+    private var pendingFbx: File? = null
     private val timing = Timing()
     @Volatile private var ready = false
     @Volatile private var recording = false
@@ -80,6 +85,69 @@ class MainActivity : ComponentActivity() {
                     ?: error("저장 파일을 열 수 없습니다.")
                 runOnUiThread { Toast.makeText(this, "측정 기록 저장 완료", Toast.LENGTH_LONG).show() }
             } catch (e: Exception) { showError("저장 실패: ${e.message}") }
+        }
+    }
+
+    private val saveFbxDocument = registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        val file = pendingFbx
+        pendingFbx = null
+        exportWorker.execute {
+            try {
+                if (uri != null && file != null) {
+                    contentResolver.openOutputStream(uri)?.use { out -> file.inputStream().use { it.copyTo(out) } }
+                        ?: error("저장 파일을 열 수 없습니다.")
+                    runOnUiThread { if (!destroyed) Toast.makeText(this, "FBX 뼈대 애니메이션 저장 완료", Toast.LENGTH_LONG).show() }
+                }
+            } catch (e: Exception) { showError("FBX 저장 실패: ${e.message}") }
+            finally {
+                file?.delete(); fbxBusy = false
+                runOnUiThread { if (!destroyed) fbxButton.isEnabled = !recording && frames.length() > 0 }
+            }
+        }
+    }
+
+    private fun exportFbx() {
+        if (fbxBusy || recording) return
+        fbxBusy = true; fbxButton.isEnabled = false
+        worker.execute {
+            try {
+                val snapshot = (0 until frames.length()).map { f ->
+                    val frame = frames.getJSONObject(f)
+                    val entries = frame.getJSONArray("hands")
+                    val points = mutableMapOf<String, DoubleArray>()
+                    val scores = mutableMapOf<String, Double>()
+                    for (h in 0 until entries.length()) {
+                        val hand = entries.getJSONObject(h)
+                        val side = hand.getString("label")
+                        val score = hand.optDouble("score", 0.0)
+                        val p = hand.getJSONArray("world")
+                        if (side in listOf("left", "right") && p.length() == 63 && score >= (scores[side] ?: -1.0)) {
+                            points[side] = DoubleArray(63) { p.getDouble(it) }; scores[side] = score
+                        }
+                    }
+                    RawHandFrame(frame.getDouble("t"), points)
+                }
+                exportWorker.execute {
+                    var file: File? = null
+                    try {
+                        val bytes = RawFbx.encode(snapshot)
+                        file = File.createTempFile("raw-fbx-", ".fbx", cacheDir)
+                        file.writeBytes(bytes)
+                        val readyFile = file
+                        runOnUiThread {
+                            if (destroyed) { readyFile.delete(); fbxBusy = false }
+                            else { pendingFbx = readyFile; saveFbxDocument.launch("hand-native-${System.currentTimeMillis()}.fbx") }
+                        }
+                    } catch (e: Exception) {
+                        file?.delete(); fbxBusy = false
+                        showError("FBX 생성 실패: ${e.message}")
+                        runOnUiThread { if (!destroyed) fbxButton.isEnabled = !recording && frames.length() > 0 }
+                    }
+                }
+            } catch (e: Exception) {
+                fbxBusy = false; showError("FBX 기록 읽기 실패: ${e.message}")
+                runOnUiThread { if (!destroyed) fbxButton.isEnabled = !recording && frames.length() > 0 }
+            }
         }
     }
 
@@ -115,11 +183,13 @@ class MainActivity : ComponentActivity() {
             text = "측정 시작"; isEnabled = false
             setOnClickListener {
                 isEnabled = false
+                fbxButton.isEnabled = false
                 if (recording) {
                     recording = false
                     worker.execute { runOnUiThread {
                         recordButton.text = "새 측정"; recordButton.isEnabled = true
                         saveButton.isEnabled = frames.length() > 0
+                        fbxButton.isEnabled = frames.length() > 0 && !fbxBusy
                     } }
                 } else worker.execute {
                     frames = JSONArray(); timing.clear(); startedAt = 0
@@ -130,6 +200,7 @@ class MainActivity : ComponentActivity() {
                     runOnUiThread {
                         recordButton.text = "측정 중지"; recordButton.isEnabled = true
                         saveButton.isEnabled = false
+                        fbxButton.isEnabled = false
                     }
                 }
             }
@@ -146,17 +217,22 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        fbxButton = Button(this).apply {
+            text = "FBX 저장"; isEnabled = false
+            setOnClickListener { exportFbx() }
+        }
         backendButton = Button(this).apply {
             text = "CPU로 전환"; isEnabled = false
             setOnClickListener {
                 recording = false
                 recordButton.text = "새 측정"
                 saveButton.isEnabled = frames.length() > 0
+                fbxButton.isEnabled = frames.length() > 0 && !fbxBusy
                 backend = if (backend == Delegate.GPU) Delegate.CPU else Delegate.GPU
                 startModel()
             }
         }
-        buttons.addView(recordButton); buttons.addView(saveButton)
+        buttons.addView(recordButton); buttons.addView(saveButton); buttons.addView(fbxButton)
         root.addView(backendButton)
         handsButton = Button(this).apply {
             text = "현재 두 손 · 한 손 비교로 전환"; isEnabled = false
@@ -164,6 +240,7 @@ class MainActivity : ComponentActivity() {
                 recording = false
                 recordButton.text = "새 측정"
                 saveButton.isEnabled = frames.length() > 0
+                fbxButton.isEnabled = frames.length() > 0 && !fbxBusy
                 maxHands = if (maxHands == 2) 1 else 2
                 startModel()
             }
@@ -171,7 +248,7 @@ class MainActivity : ComponentActivity() {
         root.addView(handsButton)
         root.addView(buttons)
         val note = TextView(this).apply {
-            text = "후면 카메라 · 원본 관절점 확인용\n카메라 영상은 저장하지 않습니다. 모델은 기기 안에서 실행합니다."
+            text = "측정 중지 → FBX 저장 (원본 관절 뼈대)\n손 메시·절대 이동·카메라 영상 없음"
             textSize = 12f
         }
         root.addView(note)
@@ -291,7 +368,7 @@ class MainActivity : ComponentActivity() {
                                 if (frames.length() >= 9000) {
                                     recording = false
                                     runOnUiThread {
-                                        recordButton.text = "새 측정"; saveButton.isEnabled = true
+                                        recordButton.text = "새 측정"; saveButton.isEnabled = true; fbxButton.isEnabled = !fbxBusy
                                         Toast.makeText(this, "9000프레임에 도달해 측정을 중지했습니다. 기록을 저장하세요.", Toast.LENGTH_LONG).show()
                                     }
                                 }
@@ -358,6 +435,8 @@ class MainActivity : ComponentActivity() {
         provider?.unbindAll()
         worker.execute { landmarker?.close(); landmarker = null }
         worker.shutdown()
+        pendingFbx?.delete()
+        exportWorker.shutdown()
         super.onDestroy()
     }
 }

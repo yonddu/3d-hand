@@ -26,6 +26,14 @@ jobs:
       - name: Build and test native app
         working-directory: native/android
         run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
+      - name: Independently validate native FBX joint animation
+        run: |
+          mkdir -p /tmp/ufbx
+          for file in ufbx.c ufbx.h LICENSE; do
+            curl --fail --retry 3 -L "https://raw.githubusercontent.com/ufbx/ufbx/5955c5c0b042ac2dc6f32955ab206aaec0620cfc/$file" -o "/tmp/ufbx/$file"
+          done
+          gcc -O2 -I/tmp/ufbx native/android/tools/check-raw-fbx.c /tmp/ufbx/ufbx.c -lm -o /tmp/check-native-fbx
+          /tmp/check-native-fbx native/android/app/build/fbx-fixtures/raw.fbx native/android/app/build/fbx-fixtures/raw-reference.bin
       - uses: actions/upload-artifact@v4
         with:
           name: hand-motion-native-baseline
