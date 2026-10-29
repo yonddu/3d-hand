@@ -13,7 +13,7 @@ int main(int argc,char**argv){
   for(int side=0;side<2;side++){uint32_t present;fread(&present,4,1,f);
    for(int j=0;j<21;j++){double ref[3];fread(ref,8,3,f);char name[80];snprintf(name,sizeof(name),"%s%s",side?"Right":"Left",names[j]);ufbx_node*n=ufbx_find_node(e,name);if(!n)return 7;
     if(!present){if(j==0&&fabs(n->local_transform.scale.x)>1e-6)return 8;continue;}
-    ufbx_vec3 p=n->node_to_world.cols[3];double d=sqrt((p.x-ref[0])*(p.x-ref[0])+(p.y-ref[1])*(p.y-ref[1])+(p.z-ref[2])*(p.z-ref[2]));if(!isfinite(d))return 9;if(d>worst)worst=d;
+    ufbx_vec3 p=n->node_to_world.cols[3];double d=sqrt((p.x-ref[0])*(p.x-ref[0])+(p.y-ref[1])*(p.y-ref[1])+(p.z-ref[2])*(p.z-ref[2]));if(!isfinite(d))return 9;if(d>worst){worst=d;fprintf(stderr,"difference t=%.12g node=%s actual=%.9g,%.9g,%.9g expected=%.9g,%.9g,%.9g scale=%.9g\n",t,name,p.x,p.y,p.z,ref[0],ref[1],ref[2],n->local_transform.scale.x);}
    }
   }ufbx_free_scene(e);
  }
