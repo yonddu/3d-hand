@@ -135,3 +135,27 @@ for (const t of samples) {
 }
 fs.writeFileSync("/tmp/fbx-check/reference.bin", new Uint8Array(ref));
 console.log("FBX binary/skinned mesh/bones/animation/units roundtrip PASS");
+
+// A saved pose must open posed even before an animation player starts.
+const poseOptions = { ...options, frames: [frames[3]] };
+const poseSource = buildMotionScene(poseOptions);
+const poseImported = new FBXLoader().parse(await exportFbx(poseOptions), '');
+poseSource.root.updateMatrixWorld(true); poseImported.updateMatrixWorld(true);
+for (const name of ['RightHand','RightHandIndex2','LeftHandIndex2']) {
+ const a=poseSource.root.getObjectByName(name),b=poseImported.getObjectByName(name);
+ assert.ok(a.getWorldQuaternion(new THREE.Quaternion()).normalize().angleTo(b.getWorldQuaternion(new THREE.Quaternion()).normalize()) < 1e-5, 'static pose opens with saved rotations');
+ assert.ok(a.getWorldPosition(new THREE.Vector3()).distanceTo(b.getWorldPosition(new THREE.Vector3())) < 1e-5, 'static pose opens with saved positions');
+}
+console.log('Single-frame FBX opens posed before playback PASS');
+const poseBuffer=await exportFbx(poseOptions);
+fs.writeFileSync('/tmp/fbx-check/pose.fbx',new Uint8Array(poseBuffer));
+const poseMesh=poseSource.root.getObjectByName('HMS_ArmsMesh');poseMesh.skeleton.update();
+const poseCount=poseMesh.geometry.attributes.position.count;
+const poseRef=new ArrayBuffer(16+poseCount*24),poseView=new DataView(poseRef);
+poseView.setUint32(0,1,true);poseView.setUint32(4,poseCount,true);poseView.setFloat64(8,0,true);
+let poseOffset=16;
+for(let i=0;i<poseCount;i++){
+ const p=new THREE.Vector3().fromBufferAttribute(poseMesh.geometry.attributes.position,i);poseMesh.applyBoneTransform(i,p);p.applyMatrix4(poseMesh.matrixWorld);
+ for(const x of p.toArray()){poseView.setFloat64(poseOffset,x,true);poseOffset+=8;}
+}
+fs.writeFileSync('/tmp/fbx-check/pose-reference.bin',new Uint8Array(poseRef));

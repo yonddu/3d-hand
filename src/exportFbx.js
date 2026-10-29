@@ -130,7 +130,7 @@ function binary(nodes) {
 }
 const degrees = (q) =>
   new THREE.Euler()
-    .setFromQuaternion(q, "ZYX")
+    .setFromQuaternion(q.clone().normalize(), "ZYX")
     .toArray()
     .slice(0, 3)
     .map((v) => (v * 180) / Math.PI);
@@ -234,7 +234,7 @@ export function sceneToFbx({ root, clip, bindTransforms }) {
         [L(id), named(o.name, "Model"), S(type)],
         [
           node("Version", [I(232)]),
-          properties(transform(bind(o).local)),
+          properties(transform(clip.duration > 0 ? bind(o).local : o.matrix)),
           node("Shading", [prop("C", true)]),
           node("Culling", [S("CullingOff")]),
         ],

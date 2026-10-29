@@ -21,6 +21,8 @@ try{
  assert.ok(scene.getObjectByName('HMS_ArmsMesh')?.isSkinnedMesh);assert.ok(scene.animations[0]?.duration>0);
  await page.selectOption('#export-format','glb');pending=page.waitForEvent('download');await page.click('#rv-glb');download=await pending;
  assert.ok(download.suggestedFilename().endsWith('.glb'));await download.saveAs('/tmp/fbx-check/ui.glb');assert.equal(fs.readFileSync('/tmp/fbx-check/ui.glb').readUInt32LE(0),0x46546c67);
+ await page.click('#rv-close');await page.evaluate(()=>__hms.capture());await page.click('#opt-open');
+ pending=page.waitForEvent('download');await page.getByRole('button',{name:'FBX',exact:true}).click();download=await pending;assert.ok(download.suggestedFilename().endsWith('.fbx'));
  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'mobile controls fit');
  assert.deepEqual(errors,[]);console.log('FBX/GLB review dropdown, real Quest skin/bones/animation, binary downloads and mobile layout PASS');
 }finally{await browser.close();server.close();}

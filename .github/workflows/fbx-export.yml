@@ -33,6 +33,7 @@ jobs:
         run: |
           gcc -O2 -I/tmp/ufbx tools/check-fbx-ufbx.c /tmp/ufbx/ufbx.c -lm -o /tmp/check-fbx
           /tmp/check-fbx /tmp/fbx-check/motion.fbx /tmp/fbx-check/reference.bin
+          /tmp/check-fbx /tmp/fbx-check/pose.fbx /tmp/fbx-check/pose-reference.bin
       - run: npx playwright install --with-deps chromium
       - run: node tools/test-fbx-ui.mjs
       - run: node tools/test-export-hide.mjs
