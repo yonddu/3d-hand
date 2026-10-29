@@ -1,22 +1,12 @@
 # Claude 인계 — 현재 상태
 
-최종 기록: **2026-10-29 (한국시간)**. 네이티브는 **원본 MediaPipe 측정 앱 유지·3D 작업 중단**, 웹은 **FBX 내보내기 후보 구현 후 반영 대기** 상태입니다.
+최종 기록: **2026-10-29**. 네이티브는 원본 MediaPipe 측정 화면을 유지하면서 **FBX 저장을 추가**했습니다. Quest 손·팔·WebView 재도입은 하지 않았습니다.
 
-## 웹 FBX 추가 작업 — 2026-10-29
+## 현재 작업 — 네이티브 FBX
 
-- 사용자 새 요청: **“glb말고 fbx파일로도 만들수있게 해봐.”**
-- 범위: 기존 웹 Studio에 FBX 저장 추가. 네이티브 3D 재시도는 하지 않았으며 원본 측정 APK v0.7은 그대로입니다.
-- 브랜치: `codex/fbx-export`, [PR #3](https://github.com/yonddu/3d-hand/pull/3) (draft, 미병합).
-- 현재 기능 코드: `55e3d54ca9f16fb9b1d0c31d612e0821363b8545` (첫 구현 `5e38c4021d583504fc6bfc549abfbffbe2de0eb3`). 문서 커밋은 별도일 수 있습니다.
-- 리뷰에서 GLB/FBX 형식을 선택해 저장하고, 포즈 목록에도 FBX 버튼이 있습니다. 기본값은 GLB입니다.
-- `buildMotionScene`를 기존 GLB exporter에서 분리해 GLB/FBX가 동일 메시·스킨·본·애니메이션을 사용합니다. FBX는 자체 작성한 바이너리 7.4 writer이며 무료/유료 SDK나 서버 변환을 사용하지 않습니다.
-- 추적·손가락 풀이·필터·리깅·회귀 한도는 바꾸지 않았습니다. 파일 변환은 저장 시에만 실행하며 앱 번들 증가량은 약 10.8 KB(압축 전)입니다.
-- FBX에 넣는 것은 기본 재질 색상·메시·스킨·본·애니메이션입니다. GLB의 원본 추적 extras/가상 카메라는 FBX에 포함하지 않습니다.
-- 최종 코드 CI 40855927504의 내보내기 검사와 기존 GLB 검사는 PASS. 독립 MIT ufbx strict 검사에서 8개 시점 × 85,658 정점의 최대 변형 차이는 약 **0.036mm**였습니다. 이것은 파일 변환 시험이며 실제 손 추적 정확도 검증이 아닙니다.
-- 단일 포즈가 재생 전에도 저장 자세로 열리는 처리를 추가했고, 최종 CI에서 동작 및 단일 포즈의 독립 스킨 변형 검사와 실제 다운로드 검사까지 PASS했습니다. 실제 Blender/Unity/Unreal 프로그램에서의 수동 확인은 하지 않았습니다.
-- 전체 회귀는 최종 코드 CI에서도 **23개 dev GLB 수치 동일, 지표 한도 초과 없이 원래 누락된 18개 JSON 때문에 FAIL**. holdout 0개. 전체 통과로 표현하지 않습니다.
-- **아직 main의 앱 코드에 반영하지 않았습니다.** 앞서 정한 회귀 통과 후 반영 조건을 만족하지 못하므로, 누락 자료 보충 또는 이 내보내기 변경에 대한 소유자의 명시적 예외 결정이 필요합니다. 규칙/기준을 임의로 완화하지 않습니다.
-- 상세: [FBX 인계 기록](handoffs/2026-10-29-fbx-export.md).
+사용자의 “아니 앱에 하라고”에 따라 앞선 웹 FBX 작업은 대상 오해로 철회했습니다. [웹 PR #3](https://github.com/yonddu/3d-hand/pull/3)은 **닫힘·미병합**이며 배포 후보로 제안하지 않습니다. 해당 작업 이력은 [기존 기록](handoffs/2026-10-29-fbx-export.md)에 보존합니다.
+
+Android 측정 앱에 **FBX 저장** 버튼을 추가했습니다. 기록을 중지한 뒤 .fbx를 Android 파일 선택기로 저장합니다. 원본 21관절 위치 애니메이션으로, 손 메시나 고정 길이 게임 리그·본 회전·절대 카메라 이동 복원이 아닙니다. 기존 JSON 저장과 원본 추적은 유지합니다. Android 빌드·JVM 테스트·Lint·독립 FBX 재읽기 PASS(합성 위치 오차 최대 6.87519688e-09m). 실제 휴대폰 저장/게임엔진 확인 전입니다. 상세/검증/APK 링크는 [네이티브 FBX 기록](handoffs/2026-10-29-native-fbx-export.md)을 읽으세요.
 
 ## 네이티브에 대한 사용자의 결정
 
@@ -33,25 +23,25 @@
 | 저장소 | https://github.com/yonddu/3d-hand |
 | main 코드 | `3fdbeb9927910b90bf642a9a1b4aba8088cf88f2` (이 문서 추가 직전 기준) |
 | 네이티브 브랜치 | `codex/native-s25-baseline` |
-| 현재 네이티브 **코드** 커밋 | `eddd1c1fa611abfa809ef10110f4d83a47b61bf5` (문서 커밋은 이보다 뒤일 수 있음) |
+| 현재 네이티브 **코드** 커밋 | `a1d36631373dd26faabe48e1cbf050614611c1ed` |
 | PR | https://github.com/yonddu/3d-hand/pull/2 — draft, 미병합 |
-| 현재 APK | v0.7, versionCode 7, `0.7-raw-mediapipe-restored` |
-| APK 다운로드 | https://github.com/yonddu/3d-hand/actions/runs/40788002413/artifacts/12859334693 |
-| Android CI | https://github.com/yonddu/3d-hand/actions/runs/40788002413 |
+| 현재 APK | v0.8, versionCode 8, `0.8-native-fbx-export` |
+| APK 다운로드 | https://github.com/yonddu/3d-hand/actions/runs/40858867564/artifacts/12890283320 |
+| Android CI | https://github.com/yonddu/3d-hand/actions/runs/40858867564 |
 
-현재 APK는 원본 v0.2(`e4246c2`)와 동작 코드가 같습니다. v0.5(`c8f7431`)와 비교한 전체 트리 차이는 버전 번호와 README 기록뿐입니다. ZIP을 풀면 `app-debug.apk`가 나옵니다.
+v0.7의 원본 추적 경로를 유지하고 FBX 저장 코드·UI·검사를 추가했습니다. 추적/리깅 개선 작업은 아닙니다. ZIP을 풀면 `app-debug.apk`가 나옵니다.
 
 ## 현재 앱에 있는 것 / 없는 것
 
 - CameraX 후면 카메라, MediaPipe HandLandmarker 0.10.21, 기존 hand_landmarker.task.
-- GPU 요청 기본값, CPU 수동 비교, 최대 한 손/두 손 비교(기본 두 손), 원본 21점 표시와 JSON 기록.
+- GPU 요청 기본값, CPU 수동 비교, 최대 한 손/두 손 비교(기본 두 손), 원본 21점 표시와 JSON 기록, 원본 관절 위치 FBX 저장.
 - **3D 손·팔, WebView Studio, 별도 손가락 추정, GLB 저장 UI 없음.** 기존 웹앱의 GLB 기능 자체를 삭제한 것은 아닙니다.
 - NPU 미적용, 전처리는 Bitmap 복사·자르기·회전이며 zero-copy가 아닙니다.
 - 사용자 기기: SM-S931N. 최초 측정 Android 16, 가장 최근 첨부 화면은 **Android 17**입니다.
 
 ## 검증 결과와 제한
 
-- 현재 롤백 APK의 Android 빌드·JVM 테스트·Lint PASS. 원본 버전 대비 소스 복원은 GitHub 트리 비교로 확인했습니다.
+- v0.7 롤백 APK의 Android 빌드·JVM 테스트·Lint PASS 및 원본 복원 확인은 과거 결과입니다. v0.8 검증은 새 네이티브 FBX 기록을 참조하세요.
 - 기존 v0.6도 CI/브라우저 테스트는 통과했지만 **실제 사용자 화면에서는 실패**했습니다. 이 사실이 최종 판단입니다. 3D 문제가 해결됐다고 표현하면 안 됩니다.
 - 원본 측정 화면 수치(서로 다른 순간, 통제된 비교 아님): GPU 14.1 FPS / 추론 p50 49.3ms, CPU 11.9 FPS / 추론 p50 69.9ms. 실제 GPU 사용률이나 정확도 입증이 아닙니다.
 - 전체 `npm run regress`는 **실패**입니다. 23개 제공 GLB에서 지표 한도 초과는 없지만 기준 JSON 18개가 빠졌고, holdout 둘 다 누락되어 holdout 검증은 0개입니다.
