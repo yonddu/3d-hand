@@ -3,6 +3,7 @@ package com.yonddu.handmotion
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import kotlin.math.roundToLong
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -28,7 +29,9 @@ class RawFbxTest {
         val ref=ByteBuffer.allocate(8+frames.size*(8+2*(4+63*8))).order(ByteOrder.LITTLE_ENDIAN)
         ref.putInt(frames.size).putInt(21)
         frames.forEach { frame ->
-            ref.putDouble(frame.t-frames[0].t)
+            // Evaluate at the same integer FBX tick as the encoded key.
+            // Floating subtraction may fall just before a stepped reappearance key.
+            ref.putDouble(((frame.t-frames[0].t)*46186158000.0).roundToLong()/46186158000.0)
             listOf("left","right").forEach { side ->
                 val p=frame.hands[side];ref.putInt(if(p==null)0 else 1)
                 for(i in 0 until 63)ref.putDouble(if(p==null)0.0 else if(i%3==0)p[i] else -p[i])
