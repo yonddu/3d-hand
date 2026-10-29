@@ -1,0 +1,56 @@
+name: FBX export validation
+on:
+  pull_request:
+  push:
+    branches: ['codex/fbx-export']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: fbx-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: node build.mjs
+      - run: git diff --exit-code -- index.html app.bundle.js
+      - run: node tools/test-fbx.mjs
+      - name: Fetch pinned MIT ufbx (test only)
+        run: |
+          mkdir -p /tmp/ufbx
+          for file in ufbx.c ufbx.h LICENSE; do
+            curl --fail --retry 3 -L "https://raw.githubusercontent.com/ufbx/ufbx/5955c5c0b042ac2dc6f32955ab206aaec0620cfc/$file" -o "/tmp/ufbx/$file"
+          done
+      - name: Validate all deformed vertices with independent importer
+        run: |
+          gcc -O2 -I/tmp/ufbx tools/check-fbx-ufbx.c /tmp/ufbx/ufbx.c -lm -o /tmp/check-fbx
+          /tmp/check-fbx /tmp/fbx-check/motion.fbx /tmp/fbx-check/reference.bin
+      - run: npx playwright install --with-deps chromium
+      - run: node tools/test-fbx-ui.mjs
+      - run: node tools/test-export-hide.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fbx-validation-synthetic-demo-only
+          path: |
+            /tmp/fbx-check/ui.fbx
+            /tmp/fbx-check/ui.glb
+          retention-days: 14
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run regress

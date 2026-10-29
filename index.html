@@ -256,7 +256,8 @@
       </div>
       <div class="row">
         <select id="rv-take" aria-label="테이크 선택"></select>
-        <button class="primary" id="rv-glb">저장 (GLB)</button>
+        <select id="export-format" aria-label="저장 형식" style="flex:0 0 72px"><option value="glb">GLB</option><option value="fbx">FBX</option></select>
+        <button class="primary" id="rv-glb">저장</button>
         <button id="rv-discard">버리기</button>
         <button id="rv-close">닫기</button>
       </div>
@@ -404,6 +405,6 @@
     "@mediapipe/tasks-vision": "./vendor/mediapipe/vision_bundle.mjs"
   }
 }</script>
-<script type="module" src="app.bundle.js?h=15bf7150a3"></script>
+<script type="module" src="app.bundle.js?h=808bc76a88"></script>
 </body>
 </html>

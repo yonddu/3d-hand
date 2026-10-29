@@ -1181,6 +1181,7 @@ function renderLibrary() {
     mk('보기', () => viewPose(pose));
     mk('JSON', () => saveJson(pose, `${slug(pose.name)}.pose.json`));
     mk('GLB', () => savePoseGlb(pose));
+    mk('FBX', () => savePoseGlb(pose, 'fbx'));
     const del = mk(pendingDelete === item.id ? '삭제 확인' : '삭제', () => {
       if (pendingDelete !== item.id) {
         pendingDelete = item.id;
@@ -1735,6 +1736,18 @@ async function saveGlb(frames, name, raw = null) {
   }
 }
 
+async function saveFbx(frames, name, raw = null) {
+  try {
+    const { exportFbx } = await import('./exportFbx.js');
+    const fbx = await exportFbx({ frames, skins: exportSkins(), name, includeObjects: $('rec-object').checked, raw });
+    await saveBinary(fbx, `${slug(name)}.fbx`);
+    return fbx;
+  } catch (err) {
+    console.error(err);
+    toast(err.message || 'FBX를 만들지 못했습니다.');
+  }
+}
+
 $('rec-json').onclick = () => {
   const take = takes[0];
   if (take) saveJson({ format: 'hand-motion-studio.motion', version: 1, name: take.name, fps: REC_FPS, frames: take.frames }, `${slug(take.name)}.motion.json`);
@@ -1883,8 +1896,9 @@ $('rv-take').onchange = (e) => {
 $('rv-glb').onclick = async () => {
   const take = review.take;
   if (!take) return;
-  const glb = await saveGlb(take.frames, take.name, take.raw);
-  if (glb && take.videoUrl) {
+  const save = $('export-format').value === 'fbx' ? saveFbx : saveGlb;
+  const saved = await save(take.frames, take.name, take.raw);
+  if (saved && take.videoUrl) {
     take.saved = true;
     toast('저장했습니다. 다음 동작을 녹화하세요.');
     closeReview();
@@ -1933,10 +1947,10 @@ function trimFrames(frames) {
   return frames.slice(a, b + 1);
 }
 
-function savePoseGlb(pose) {
+function savePoseGlb(pose, format = 'glb') {
   const hands = {};
   for (const s of SIDES) hands[s] = pose.hands[s] ? frameFromPoseHand(s, pose.hands[s]) : null;
-  return saveGlb([{ t: 0, hands }], pose.name);
+  return (format === 'fbx' ? saveFbx : saveGlb)([{ t: 0, hands }], pose.name);
 }
 
 // .glb is not on the artifact viewer's download list, so there it goes out zipped.
@@ -1946,12 +1960,12 @@ async function saveBinary(buffer, filename) {
       const downloads = await window.claude.use('downloads');
       if (downloads) {
         const zip = zipFiles([{ name: filename, data: buffer }]);
-        await downloads.save({ filename: filename.replace(/\.glb$/, '.glb.zip'), data: zip });
+        await downloads.save({ filename: filename.replace(/\.(glb|fbx)$/i, '.$1.zip'), data: zip });
         return;
       }
     }
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([buffer], { type: 'model/gltf-binary' }));
+    a.href = URL.createObjectURL(new Blob([buffer], { type: filename.endsWith('.fbx') ? 'application/octet-stream' : 'model/gltf-binary' }));
     a.download = filename;
     document.body.appendChild(a);
     a.click();
@@ -1966,4 +1980,4 @@ async function saveBinary(buffer, filename) {
 renderLibrary();
 renderTable();
 requestAnimationFrame(tick);
-window.__hms = { GESTURES, applyGesture, ARM_POSES, showArmPose, takes, forearmFinder, fallbackToCPU, camera, controls, realHands, arms, rec, startRecording, stopRecording, trimFrames, exportSkins, exportGlb, savePoseGlb, armResults: () => armResults, tracker: () => ensureTracker(), handFeatures, grasps, scene, rigs, solvers, state, capture, viewPose };
+window.__hms = { GESTURES, applyGesture, ARM_POSES, showArmPose, takes, forearmFinder, fallbackToCPU, camera, controls, realHands, arms, rec, startRecording, stopRecording, trimFrames, exportSkins, exportGlb, saveFbx, savePoseGlb, armResults: () => armResults, tracker: () => ensureTracker(), handFeatures, grasps, scene, rigs, solvers, state, capture, viewPose };

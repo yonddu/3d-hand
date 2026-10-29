@@ -285,7 +285,7 @@ function completeFrame(side, f) {
 // frames: [{ t: seconds, hands: { left: frame|null, right: frame|null } }]
 // skins: { left, right } from RealHand/HandRig.exportSkin()
 // Returns an ArrayBuffer (binary glTF).
-export async function exportGlb({ frames, skins, name = 'HMS_Motion', includeObjects = true, raw = null }) {
+export function buildMotionScene({ frames, skins, name = 'HMS_Motion', includeObjects = true, raw = null }) {
   const sides = SIDES.filter((s) => frames.some((fr) => fr.hands[s]));
   if (!sides.length) throw new Error('내보낼 손 데이터가 없습니다.');
 
@@ -394,6 +394,12 @@ export async function exportGlb({ frames, skins, name = 'HMS_Motion', includeObj
   }
   const clip = new THREE.AnimationClip(name, -1, tracks);
 
+  // Preserve the bind transforms before the initial animated pose is applied.
+  // FBX and GLB share one scene/skeleton/clip; no second pose solver.
+  const bindTransforms = new Map();
+  root.updateMatrixWorld(true);
+  root.traverse(node => bindTransforms.set(node, { local: node.matrix.clone(), world: node.matrixWorld.clone() }));
+
   // Leave the nodes in the first frame's pose so the file opens posed.
   const mixer = new THREE.AnimationMixer(root);
   mixer.clipAction(clip).play();
@@ -412,8 +418,12 @@ export async function exportGlb({ frames, skins, name = 'HMS_Motion', includeObj
   // replayed and measured (tools/replay.mjs). Not needed to play the motion.
   if (raw && raw.frames && raw.frames.length) root.userData.raw = raw;
 
-  const exporter = new GLTFExporter();
-  return exporter.parseAsync(root, { binary: true, animations: [clip], onlyVisible: false });
+  return { root, clip, bindTransforms };
+}
+
+export async function exportGlb(options) {
+  const { root, clip } = buildMotionScene(options);
+  return new GLTFExporter().parseAsync(root, { binary: true, animations: [clip], onlyVisible: false });
 }
 
 // Minimal stored (uncompressed) zip, for hosts that only accept .zip downloads.
