@@ -4,8 +4,18 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.roundToLong
 
-/** Raw landmark positions, not a fitted mesh or inferred finger twist. */
-data class RawHandFrame(val t: Double, val hands: Map<String, DoubleArray>)
+/**
+ * Raw landmark positions, not a fitted mesh or inferred finger twist.
+ * hands: MediaPipe world points (63, m) by side; image: the same hand's
+ * normalized picture points (63) for placing it in front of the camera and
+ * hanging the arm from it (ArmRig); aspect: picture width / height.
+ */
+data class RawHandFrame(
+    val t: Double,
+    val hands: Map<String, DoubleArray>,
+    val image: Map<String, DoubleArray> = emptyMap(),
+    val aspect: Double = 9.0 / 16,
+)
 
 /** Dependency-free FBX 7.4 binary skeleton writer. Runs only when saving. */
 object RawFbx {
@@ -20,12 +30,31 @@ object RawFbx {
     private fun property(name: String, type: String, vararg v: P) = N("P", listOf(s(name), s(type), s(""), s("A")) + v)
     private fun props(vararg p: N) = N("Properties70", children = p.toList())
     private fun named(name: String, type: String) = s("$name\u0000\u0001$type")
-    private val parents = intArrayOf(-1,0,1,2,3,0,5,6,7,0,9,10,11,0,13,14,15,0,17,18,19)
-    private val suffix = arrayOf("Hand", "HandThumb1", "HandThumb2", "HandThumb3", "HandThumb4",
+    // Upper arm (from the shoulder), forearm (from the elbow), then the 21 hand points.
+    private val parents = intArrayOf(-1,0,1,2,3,4,5,2,7,8,9,2,11,12,13,2,15,16,17,2,19,20,21)
+    private val suffix = arrayOf("Arm", "ForeArm", "Hand", "HandThumb1", "HandThumb2", "HandThumb3", "HandThumb4",
         "HandIndex1", "HandIndex2", "HandIndex3", "HandIndex4", "HandMiddle1", "HandMiddle2", "HandMiddle3", "HandMiddle4",
         "HandRing1", "HandRing2", "HandRing3", "HandRing4", "HandPinky1", "HandPinky2", "HandPinky3", "HandPinky4")
+    const val JOINTS = 23
     fun jointName(side: String, joint: Int) = (if (side == "right") "Right" else "Left") + suffix[joint]
     private fun valid(p: DoubleArray?) = p != null && p.size == 63 && p.all { it.isFinite() }
+
+    /**
+     * Camera-space positions (23 x 3: shoulder, elbow, then the hand's 21
+     * points) of one side in one frame, or null when that hand was not seen.
+     * Without picture points the wrist is put 45 cm in front of the camera.
+     */
+    fun joints(frame: RawHandFrame, side: String): DoubleArray? {
+        val world = frame.hands[side]
+        if (!valid(world)) return null
+        val image = frame.image[side]
+        val t = (if (image != null && image.size >= 63) ArmRig.place(world!!, image, frame.aspect) else null)
+            ?: doubleArrayOf(-world!![0], -world[1], 0.45 - world[2])
+        val cam = ArmRig.cameraPoints(world, t)
+        val (s, e) = ArmRig.arm(side, cam)
+        return s + e + cam
+    }
+
     private fun local(p: DoubleArray, j: Int): DoubleArray {
         val parent = parents[j]
         return DoubleArray(3) { k ->
@@ -38,6 +67,7 @@ object RawFbx {
         require(frames.isNotEmpty()) { "손 관절 기록이 없습니다." }
         require(frames.all { it.t.isFinite() } && frames.zipWithNext().all { it.second.t > it.first.t }) { "기록 시간이 올바르지 않습니다." }
         val sides = listOf("left", "right").filter { side -> frames.any { valid(it.hands[side]) } }
+        val placed = sides.associateWith { side -> frames.map { joints(it, side) } }
         require(sides.isNotEmpty()) { "기록에 손 관절이 없습니다. 손을 보이게 측정한 뒤 저장하세요." }
         val times = LongArray(frames.size) { ((frames[it].t - frames[0].t) * TICKS).roundToLong() }
         var next = 100000L
@@ -51,8 +81,8 @@ object RawFbx {
             property("Lcl Translation", "Lcl Translation", d(0.0),d(0.0),d(0.0)),
             property("Lcl Rotation", "Lcl Rotation", d(0.0),d(0.0),d(0.0)),
             property("Lcl Scaling", "Lcl Scaling", d(1.0),d(1.0),d(1.0)),
-            property("HMS_Source", "KString", s("Raw MediaPipe world landmark positions; relative hand coordinates; not absolute camera motion")),
-            property("HMS_Representation", "KString", s("21-joint position animation; no mesh, no fitted bone rotations, no hidden-hand prediction")))))
+            property("HMS_Source", "KString", s("Raw MediaPipe world landmark positions placed in front of the camera (assumed 66 deg field of view); shoulder fixed below the camera, elbow by two-bone IK")),
+            property("HMS_Representation", "KString", s("Arm, forearm and 21 hand joint position animation; no mesh, no fitted bone rotations, no hidden-hand prediction")))))
         connect(root, 0)
         val stack = next++
         val layer = next++
@@ -78,10 +108,11 @@ object RawFbx {
             }
         }
         for (side in sides) {
-            val seen = BooleanArray(frames.size) { valid(frames[it].hands[side]) }
-            val ids = LongArray(21) { next++ }
-            val first = frames.first { valid(it.hands[side]) }.hands.getValue(side)
-            for (j in 0..20) {
+            val track = placed.getValue(side)
+            val seen = BooleanArray(frames.size) { track[it] != null }
+            val ids = LongArray(JOINTS) { next++ }
+            val first = track.first { it != null }!!
+            for (j in 0 until JOINTS) {
                 val position = local(first, j)
                 objects += N("Model", listOf(l(ids[j]), named(jointName(side,j), "Model"), s("LimbNode")), listOf(n("Version", i(232)), props(
                     property("Lcl Translation", "Lcl Translation", *position.map(::d).toTypedArray()),
@@ -92,7 +123,7 @@ object RawFbx {
                 val attr = next++
                 objects += N("NodeAttribute", listOf(l(attr), named(jointName(side,j), "NodeAttribute"), s("LimbNode")), listOf(n("TypeFlags", s("Skeleton")), props(property("Size", "double", d(0.005)))))
                 connect(attr, ids[j])
-                val values = Array(frames.size) { f -> frames[f].hands[side].let { if (valid(it)) local(it!!,j) else DoubleArray(3) } }
+                val values = Array(frames.size) { f -> track[f]?.let { local(it, j) } ?: DoubleArray(3) }
                 curves(ids[j], "T", values, seen)
             }
             curves(ids[0], "S", Array(frames.size) { f -> DoubleArray(3) { if (seen[f]) 1.0 else 0.0 } }, seen)

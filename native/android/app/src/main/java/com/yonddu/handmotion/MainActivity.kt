@@ -115,6 +115,7 @@ class MainActivity : ComponentActivity() {
                     val frame = frames.getJSONObject(f)
                     val entries = frame.getJSONArray("hands")
                     val points = mutableMapOf<String, DoubleArray>()
+                    val image = mutableMapOf<String, DoubleArray>()
                     val scores = mutableMapOf<String, Double>()
                     for (h in 0 until entries.length()) {
                         val hand = entries.getJSONObject(h)
@@ -123,9 +124,13 @@ class MainActivity : ComponentActivity() {
                         val p = hand.getJSONArray("world")
                         if (side in listOf("left", "right") && p.length() == 63 && score >= (scores[side] ?: -1.0)) {
                             points[side] = DoubleArray(63) { p.getDouble(it) }; scores[side] = score
+                            val lm = hand.optJSONArray("lm")
+                            if (lm != null && lm.length() == 63) image[side] = DoubleArray(63) { lm.getDouble(it) } else image.remove(side)
                         }
                     }
-                    RawHandFrame(frame.getDouble("t"), points)
+                    val iw = frame.optDouble("imageWidth", frameWidth.toDouble())
+                    val ih = frame.optDouble("imageHeight", frameHeight.toDouble())
+                    RawHandFrame(frame.getDouble("t"), points, image, iw / ih)
                 }
                 exportWorker.execute {
                     var file: File? = null
@@ -163,7 +168,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         val title = TextView(this).apply {
-            text = "Hand Motion · 네이티브 측정\nGPU / CPU 비교 · NPU 미적용"
+            text = "Hand Motion · 네이티브 v0.9\n손 + 손목·팔 뼈대 · GPU / CPU 비교"
             textSize = 18f
         }
         root.addView(title)
@@ -248,7 +253,7 @@ class MainActivity : ComponentActivity() {
         root.addView(handsButton)
         root.addView(buttons)
         val note = TextView(this).apply {
-            text = "측정 중지 → FBX 저장 (원본 관절 뼈대)\n손 메시·절대 이동·카메라 영상 없음"
+            text = "측정 중지 → FBX 저장 (원본 손 관절 + 손목·아래팔·위팔 뼈대)\n팔은 어깨 위치 가정 + 팔꿈치 계산 · 손 메시 없음"
             textSize = 12f
         }
         root.addView(note)
@@ -360,6 +365,7 @@ class MainActivity : ComponentActivity() {
                                         .put("score", category.score().toDouble()).put("lm", lm).put("world", world))
                                 }
                                 frames.put(JSONObject().put("t", (entered - startedAt) / 1e9).put("hands", hands)
+                                    .put("imageWidth", upright.width).put("imageHeight", upright.height)
                                     .put("maxHands", recordedMaxHands).put("delegate", recordedBackend)
                                     .put("sourceWidth", image.width).put("sourceHeight", image.height)
                                     .put("rotationDegrees", rotate)
@@ -375,6 +381,16 @@ class MainActivity : ComponentActivity() {
                             }
                             val points = result.landmarks().map { hand -> hand.map { Pair(it.x(), it.y()) } }
                             val w = frameWidth; val h = frameHeight
+                            // Forearm and upper arm hung from each hand (ArmRig), as picture lines.
+                            val aspect = w.toDouble() / h
+                            val arms = result.landmarks().indices.mapNotNull { i ->
+                                val side = result.handedness()[i][0].categoryName().lowercase(Locale.ROOT)
+                                val world = DoubleArray(63).also { a -> result.worldLandmarks()[i].forEachIndexed { j, q -> a[j * 3] = q.x().toDouble(); a[j * 3 + 1] = q.y().toDouble(); a[j * 3 + 2] = q.z().toDouble() } }
+                                val img = DoubleArray(63).also { a -> result.landmarks()[i].forEachIndexed { j, q -> a[j * 3] = q.x().toDouble(); a[j * 3 + 1] = q.y().toDouble(); a[j * 3 + 2] = q.z().toDouble() } }
+                                val joints = RawFbx.joints(RawHandFrame(0.0, mapOf(side to world), mapOf(side to img), aspect), side) ?: return@mapNotNull null
+                                val sh = joints.copyOfRange(0, 3); val el = joints.copyOfRange(3, 6); val wr = joints.copyOfRange(6, 9)
+                                listOfNotNull(ArmRig.projectLine(el, wr, aspect), ArmRig.projectLine(sh, el, aspect))
+                            }.flatten()
                             val now = SystemClock.uptimeMillis()
                             val updateStats = now - lastUi >= 300
                             if (updateStats) lastUi = now
@@ -386,7 +402,7 @@ class MainActivity : ComponentActivity() {
                             if (uiQueued.compareAndSet(false, true)) runOnUiThread {
                                 try {
                                     if (!destroyed) {
-                                        overlay.update(points, w, h)
+                                        overlay.update(points, arms, w, h)
                                         if (summary != null) status.text = summary
                                     }
                                 } finally { uiQueued.set(false) }
