@@ -45,11 +45,10 @@ object RawFbx {
      * Without picture points the wrist is put 45 cm in front of the camera.
      */
     fun joints(frame: RawHandFrame, side: String): DoubleArray? {
-        val world = frame.hands[side]
-        if (!valid(world)) return null
+        val world = frame.hands[side]?.takeIf { valid(it) } ?: return null
         val image = frame.image[side]
-        val t = (if (image != null && image.size >= 63) ArmRig.place(world!!, image, frame.aspect) else null)
-            ?: doubleArrayOf(-world!![0], -world[1], 0.45 - world[2])
+        val t = (if (image != null && image.size >= 63) ArmRig.place(world, image, frame.aspect) else null)
+            ?: doubleArrayOf(-world[0], -world[1], 0.45 - world[2])
         val cam = ArmRig.cameraPoints(world, t)
         val (s, e) = ArmRig.arm(side, cam)
         return s + e + cam
