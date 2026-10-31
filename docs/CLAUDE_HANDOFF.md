@@ -1,7 +1,8 @@
 # Claude 인계 — 현재 상태
 
-## 최신 (2026-10-31, Claude): 네이티브 v0.9 손목·팔
-사용자 요청으로 원본 21점 위에 손목·아래팔·위팔 뼈대를 다시 붙였습니다(Quest 손 없음). 화면에 주황 팔 선, FBX에 Arm/ForeArm/Hand 체인. 브랜치 codex/native-s25-baseline, draft PR #2. 자세한 내용·APK·검증: [2026-10-31 기록](handoffs/2026-10-31-native-arm.md). 회귀 자료는 이제 41개 모두 `data/takes/`에 있고 전체 회귀 통과.
+## 최신 (2026-10-31, Claude): 네이티브 v0.10 팔뚝 뼈대
+v0.10(e2b4f7f, CI PASS): 팔뚝 방향을 화면 피부색에서 읽고(ForearmFinder, 웹 forearm.js 이식) 손가락과 같은 하늘색 선·점으로 그림. 폰 확인 전.
+사용자 요청으로 원본 21점 위에 손목·아래팔·위팔 뼈대를 다시 붙였습니다(Quest 손 없음). 화면에 팔 선(v0.9 주황 → v0.10 하늘색), FBX에 Arm/ForeArm/Hand 체인. 브랜치 codex/native-s25-baseline, draft PR #2. 자세한 내용·APK·검증: [2026-10-31 기록](handoffs/2026-10-31-native-arm.md). 회귀 자료는 이제 41개 모두 `data/takes/`에 있고 전체 회귀 통과.
 
 아래는 2026-10-29 기록입니다.
 

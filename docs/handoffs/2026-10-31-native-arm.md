@@ -23,3 +23,12 @@
 
 ## 같은 날 main
 - `data/takes/`에 빠져 있던 raw_take*.json 18개 추가(93a5fff). 저장소 폴더로 `node tools/regress.mjs data/takes/` 전체 41 테이크·30 문제 통과, held-out 2개 포함.
+
+## v0.10 (같은 날, 코드 e2b4f7f)
+- 사용자 피드백(스크린샷, 팔뚝 가운데 노란 선): v0.9 주황 선이 손 방향을 따라가서 실제 팔뚝과 다른 쪽(가로)으로 나감. "손가락이랑 똑같은 색깔 똑같은 느낌으로 팔뚝 중심으로 뼈대".
+- `ForearmFinder.kt` 새로 추가 = 웹 `src/forearm.js` 이식: 손바닥에서 피부색을 배우고, 손목에서 손가락 반대쪽(±70°)으로 가장 길게 이어지는 피부색 줄을 찾음(프레임 160px 축소). 결과 (dx, dy, 확신도).
+- `ArmRig.arm`: 아래팔 3D 방향 = 그 화면 선이 만드는 평면 안에서 손 방향(손목←중지 뿌리)에 가장 가까운 방향. 확신도 0.4 미만이면 손 방향. 팔꿈치 = 손목 + 0.26 m. 위팔은 팔꿈치에서 1인칭 어깨 쪽으로 0.29 m. (IK 대신; `elbow()`는 남아 있으나 미사용.)
+- 화면: 팔 선을 손가락과 같은 하늘색 선 + 관절 점으로. JSON 손마다 `forearm:[dx,dy,conf]`.
+- versionCode 10, `0.10-native-forearm`.
+- [CI run 41219284128](https://github.com/yonddu/3d-hand/actions/runs/41219284128) PASS. [APK ZIP](https://github.com/yonddu/3d-hand/actions/runs/41219284128/artifacts/13049955092) 17,241,575 bytes, 2026-11-14 만료.
+- 폰 확인 전. 팔 길이는 가정, 방향은 화면 피부색 기반 추정(소매·배경이 피부색이면 틀릴 수 있음). 웹 v40/41에서 손 방향만 쓰면 손목 굽힐 때마다 팔이 흔들렸던 것이 화면 선을 쓰는 이유.
