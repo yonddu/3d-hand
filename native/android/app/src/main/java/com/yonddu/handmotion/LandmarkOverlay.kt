@@ -9,7 +9,6 @@ import kotlin.math.min
 
 class LandmarkOverlay(context: Context) : View(context) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.CYAN; strokeWidth = 3f }
-    private val armPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 160, 40); strokeWidth = 8f; strokeCap = Paint.Cap.ROUND }
     private var hands: List<List<Pair<Float, Float>>> = emptyList()
     private var arms: List<Pair<Pair<Float, Float>, Pair<Float, Float>>> = emptyList()
     private var frameWidth = 1
@@ -24,8 +23,13 @@ class LandmarkOverlay(context: Context) : View(context) {
         val oy = (height - frameHeight * scale) / 2
         canvas.save()
         canvas.clipRect(ox, oy, ox + frameWidth * scale, oy + frameHeight * scale)
-        for ((a, b) in arms) canvas.drawLine(ox + a.first * frameWidth * scale, oy + a.second * frameHeight * scale,
-            ox + b.first * frameWidth * scale, oy + b.second * frameHeight * scale, armPaint)
+        // Same look as the fingers: a line per bone, a dot per joint.
+        for ((a, b) in arms) {
+            val ax = ox + a.first * frameWidth * scale; val ay = oy + a.second * frameHeight * scale
+            val bx = ox + b.first * frameWidth * scale; val by = oy + b.second * frameHeight * scale
+            canvas.drawLine(ax, ay, bx, by, paint)
+            canvas.drawCircle(bx, by, 5f, paint)
+        }
         canvas.restore()
         for (hand in hands) {
             fun point(i: Int) = Pair(ox + hand[i].first * frameWidth * scale, oy + hand[i].second * frameHeight * scale)

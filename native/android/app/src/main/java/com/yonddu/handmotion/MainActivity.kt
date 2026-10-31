@@ -59,6 +59,7 @@ class MainActivity : ComponentActivity() {
     @Volatile private var fbxBusy = false
     private var pendingFbx: File? = null
     private val timing = Timing()
+    private val forearmFinder = ForearmFinder() // used only on worker
     @Volatile private var ready = false
     @Volatile private var recording = false
     @Volatile private var destroyed = false
@@ -116,6 +117,7 @@ class MainActivity : ComponentActivity() {
                     val entries = frame.getJSONArray("hands")
                     val points = mutableMapOf<String, DoubleArray>()
                     val image = mutableMapOf<String, DoubleArray>()
+                    val forearm = mutableMapOf<String, DoubleArray>()
                     val scores = mutableMapOf<String, Double>()
                     for (h in 0 until entries.length()) {
                         val hand = entries.getJSONObject(h)
@@ -126,11 +128,13 @@ class MainActivity : ComponentActivity() {
                             points[side] = DoubleArray(63) { p.getDouble(it) }; scores[side] = score
                             val lm = hand.optJSONArray("lm")
                             if (lm != null && lm.length() == 63) image[side] = DoubleArray(63) { lm.getDouble(it) } else image.remove(side)
+                            val fa = hand.optJSONArray("forearm")
+                            if (fa != null && fa.length() == 3) forearm[side] = DoubleArray(3) { fa.getDouble(it) } else forearm.remove(side)
                         }
                     }
                     val iw = frame.optDouble("imageWidth", frameWidth.toDouble())
                     val ih = frame.optDouble("imageHeight", frameHeight.toDouble())
-                    RawHandFrame(frame.getDouble("t"), points, image, iw / ih)
+                    RawHandFrame(frame.getDouble("t"), points, image, iw / ih, forearm)
                 }
                 exportWorker.execute {
                     var file: File? = null
@@ -168,7 +172,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         val title = TextView(this).apply {
-            text = "Hand Motion · 네이티브 v0.9\n손 + 손목·팔 뼈대 · GPU / CPU 비교"
+            text = "Hand Motion · 네이티브 v0.10\n손 + 손목·팔 뼈대 · GPU / CPU 비교"
             textSize = 18f
         }
         root.addView(title)
@@ -253,7 +257,7 @@ class MainActivity : ComponentActivity() {
         root.addView(handsButton)
         root.addView(buttons)
         val note = TextView(this).apply {
-            text = "측정 중지 → FBX 저장 (원본 손 관절 + 손목·아래팔·위팔 뼈대)\n팔은 어깨 위치 가정 + 팔꿈치 계산 · 손 메시 없음"
+            text = "측정 중지 → FBX 저장 (원본 손 관절 + 팔뚝·위팔 뼈대)\n팔뚝 방향은 화면에서 읽고, 길이는 가정 · 손 메시 없음"
             textSize = 12f
         }
         root.addView(note)
@@ -344,6 +348,11 @@ class MainActivity : ComponentActivity() {
                             val input = BitmapImageBuilder(upright).build()
                             val result = try { landmarker!!.detectForVideo(input, timestamp) } finally { input.close() }
                             val finished = SystemClock.elapsedRealtimeNanos()
+                            // The forearm's line in the picture, per hand (ForearmFinder).
+                            if (result.landmarks().isNotEmpty()) forearmFinder.grab(upright)
+                            val forearms = result.landmarks().map { hand ->
+                                forearmFinder.find(DoubleArray(63).also { a -> hand.forEachIndexed { j, q -> a[j * 3] = q.x().toDouble(); a[j * 3 + 1] = q.y().toDouble() } })
+                            }
                             val preMs = (inferenceStart - entered) / 1e6
                             val inferMs = (finished - inferenceStart) / 1e6
                             val callbackMs = (finished - entered) / 1e6
@@ -356,13 +365,15 @@ class MainActivity : ComponentActivity() {
                                 if (startedAt == 0L) startedAt = entered
                                 val hands = JSONArray()
                                 result.landmarks().forEachIndexed { i, points ->
+                                    val fa = forearms.getOrNull(i)
                                     val category = result.handedness()[i][0]
                                     val lm = JSONArray()
                                     points.forEach { lm.put(it.x().toDouble()).put(it.y().toDouble()).put(it.z().toDouble()) }
                                     val world = JSONArray()
                                     result.worldLandmarks()[i].forEach { world.put(it.x().toDouble()).put(it.y().toDouble()).put(it.z().toDouble()) }
                                     hands.put(JSONObject().put("label", category.categoryName().lowercase(Locale.ROOT))
-                                        .put("score", category.score().toDouble()).put("lm", lm).put("world", world))
+                                        .put("score", category.score().toDouble()).put("lm", lm).put("world", world)
+                                        .apply { if (fa != null) put("forearm", JSONArray().put(fa[0]).put(fa[1]).put(fa[2])) })
                                 }
                                 frames.put(JSONObject().put("t", (entered - startedAt) / 1e9).put("hands", hands)
                                     .put("imageWidth", upright.width).put("imageHeight", upright.height)
@@ -387,9 +398,11 @@ class MainActivity : ComponentActivity() {
                                 val side = result.handedness()[i][0].categoryName().lowercase(Locale.ROOT)
                                 val world = DoubleArray(63).also { a -> result.worldLandmarks()[i].forEachIndexed { j, q -> a[j * 3] = q.x().toDouble(); a[j * 3 + 1] = q.y().toDouble(); a[j * 3 + 2] = q.z().toDouble() } }
                                 val img = DoubleArray(63).also { a -> result.landmarks()[i].forEachIndexed { j, q -> a[j * 3] = q.x().toDouble(); a[j * 3 + 1] = q.y().toDouble(); a[j * 3 + 2] = q.z().toDouble() } }
-                                val joints = RawFbx.joints(RawHandFrame(0.0, mapOf(side to world), mapOf(side to img), aspect), side) ?: return@mapNotNull null
+                                val fa = forearms[i]
+                                val joints = RawFbx.joints(RawHandFrame(0.0, mapOf(side to world), mapOf(side to img), aspect,
+                                    if (fa != null) mapOf(side to fa) else emptyMap()), side) ?: return@mapNotNull null
                                 val sh = joints.copyOfRange(0, 3); val el = joints.copyOfRange(3, 6); val wr = joints.copyOfRange(6, 9)
-                                listOfNotNull(ArmRig.projectLine(el, wr, aspect), ArmRig.projectLine(sh, el, aspect))
+                                listOfNotNull(ArmRig.projectLine(wr, el, aspect), ArmRig.projectLine(el, sh, aspect))
                             }.flatten()
                             val now = SystemClock.uptimeMillis()
                             val updateStats = now - lastUi >= 300

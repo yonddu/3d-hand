@@ -14,7 +14,8 @@ import kotlin.math.tan
  *
  * Camera space: meters, x right, y down, z forward (MediaPipe's image axes).
  * An estimate: the camera's field of view is assumed (66 degrees across the
- * long side) and the elbow is not seen, only solved.
+ * long side); the forearm's direction comes from the picture where the arm
+ * is in view, its length (and the elbow) is assumed.
  */
 object ArmRig {
     const val UPPER = 0.29 // shoulder -> elbow (m), web armMesh.js
@@ -23,6 +24,7 @@ object ArmRig {
     private const val NEAR = 0.05 // m: lines closer than this to the camera are cut
     private const val MIN_Z = 0.12
     private const val MAX_Z = 1.5
+    private const val MIN_LINE = 0.4 // ForearmFinder confidence below this: use the hand's line
 
     /** Shoulder relative to the eyes: down, out to the side, a little behind (web ArmRig). */
     fun shoulder(side: String): DoubleArray = doubleArrayOf(if (side == "left") -0.18 else 0.18, 0.24, -0.06)
@@ -73,19 +75,40 @@ object ArmRig {
 
     /**
      * Shoulder and elbow for a hand whose camera-space points are cam (63).
-     * The elbow bends toward where the forearm would go if it continued the
-     * hand's line behind the wrist (wrist minus middle knuckle). A wrist beyond
-     * reach pulls the shoulder toward it (a shrug) instead of stretching the arm.
+     * The forearm runs from the wrist the way the picture shows it
+     * (ForearmFinder: forearm = (dx, dy, confidence) in picture pixels; image:
+     * the hand's normalized picture points): of the directions in space that
+     * look like that line, the one nearest the hand's own line behind the
+     * wrist. Without a picture line, the hand's line itself. The upper arm
+     * hangs from the elbow toward the usual first-person shoulder place.
      */
-    fun arm(side: String, cam: DoubleArray): Pair<DoubleArray, DoubleArray> {
+    fun arm(side: String, cam: DoubleArray, image: DoubleArray? = null, forearm: DoubleArray? = null, aspect: Double = 9.0 / 16): Pair<DoubleArray, DoubleArray> {
         val w = doubleArrayOf(cam[0], cam[1], cam[2])
-        var s = shoulder(side)
-        val reach = (UPPER + FORE) * 0.999
-        val sw = sub(w, s)
-        if (len(sw) > reach) s = sub(w, scale(sw, reach / len(sw)))
-        val back = sub(w, doubleArrayOf(cam[27], cam[28], cam[29]))
-        val pole = if (len(back) > 1e-6) add(w, scale(back, FORE / len(back))) else add(w, doubleArrayOf(0.0, 0.2, 0.0))
-        return Pair(s, elbow(s, w, pole))
+        var back = sub(w, doubleArrayOf(cam[27], cam[28], cam[29]))
+        back = if (len(back) > 1e-6) scale(back, 1 / len(back)) else doubleArrayOf(0.0, 1.0, 0.0)
+        var dir = back
+        if (forearm != null && image != null && forearm[2] >= MIN_LINE) {
+            val (fw, fh) = focal(aspect)
+            val u = image[0]; val v = image[1]
+            // Picture pixels -> normalized picture units (x by width, y by height).
+            val du = forearm[0]; val dv = forearm[1] * aspect
+            val k = 0.05 / max(sqrt(du * du + dv * dv), 1e-9)
+            val r0 = doubleArrayOf((u - 0.5) / fw, (v - 0.5) / fh, 1.0)
+            val r1 = doubleArrayOf((u + du * k - 0.5) / fw, (v + dv * k - 0.5) / fh, 1.0)
+            val along = sub(r1, r0)
+            var n = cross(r0, r1)
+            if (len(n) > 1e-9) {
+                n = scale(n, 1 / len(n))
+                var d = sub(back, scale(n, dot(back, n)))
+                if (len(d) < 0.2) d = along // the hand points at the camera: take the picture line flat
+                if (dot(d, along) < 0) d = scale(d, -1.0)
+                dir = scale(d, 1 / len(d))
+            }
+        }
+        val e = add(w, scale(dir, FORE))
+        val toShoulder = sub(shoulder(side), e)
+        val s = if (len(toShoulder) > 1e-6) add(e, scale(toShoulder, UPPER / len(toShoulder))) else add(e, doubleArrayOf(0.0, 0.0, -UPPER))
+        return Pair(s, e)
     }
 
     /** Two-bone IK (web arm.js solveElbow): elbow on its circle, on the pole's side. */
@@ -135,6 +158,7 @@ object ArmRig {
     fun add(a: DoubleArray, b: DoubleArray) = DoubleArray(3) { a[it] + b[it] }
     fun sub(a: DoubleArray, b: DoubleArray) = DoubleArray(3) { a[it] - b[it] }
     fun scale(a: DoubleArray, k: Double) = DoubleArray(3) { a[it] * k }
+    fun cross(a: DoubleArray, b: DoubleArray) = doubleArrayOf(a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
     fun dot(a: DoubleArray, b: DoubleArray) = a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
     fun len(a: DoubleArray) = sqrt(dot(a, a))
 }

@@ -15,6 +15,7 @@ data class RawHandFrame(
     val hands: Map<String, DoubleArray>,
     val image: Map<String, DoubleArray> = emptyMap(),
     val aspect: Double = 9.0 / 16,
+    val forearm: Map<String, DoubleArray> = emptyMap(), // ForearmFinder (dx, dy, confidence)
 )
 
 /** Dependency-free FBX 7.4 binary skeleton writer. Runs only when saving. */
@@ -50,7 +51,7 @@ object RawFbx {
         val t = (if (image != null && image.size >= 63) ArmRig.place(world, image, frame.aspect) else null)
             ?: doubleArrayOf(-world[0], -world[1], 0.45 - world[2])
         val cam = ArmRig.cameraPoints(world, t)
-        val (s, e) = ArmRig.arm(side, cam)
+        val (s, e) = ArmRig.arm(side, cam, image, frame.forearm[side], frame.aspect)
         return s + e + cam
     }
 
