@@ -1,0 +1,5 @@
+Hand Motion native measurement baseline
+MediaPipe: Copyright The MediaPipe Authors, Apache-2.0
+AndroidX CameraX and Activity: Copyright The Android Open Source Project, Apache-2.0
+HandLandmarker model: Google MediaPipe Hand Tracking model card, Apache-2.0
+This application contains no Qualcomm QNN runtime.

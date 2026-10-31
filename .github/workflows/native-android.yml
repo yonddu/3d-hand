@@ -1,0 +1,60 @@
+name: Android native baseline
+concurrency:
+  group: native-android-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+on:
+  push:
+    paths: ['native/android/**', '.github/workflows/native-android.yml', 'vendor/models/hand_landmarker.task']
+  pull_request:
+    paths: ['native/android/**', '.github/workflows/native-android.yml', 'vendor/models/hand_landmarker.task']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Build and test native app
+        working-directory: native/android
+        run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
+      - name: Independently validate native FBX joint animation
+        run: |
+          mkdir -p /tmp/ufbx
+          for file in ufbx.c ufbx.h LICENSE; do
+            curl --fail --retry 3 -L "https://raw.githubusercontent.com/ufbx/ufbx/5955c5c0b042ac2dc6f32955ab206aaec0620cfc/$file" -o "/tmp/ufbx/$file"
+          done
+          gcc -O2 -I/tmp/ufbx native/android/tools/check-raw-fbx.c /tmp/ufbx/ufbx.c -lm -o /tmp/check-native-fbx
+          /tmp/check-native-fbx native/android/app/build/fbx-fixtures/raw.fbx native/android/app/build/fbx-fixtures/raw-reference.bin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hand-motion-native-baseline
+          path: native/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+  web-regression:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: node build.mjs
+      - name: Require committed web build to match sources
+        run: git diff --exit-code -- index.html app.bundle.js
+      - name: Require complete regression corpus
+        run: node tools/check-regression-corpus.mjs
+      - name: Replay all regression takes
+        run: npm run regress
