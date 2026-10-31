@@ -68,6 +68,8 @@ class MainActivity : ComponentActivity() {
     private var lastTimestamp = -1L
     private var lastUi = 0L
     private var errors = 0
+    @Volatile private var forearmErrors = 0
+    @Volatile private var lastError = ""
     private var processed = 0
     private var empty = 0
     private var frameWidth = 1
@@ -172,7 +174,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         val title = TextView(this).apply {
-            text = "Hand Motion · 네이티브 v0.10\n손 + 손목·팔 뼈대 · GPU / CPU 비교"
+            text = "Hand Motion · 네이티브 v0.10.1\n손 + 손목·팔 뼈대 · GPU / CPU 비교"
             textSize = 18f
         }
         root.addView(title)
@@ -345,19 +347,34 @@ class MainActivity : ComponentActivity() {
                             val inferenceStart = SystemClock.elapsedRealtimeNanos()
                             val timestamp = maxOf(SystemClock.uptimeMillis(), lastTimestamp + 1)
                             lastTimestamp = timestamp
+                            val uw = upright.width; val uh = upright.height
                             val input = BitmapImageBuilder(upright).build()
-                            val result = try { landmarker!!.detectForVideo(input, timestamp) } finally { input.close() }
+                            // MPImage.close() recycles the bitmap it wraps: take the small forearm copy before it.
+                            var grabbed = false
+                            val result = try {
+                                landmarker!!.detectForVideo(input, timestamp).also { r ->
+                                    if (r.landmarks().isNotEmpty()) try { forearmFinder.grab(upright); grabbed = true } catch (e: Throwable) {
+                                        forearmErrors++; lastError = "팔뚝 화면: ${e.javaClass.simpleName} ${e.message}"
+                                    }
+                                }
+                            } finally { input.close() }
                             val finished = SystemClock.elapsedRealtimeNanos()
                             // The forearm's line in the picture, per hand (ForearmFinder).
-                            if (result.landmarks().isNotEmpty()) forearmFinder.grab(upright)
-                            val forearms = result.landmarks().map { hand ->
-                                forearmFinder.find(DoubleArray(63).also { a -> hand.forEachIndexed { j, q -> a[j * 3] = q.x().toDouble(); a[j * 3 + 1] = q.y().toDouble() } })
+                            // Never lets a forearm failure stop the hand tracking: no line -> the hand's own line.
+                            val forearms: List<DoubleArray?> = try {
+                                result.landmarks().map { hand ->
+                                    if (!grabbed) return@map null
+                                    forearmFinder.find(DoubleArray(63).also { a -> hand.forEachIndexed { j, q -> a[j * 3] = q.x().toDouble(); a[j * 3 + 1] = q.y().toDouble() } })
+                                }
+                            } catch (e: Throwable) {
+                                forearmErrors++; lastError = "팔뚝: ${e.javaClass.simpleName} ${e.message}"
+                                result.landmarks().map { null }
                             }
                             val preMs = (inferenceStart - entered) / 1e6
                             val inferMs = (finished - inferenceStart) / 1e6
                             val callbackMs = (finished - entered) / 1e6
                             val at = finished / 1e6
-                            frameWidth = upright.width; frameHeight = upright.height
+                            frameWidth = uw; frameHeight = uh
                             timing.add(at, preMs, inferMs, callbackMs)
                             processed++
                             if (result.landmarks().isEmpty()) empty++
@@ -376,7 +393,7 @@ class MainActivity : ComponentActivity() {
                                         .apply { if (fa != null) put("forearm", JSONArray().put(fa[0]).put(fa[1]).put(fa[2])) })
                                 }
                                 frames.put(JSONObject().put("t", (entered - startedAt) / 1e9).put("hands", hands)
-                                    .put("imageWidth", upright.width).put("imageHeight", upright.height)
+                                    .put("imageWidth", uw).put("imageHeight", uh)
                                     .put("maxHands", recordedMaxHands).put("delegate", recordedBackend)
                                     .put("sourceWidth", image.width).put("sourceHeight", image.height)
                                     .put("rotationDegrees", rotate)
@@ -394,7 +411,7 @@ class MainActivity : ComponentActivity() {
                             val w = frameWidth; val h = frameHeight
                             // Forearm and upper arm hung from each hand (ArmRig), as picture lines.
                             val aspect = w.toDouble() / h
-                            val arms = result.landmarks().indices.mapNotNull { i ->
+                            val arms = try { result.landmarks().indices.mapNotNull { i ->
                                 val side = result.handedness()[i][0].categoryName().lowercase(Locale.ROOT)
                                 val world = DoubleArray(63).also { a -> result.worldLandmarks()[i].forEachIndexed { j, q -> a[j * 3] = q.x().toDouble(); a[j * 3 + 1] = q.y().toDouble(); a[j * 3 + 2] = q.z().toDouble() } }
                                 val img = DoubleArray(63).also { a -> result.landmarks()[i].forEachIndexed { j, q -> a[j * 3] = q.x().toDouble(); a[j * 3 + 1] = q.y().toDouble(); a[j * 3 + 2] = q.z().toDouble() } }
@@ -403,7 +420,10 @@ class MainActivity : ComponentActivity() {
                                     if (fa != null) mapOf(side to fa) else emptyMap()), side) ?: return@mapNotNull null
                                 val sh = joints.copyOfRange(0, 3); val el = joints.copyOfRange(3, 6); val wr = joints.copyOfRange(6, 9)
                                 listOfNotNull(ArmRig.projectLine(wr, el, aspect), ArmRig.projectLine(el, sh, aspect))
-                            }.flatten()
+                            }.flatten() } catch (e: Throwable) {
+                                lastError = "팔: ${e.javaClass.simpleName} ${e.message}"
+                                emptyList()
+                            }
                             val now = SystemClock.uptimeMillis()
                             val updateStats = now - lastUi >= 300
                             if (updateStats) lastUi = now
@@ -411,7 +431,8 @@ class MainActivity : ComponentActivity() {
                                 "%s · Android %s · %s 요청 · 최대 %d손\n입력 %d×%d · 처리 %.1f FPS · 손 %d개\n전처리 p50 %.1fms · 추론 p50 %.1fms / p95 %.1fms\n분석 콜백→결과 p50 %.1fms\n처리 %d · 손 없음 %d · 오류 %d · 기록 %d",
                                 Build.MODEL, Build.VERSION.RELEASE, backend.name, maxHands, w, h, timing.fps(), points.size,
                                 timing.percentile(1, .5), timing.percentile(2, .5), timing.percentile(2, .95),
-                                timing.percentile(3, .5), processed, empty, errors, frames.length()) else null
+                                timing.percentile(3, .5), processed, empty, errors, frames.length()) +
+                                (if (lastError.isNotEmpty()) "\n마지막 오류: $lastError" else "") else null
                             if (uiQueued.compareAndSet(false, true)) runOnUiThread {
                                 try {
                                     if (!destroyed) {
@@ -420,9 +441,10 @@ class MainActivity : ComponentActivity() {
                                     }
                                 } finally { uiQueued.set(false) }
                             }
-                        } catch (e: Exception) {
+                        } catch (e: Throwable) {
                             errors++
-                            if (errors == 1) showError("프레임 처리 오류: ${e.message}")
+                            lastError = "${e.javaClass.simpleName} ${e.message} @ ${e.stackTrace.firstOrNull { it.className.contains("handmotion") }?.let { "${it.fileName}:${it.lineNumber}" } ?: ""}"
+                            showError("프레임 처리 오류 $errors: $lastError")
                         } finally {
                             if (upright != null && upright !== cropped) upright.recycle()
                             if (cropped != null && cropped !== source) cropped.recycle()

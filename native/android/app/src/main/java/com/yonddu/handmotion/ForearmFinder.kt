@@ -34,6 +34,11 @@ class ForearmFinder {
         if (small !== frame) small.recycle()
     }
 
+    /** Same as grab, from ARGB pixels already in memory (tests). */
+    fun load(pixels: IntArray, width: Int, height: Int) {
+        w = width; h = height; px = pixels.copyOf()
+    }
+
     private fun chroma(x: Double, y: Double): DoubleArray? {
         val xi = x.roundToInt(); val yi = y.roundToInt()
         if (xi < 0 || yi < 0 || xi >= w || yi >= h) return null
