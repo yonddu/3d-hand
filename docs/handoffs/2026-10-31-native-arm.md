@@ -32,3 +32,8 @@
 - versionCode 10, `0.10-native-forearm`.
 - [CI run 41219284128](https://github.com/yonddu/3d-hand/actions/runs/41219284128) PASS. [APK ZIP](https://github.com/yonddu/3d-hand/actions/runs/41219284128/artifacts/13049955092) 17,241,575 bytes, 2026-11-14 만료.
 - 폰 확인 전. 팔 길이는 가정, 방향은 화면 피부색 기반 추정(소매·배경이 피부색이면 틀릴 수 있음). 웹 v40/41에서 손 방향만 쓰면 손목 굽힐 때마다 팔이 흔들렸던 것이 화면 선을 쓰는 이유.
+
+## v0.10.1 (코드 e56a97c) — v0.10 손 안 뜸 수정
+- 사용자 폰(v0.10): 손 0개, 오류 134. 원인: MediaPipe `MPImage.close()`가 감싼 Bitmap을 recycle함 → close 뒤 `ForearmFinder.grab(upright)`가 recycle된 Bitmap을 읽어 손 있는 프레임마다 예외. (교훈: BitmapImageBuilder에 넘긴 비트맵은 close 뒤 쓰지 말 것.)
+- 고침: detectForVideo 직후, close 전에 grab. 폭·높이는 미리 저장. 팔뚝/팔 계산 실패는 try로 감싸 손 선으로 대체(프레임은 유지). 마지막 오류를 상태 줄에 표시. `ForearmFinder.load` + JVM 테스트(합성 그림에서 오른쪽 아래 팔뚝 찾기).
+- [CI run 41220758838](https://github.com/yonddu/3d-hand/actions/runs/41220758838) PASS. [APK ZIP](https://github.com/yonddu/3d-hand/actions/runs/41220758838/artifacts/13049638591), 2026-11-14 만료. versionCode 11, `0.10.1-native-forearm`. 폰 확인 전.
