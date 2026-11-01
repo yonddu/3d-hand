@@ -1,7 +1,7 @@
 # Claude 인계 — 현재 상태
 
 ## 최신 (2026-11-01, Claude): 네이티브 v0.12 Quest 손 모양, 팔 제거
-사용자 요청으로 팔 뼈대 전부 제거, MediaPipe 점에 그대로 맞춘 Quest 손(MIT WebXR 손, 한 손 삼각형 2,314)을 투명 WebView로 카메라 위에 그림. FBX는 21관절 손만. 코드 5646367, CI PASS, 폰 확인 전. 자세히: [2026-11-01 기록](handoffs/2026-11-01-native-quest-hand.md).
+v0.13(2de822f): 몸 추적(MediaPipe Pose) 별도 버튼 추가. v0.12: 팔 뼈대 전부 제거, MediaPipe 점에 그대로 맞춘 Quest 손(MIT WebXR 손, 한 손 삼각형 2,314)을 투명 WebView로 카메라 위에 그림. FBX는 21관절 손만. 코드 5646367, CI PASS, 폰 확인 전. 자세히: [2026-11-01 기록](handoffs/2026-11-01-native-quest-hand.md).
 
 ## 이전 (2026-10-31, Claude): 네이티브 v0.9~v0.11 팔 뼈대 (v0.12에서 제거)
 v0.11(f591793, CI PASS): 손목만 꺾으면 팔뚝 유지(ArmFollower = 웹 followElbow). v0.10.1(e56a97c): recycle된 비트맵 수정. 팔뚝 방향을 화면 피부색에서 읽고(ForearmFinder, 웹 forearm.js 이식) 손가락과 같은 하늘색 선·점으로 그림. 폰 확인 전.

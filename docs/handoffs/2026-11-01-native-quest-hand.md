@@ -20,3 +20,11 @@
 - 알려진 모양 문제: 화면 점과 MediaPipe 3D 깊이가 크게 어긋나는 프레임은 손이 두툼/늘어나 보임(카메라 가까운 손). 손 모델이 사용자 손보다 굵음.
 - [CI run 41356869193](https://github.com/yonddu/3d-hand/actions/runs/41356869193) PASS(빌드·JVM 테스트·Lint·ufbx 21관절). [APK ZIP](https://github.com/yonddu/3d-hand/actions/runs/41356869193/artifacts/13103174332) 17,564,963 bytes(+0.32 MB), 2026-11-15 만료.
 - 폰 확인 전. WebView 그리기 지연(카메라보다 1프레임 늦을 수 있음)·속도 미측정.
+
+## v0.13 (코드 2de822f) — 몸 추적(MediaPipe Pose) 별도 옵션
+- 사용자: "여기에 mediapipe pose도 같이 넣자", "포즈 트레킹 옵션도 별도로 추가하란거임 내 몸트레킹도 필요해져서".
+- 버튼 "몸 추적(MediaPipe Pose) 켜기"(기본 꺼짐). 켜면 PoseLandmarker lite(vendor/models/pose_landmarker_lite.task, Apache-2.0, 5.8 MB; gradle prepareHandModel이 같이 복사)를 손과 같은 GPU/CPU 방식, 1명, 같은 프레임(MPImage close 전)에 돌림.
+- 화면: 몸 33점 주황 선·점(visibility ≥ 0.5). 상태 줄 "몸 있음(N ms)/없음/꺼짐".
+- 기록 JSON 프레임마다 `pose: {lm: 33×(x,y,z,visibility), world: 33×(x,y,z)}`. FBX는 손만(몸 미포함).
+- [CI run 41361313644](https://github.com/yonddu/3d-hand/actions/runs/41361313644) PASS. [APK ZIP](https://github.com/yonddu/3d-hand/actions/runs/41361313644/artifacts/13104959113) 22,540,567 bytes(+5.0 MB), 2026-11-15 만료. versionCode 14, `0.13-native-pose`. 폰 확인 전, 몸 켰을 때 FPS 미측정.
+- 주의: 1인칭(폰을 눈앞에 들고 손만 찍음)에서는 몸이 거의 안 보여 Pose가 대부분 못 찾음. 몸 전체가 보이게 찍어야 함.
