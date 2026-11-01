@@ -30,6 +30,8 @@ import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.core.Delegate
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarker
+import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarker
+import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarkerResult
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.Executors
@@ -43,6 +45,9 @@ class MainActivity : ComponentActivity() {
     private val exportWorker = Executors.newSingleThreadExecutor()
     private val uiQueued = AtomicBoolean(false)
     private var landmarker: HandLandmarker? = null // accessed only on worker
+    private var poseLandmarker: PoseLandmarker? = null // accessed only on worker; null = pose off or failed
+    @Volatile private var poseOn = false // separate option (user: body tracking when needed)
+    private var poseMs = 0.0
     private var provider: ProcessCameraProvider? = null
     private lateinit var preview: PreviewView
     private lateinit var overlay: LandmarkOverlay
@@ -50,6 +55,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var status: TextView
     private lateinit var recordButton: Button
     private lateinit var handsButton: Button
+    private lateinit var poseButton: Button
     @Volatile private var maxHands = 2
     private var recordedMaxHands = 2
     private lateinit var backendButton: Button
@@ -165,7 +171,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         val title = TextView(this).apply {
-            text = "Hand Motion · 네이티브 v0.12\nQuest 손 모양 · GPU / CPU 비교"
+            text = "Hand Motion · 네이티브 v0.13\nQuest 손 + MediaPipe Pose · GPU / CPU 비교"
             textSize = 18f
         }
         root.addView(title)
@@ -250,9 +256,21 @@ class MainActivity : ComponentActivity() {
             }
         }
         root.addView(handsButton)
+        poseButton = Button(this).apply {
+            text = "몸 추적(MediaPipe Pose) 켜기"; isEnabled = false
+            setOnClickListener {
+                recording = false
+                recordButton.text = "새 측정"
+                saveButton.isEnabled = frames.length() > 0
+                fbxButton.isEnabled = frames.length() > 0 && !fbxBusy
+                poseOn = !poseOn
+                startModel()
+            }
+        }
+        root.addView(poseButton)
         root.addView(buttons)
         val note = TextView(this).apply {
-            text = "측정 중지 → FBX 저장 (원본 손 관절, 팔 없음)\n화면 손: MediaPipe 점에 그대로 맞춘 Quest 손 모양"
+            text = "측정 중지 → FBX 저장 (원본 손 관절, 팔 없음) · 기록 JSON에 몸 33점 포함\n화면 손: MediaPipe 점에 그대로 맞춘 Quest 손 모양 · 몸: MediaPipe Pose 선"
             textSize = 12f
         }
         root.addView(note)
@@ -265,6 +283,7 @@ class MainActivity : ComponentActivity() {
         recordButton.isEnabled = false
         backendButton.isEnabled = false
         handsButton.isEnabled = false
+        poseButton.isEnabled = false
         provider?.unbindAll()
         status.text = "${backend.name} 모델 준비 중…"
         worker.execute {
@@ -284,11 +303,26 @@ class MainActivity : ComponentActivity() {
                     .setMinTrackingConfidence(0.5f)
                     .build()
                 landmarker = HandLandmarker.createFromOptions(this, options)
+                poseLandmarker?.close()
+                poseLandmarker = null
+                if (poseOn) try {
+                    // MediaPipe Pose (lite, Apache-2.0): the body's 33 points, one person.
+                    poseLandmarker = PoseLandmarker.createFromOptions(this, PoseLandmarker.PoseLandmarkerOptions.builder()
+                        .setBaseOptions(BaseOptions.builder().setModelAssetPath("pose_landmarker_lite.task").setDelegate(backend).build())
+                        .setRunningMode(RunningMode.VIDEO)
+                        .setNumPoses(1)
+                        .setMinPoseDetectionConfidence(0.5f)
+                        .setMinPosePresenceConfidence(0.5f)
+                        .setMinTrackingConfidence(0.5f)
+                        .build())
+                } catch (e: Exception) { lastError = "포즈 모델 시작 실패: ${e.message}" }
                 ready = true
                 runOnUiThread {
                     if (!destroyed) {
                         recordButton.isEnabled = true
                         handsButton.isEnabled = true
+                        poseButton.isEnabled = true
+                        poseButton.text = if (poseOn) "몸 추적 켜짐 · 끄기" else "몸 추적(MediaPipe Pose) 켜기"
                         handsButton.text = if (maxHands == 2) "현재 두 손 · 한 손 비교로 전환" else "현재 한 손만 추적 · 두 손으로 전환"
                         backendButton.isEnabled = true
                         backendButton.text = if (backend == Delegate.GPU) "CPU로 전환" else "GPU로 전환"
@@ -343,8 +377,19 @@ class MainActivity : ComponentActivity() {
                             val uw = upright.width; val uh = upright.height
                             val input = BitmapImageBuilder(upright).build()
                             // MPImage.close() recycles the bitmap it wraps: nothing reads upright after this.
-                            val result = try { landmarker!!.detectForVideo(input, timestamp) } finally { input.close() }
+                            var pose: PoseLandmarkerResult? = null
+                            var handsDone = 0L
+                            val result = try {
+                                landmarker!!.detectForVideo(input, timestamp).also {
+                                    handsDone = SystemClock.elapsedRealtimeNanos()
+                                    // The body on the same picture, before close() recycles it.
+                                    pose = try { poseLandmarker?.detectForVideo(input, timestamp) } catch (e: Throwable) {
+                                        lastError = "포즈: ${e.javaClass.simpleName} ${e.message}"; null
+                                    }
+                                }
+                            } finally { input.close() }
                             val finished = SystemClock.elapsedRealtimeNanos()
+                            poseMs = if (poseLandmarker != null) (finished - handsDone) / 1e6 else 0.0
                             val preMs = (inferenceStart - entered) / 1e6
                             val inferMs = (finished - inferenceStart) / 1e6
                             val callbackMs = (finished - entered) / 1e6
@@ -365,7 +410,14 @@ class MainActivity : ComponentActivity() {
                                     hands.put(JSONObject().put("label", category.categoryName().lowercase(Locale.ROOT))
                                         .put("score", category.score().toDouble()).put("lm", lm).put("world", world))
                                 }
+                                val bodyJson = pose?.takeIf { it.landmarks().isNotEmpty() }?.let { r ->
+                                    val lm = JSONArray(); val world = JSONArray()
+                                    r.landmarks()[0].forEach { q -> lm.put(q.x().toDouble()).put(q.y().toDouble()).put(q.z().toDouble()).put(q.visibility().orElse(0f).toDouble()) }
+                                    r.worldLandmarks().getOrNull(0)?.forEach { q -> world.put(q.x().toDouble()).put(q.y().toDouble()).put(q.z().toDouble()) }
+                                    JSONObject().put("lm", lm).put("world", world)
+                                }
                                 frames.put(JSONObject().put("t", (entered - startedAt) / 1e9).put("hands", hands)
+                                    .apply { if (bodyJson != null) put("pose", bodyJson) }
                                     .put("imageWidth", uw).put("imageHeight", uh)
                                     .put("maxHands", recordedMaxHands).put("delegate", recordedBackend)
                                     .put("sourceWidth", image.width).put("sourceHeight", image.height)
@@ -381,6 +433,8 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                             val points = result.landmarks().map { hand -> hand.map { Pair(it.x(), it.y()) } }
+                            // Body points (x, y, visibility); empty when pose is off or sees nobody.
+                            val body = pose?.landmarks()?.firstOrNull()?.map { Triple(it.x(), it.y(), it.visibility().orElse(0f)) } ?: emptyList()
                             val w = frameWidth; val h = frameHeight
                             // The Quest-style hand: each hand's points in front of the camera (HandPlace).
                             val aspect = w.toDouble() / h
@@ -397,8 +451,9 @@ class MainActivity : ComponentActivity() {
                             val updateStats = now - lastUi >= 300
                             if (updateStats) lastUi = now
                             val summary = if (updateStats) String.format(Locale.KOREA,
-                                "%s · Android %s · %s 요청 · 최대 %d손\n입력 %d×%d · 처리 %.1f FPS · 손 %d개\n전처리 p50 %.1fms · 추론 p50 %.1fms / p95 %.1fms\n분석 콜백→결과 p50 %.1fms\n처리 %d · 손 없음 %d · 오류 %d · 기록 %d",
+                                "%s · Android %s · %s 요청 · 최대 %d손\n입력 %d×%d · 처리 %.1f FPS · 손 %d개 · 몸 %s\n전처리 p50 %.1fms · 추론 p50 %.1fms / p95 %.1fms\n분석 콜백→결과 p50 %.1fms\n처리 %d · 손 없음 %d · 오류 %d · 기록 %d",
                                 Build.MODEL, Build.VERSION.RELEASE, backend.name, maxHands, w, h, timing.fps(), points.size,
+                                if (!poseOn) "꺼짐" else if (body.isEmpty()) "없음" else String.format(Locale.KOREA, "있음(%.0fms)", poseMs),
                                 timing.percentile(1, .5), timing.percentile(2, .5), timing.percentile(2, .95),
                                 timing.percentile(3, .5), processed, empty, errors, frames.length()) +
                                 (if (lastError.isNotEmpty()) "\n마지막 오류: $lastError" else "") else null
@@ -407,7 +462,7 @@ class MainActivity : ComponentActivity() {
                                     if (!destroyed) {
                                         handView.show(w, h, meshHands)
                                         // Plain points until the hand model draws (or if it cannot).
-                                        overlay.update(if (handView.ready) emptyList() else points, w, h)
+                                        overlay.update(if (handView.ready) emptyList() else points, body, w, h)
                                         if (handView.lastError.isNotEmpty()) lastError = handView.lastError
                                         if (summary != null) status.text = summary
                                     }
@@ -456,7 +511,7 @@ class MainActivity : ComponentActivity() {
         destroyed = true
         recording = false
         provider?.unbindAll()
-        worker.execute { landmarker?.close(); landmarker = null }
+        worker.execute { landmarker?.close(); landmarker = null; poseLandmarker?.close(); poseLandmarker = null }
         worker.shutdown()
         pendingFbx?.delete()
         exportWorker.shutdown()

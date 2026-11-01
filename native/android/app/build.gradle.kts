@@ -6,8 +6,8 @@ android {
         applicationId = "com.yonddu.handmotion.benchmark"
         minSdk = 31
         targetSdk = 35
-        versionCode = 13
-        versionName = "0.12-native-quest-hand"
+        versionCode = 14
+        versionName = "0.13-native-pose"
         ndk { abiFilters += "arm64-v8a" }
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
@@ -16,6 +16,7 @@ android {
 }
 val prepareHandModel by tasks.registering(Copy::class) {
     from(rootProject.file("../../vendor/models/hand_landmarker.task"))
+    from(rootProject.file("../../vendor/models/pose_landmarker_lite.task"))
     into(layout.buildDirectory.dir("generated/handModelAssets"))
 }
 android.sourceSets["main"].assets.srcDir(layout.buildDirectory.dir("generated/handModelAssets"))

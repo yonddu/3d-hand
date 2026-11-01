@@ -5,3 +5,4 @@ HandLandmarker model: Google MediaPipe Hand Tracking model card, Apache-2.0
 This application contains no Qualcomm QNN runtime.
 three.js 0.170.0 (in hand.html): Copyright 2010-2024 three.js authors, MIT
 Hand model (hand-left.glb, hand-right.glb in hand.html): WebXR Input Profiles generic hand, Copyright 2019 Amazon, MIT (see vendor-hand/LICENSE-webxr-input-profiles.txt in the source)
+Pose model (pose_landmarker_lite.task): Google MediaPipe Pose Landmarker, Apache-2.0
