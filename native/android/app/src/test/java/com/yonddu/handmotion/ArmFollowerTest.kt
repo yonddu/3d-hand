@@ -8,9 +8,9 @@ import kotlin.math.sin
 
 class ArmFollowerTest {
     /** Hand with the wrist at w, fingers along (sin a, -cos a, 0) (up the picture), knuckles across x. */
-    private fun hand(w: DoubleArray, a: Double): DoubleArray {
-        val y = doubleArrayOf(sin(a), -cos(a), 0.0)
-        val x = doubleArrayOf(cos(a), sin(a), 0.0)
+    private fun hand(w: DoubleArray, a: Double, flex: Boolean = false): DoubleArray {
+        val y = if (flex) doubleArrayOf(0.0, -cos(a), sin(a)) else doubleArrayOf(sin(a), -cos(a), 0.0)
+        val x = if (flex) doubleArrayOf(1.0, 0.0, 0.0) else doubleArrayOf(cos(a), sin(a), 0.0)
         val cam = DoubleArray(63) { w[it % 3] }
         fun set(j: Int, p: DoubleArray) { for (k in 0..2) cam[j * 3 + k] = p[k] }
         val m = ArmRig.add(w, ArmRig.scale(y, 0.09))
@@ -27,9 +27,9 @@ class ArmFollowerTest {
         var t = 0.0
         var first: DoubleArray? = null
         repeat(10) { first = f.step(t, hand(w, 0.0), null); t += 1.0 / 30 }
-        // Bend the wrist 50 degrees over half a second, wrist still.
+        // Fold the wrist 50 degrees (flexion) over half a second, wrist still.
         var last = first!!
-        for (i in 1..15) { last = f.step(t, hand(w, Math.toRadians(50.0 * i / 15)), null); t += 1.0 / 30 }
+        for (i in 1..15) { last = f.step(t, hand(w, Math.toRadians(50.0 * i / 15), flex = true), null); t += 1.0 / 30 }
         assertTrue("forearm swung ${angle(first!!, last)} deg", angle(first!!, last) < 8)
     }
 
