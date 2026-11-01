@@ -37,3 +37,11 @@
 - 사용자 폰(v0.10): 손 0개, 오류 134. 원인: MediaPipe `MPImage.close()`가 감싼 Bitmap을 recycle함 → close 뒤 `ForearmFinder.grab(upright)`가 recycle된 Bitmap을 읽어 손 있는 프레임마다 예외. (교훈: BitmapImageBuilder에 넘긴 비트맵은 close 뒤 쓰지 말 것.)
 - 고침: detectForVideo 직후, close 전에 grab. 폭·높이는 미리 저장. 팔뚝/팔 계산 실패는 try로 감싸 손 선으로 대체(프레임은 유지). 마지막 오류를 상태 줄에 표시. `ForearmFinder.load` + JVM 테스트(합성 그림에서 오른쪽 아래 팔뚝 찾기).
 - [CI run 41220758838](https://github.com/yonddu/3d-hand/actions/runs/41220758838) PASS. [APK ZIP](https://github.com/yonddu/3d-hand/actions/runs/41220758838/artifacts/13049638591), 2026-11-14 만료. versionCode 11, `0.10.1-native-forearm`. 폰 확인 전.
+
+## v0.11 (2026-11-01, 코드 61d005f + 테스트 f591793) — 손목만 꺾으면 팔뚝 유지
+- 사용자: "웹에선 팔목 접을때 손목 방향도 그대로였는데 지금 손목 꺾으면 팔 부분도 그 각도로 같이 꺾임". 원인: v0.10은 매 프레임 기억 없이 화면 팔뚝 선(없으면 손 방향)으로 팔뚝을 정함.
+- `ArmFollower.kt` = 웹 `ArmRig.followElbow`(src/arm.js) 이식. 손목이 제자리면 팔뚝 방향 유지(0.002/프레임 드리프트), 손목이 이동할 때만 손 방향으로 복귀(4 mm/프레임 초과, 2.4 cm 이상이면 프레임당 1/3), 화면 팔뚝 선은 약하게 당김(0.08/프레임), 손목 범위 굴곡/신전 ±75°(손바닥 쪽 구분 안 함, 웹은 75/65)·편위 ±30°. 웹 숫자는 30fps 기준이라 dt로 환산. 0.15 m 점프·0.5 s 공백이면 초기화.
+- 화면은 손별(side) ArmFollower 하나씩, FBX 저장도 테이크를 시간순으로 손별 ArmFollower에 통과시킴. `ArmRig.arm`에 follower/t 인자, `pictureDir`·`handBack` 분리.
+- 테스트 ArmFollowerTest: 손목만 50° 굴곡 → 팔뚝 8° 미만 이동; 팔 이동 중이면 손 방향 10° 안으로 복귀.
+- [CI run 41268346432](https://github.com/yonddu/3d-hand/actions/runs/41268346432) PASS. [APK ZIP](https://github.com/yonddu/3d-hand/actions/runs/41268346432/artifacts/13068348433), 2026-11-15 만료. versionCode 12, `0.11-native-arm-follow`. 폰 확인 전.
+- 웹 기록: "곧은 팔"과 "팔뚝 유지" 사이 균형이 반복된 불만이었음(v40/41). 편위 30° 넘게 꺾으면 팔뚝이 따라 돎(범위 제한).
