@@ -46,6 +46,7 @@ class MainActivity : ComponentActivity() {
     private var provider: ProcessCameraProvider? = null
     private lateinit var preview: PreviewView
     private lateinit var overlay: LandmarkOverlay
+    private lateinit var handView: HandView
     private lateinit var status: TextView
     private lateinit var recordButton: Button
     private lateinit var handsButton: Button
@@ -59,7 +60,6 @@ class MainActivity : ComponentActivity() {
     @Volatile private var fbxBusy = false
     private var pendingFbx: File? = null
     private val timing = Timing()
-    private val forearmFinder = ForearmFinder() // used only on worker
     @Volatile private var ready = false
     @Volatile private var recording = false
     @Volatile private var destroyed = false
@@ -68,8 +68,6 @@ class MainActivity : ComponentActivity() {
     private var lastTimestamp = -1L
     private var lastUi = 0L
     private var errors = 0
-    @Volatile private var forearmErrors = 0
-    private val liveArms = HashMap<String, ArmFollower>() // worker only: the forearm held over time per side
     @Volatile private var lastError = ""
     private var processed = 0
     private var empty = 0
@@ -119,8 +117,6 @@ class MainActivity : ComponentActivity() {
                     val frame = frames.getJSONObject(f)
                     val entries = frame.getJSONArray("hands")
                     val points = mutableMapOf<String, DoubleArray>()
-                    val image = mutableMapOf<String, DoubleArray>()
-                    val forearm = mutableMapOf<String, DoubleArray>()
                     val scores = mutableMapOf<String, Double>()
                     for (h in 0 until entries.length()) {
                         val hand = entries.getJSONObject(h)
@@ -129,15 +125,9 @@ class MainActivity : ComponentActivity() {
                         val p = hand.getJSONArray("world")
                         if (side in listOf("left", "right") && p.length() == 63 && score >= (scores[side] ?: -1.0)) {
                             points[side] = DoubleArray(63) { p.getDouble(it) }; scores[side] = score
-                            val lm = hand.optJSONArray("lm")
-                            if (lm != null && lm.length() == 63) image[side] = DoubleArray(63) { lm.getDouble(it) } else image.remove(side)
-                            val fa = hand.optJSONArray("forearm")
-                            if (fa != null && fa.length() == 3) forearm[side] = DoubleArray(3) { fa.getDouble(it) } else forearm.remove(side)
                         }
                     }
-                    val iw = frame.optDouble("imageWidth", frameWidth.toDouble())
-                    val ih = frame.optDouble("imageHeight", frameHeight.toDouble())
-                    RawHandFrame(frame.getDouble("t"), points, image, iw / ih, forearm)
+                    RawHandFrame(frame.getDouble("t"), points)
                 }
                 exportWorker.execute {
                     var file: File? = null
@@ -175,7 +165,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         val title = TextView(this).apply {
-            text = "Hand Motion · 네이티브 v0.11\n손 + 손목·팔 뼈대 · GPU / CPU 비교"
+            text = "Hand Motion · 네이티브 v0.12\nQuest 손 모양 · GPU / CPU 비교"
             textSize = 18f
         }
         root.addView(title)
@@ -185,7 +175,9 @@ class MainActivity : ComponentActivity() {
             implementationMode = PreviewView.ImplementationMode.COMPATIBLE
         }
         overlay = LandmarkOverlay(this)
+        handView = HandView(this)
         stage.addView(preview, FrameLayout.LayoutParams(-1, -1))
+        stage.addView(handView, FrameLayout.LayoutParams(-1, -1))
         stage.addView(overlay, FrameLayout.LayoutParams(-1, -1))
         root.addView(stage, LinearLayout.LayoutParams(-1, 0, 1f))
         status = TextView(this).apply { text = "손 검출 모델 준비 중…"; textSize = 14f }
@@ -260,7 +252,7 @@ class MainActivity : ComponentActivity() {
         root.addView(handsButton)
         root.addView(buttons)
         val note = TextView(this).apply {
-            text = "측정 중지 → FBX 저장 (원본 손 관절 + 팔뚝·위팔 뼈대)\n손목만 꺾으면 팔뚝은 그대로, 팔을 움직이면 따라옴 · 길이는 가정 · 손 메시 없음"
+            text = "측정 중지 → FBX 저장 (원본 손 관절, 팔 없음)\n화면 손: MediaPipe 점에 그대로 맞춘 Quest 손 모양"
             textSize = 12f
         }
         root.addView(note)
@@ -350,27 +342,9 @@ class MainActivity : ComponentActivity() {
                             lastTimestamp = timestamp
                             val uw = upright.width; val uh = upright.height
                             val input = BitmapImageBuilder(upright).build()
-                            // MPImage.close() recycles the bitmap it wraps: take the small forearm copy before it.
-                            var grabbed = false
-                            val result = try {
-                                landmarker!!.detectForVideo(input, timestamp).also { r ->
-                                    if (r.landmarks().isNotEmpty()) try { forearmFinder.grab(upright); grabbed = true } catch (e: Throwable) {
-                                        forearmErrors++; lastError = "팔뚝 화면: ${e.javaClass.simpleName} ${e.message}"
-                                    }
-                                }
-                            } finally { input.close() }
+                            // MPImage.close() recycles the bitmap it wraps: nothing reads upright after this.
+                            val result = try { landmarker!!.detectForVideo(input, timestamp) } finally { input.close() }
                             val finished = SystemClock.elapsedRealtimeNanos()
-                            // The forearm's line in the picture, per hand (ForearmFinder).
-                            // Never lets a forearm failure stop the hand tracking: no line -> the hand's own line.
-                            val forearms: List<DoubleArray?> = try {
-                                result.landmarks().map { hand ->
-                                    if (!grabbed) return@map null
-                                    forearmFinder.find(DoubleArray(63).also { a -> hand.forEachIndexed { j, q -> a[j * 3] = q.x().toDouble(); a[j * 3 + 1] = q.y().toDouble() } })
-                                }
-                            } catch (e: Throwable) {
-                                forearmErrors++; lastError = "팔뚝: ${e.javaClass.simpleName} ${e.message}"
-                                result.landmarks().map { null }
-                            }
                             val preMs = (inferenceStart - entered) / 1e6
                             val inferMs = (finished - inferenceStart) / 1e6
                             val callbackMs = (finished - entered) / 1e6
@@ -383,15 +357,13 @@ class MainActivity : ComponentActivity() {
                                 if (startedAt == 0L) startedAt = entered
                                 val hands = JSONArray()
                                 result.landmarks().forEachIndexed { i, points ->
-                                    val fa = forearms.getOrNull(i)
                                     val category = result.handedness()[i][0]
                                     val lm = JSONArray()
                                     points.forEach { lm.put(it.x().toDouble()).put(it.y().toDouble()).put(it.z().toDouble()) }
                                     val world = JSONArray()
                                     result.worldLandmarks()[i].forEach { world.put(it.x().toDouble()).put(it.y().toDouble()).put(it.z().toDouble()) }
                                     hands.put(JSONObject().put("label", category.categoryName().lowercase(Locale.ROOT))
-                                        .put("score", category.score().toDouble()).put("lm", lm).put("world", world)
-                                        .apply { if (fa != null) put("forearm", JSONArray().put(fa[0]).put(fa[1]).put(fa[2])) })
+                                        .put("score", category.score().toDouble()).put("lm", lm).put("world", world))
                                 }
                                 frames.put(JSONObject().put("t", (entered - startedAt) / 1e9).put("hands", hands)
                                     .put("imageWidth", uw).put("imageHeight", uh)
@@ -410,19 +382,15 @@ class MainActivity : ComponentActivity() {
                             }
                             val points = result.landmarks().map { hand -> hand.map { Pair(it.x(), it.y()) } }
                             val w = frameWidth; val h = frameHeight
-                            // Forearm and upper arm hung from each hand (ArmRig), as picture lines.
+                            // The Quest-style hand: each hand's points in front of the camera (HandPlace).
                             val aspect = w.toDouble() / h
-                            val arms = try { result.landmarks().indices.mapNotNull { i ->
+                            val meshHands = try { result.landmarks().indices.mapNotNull { i ->
                                 val side = result.handedness()[i][0].categoryName().lowercase(Locale.ROOT)
                                 val world = DoubleArray(63).also { a -> result.worldLandmarks()[i].forEachIndexed { j, q -> a[j * 3] = q.x().toDouble(); a[j * 3 + 1] = q.y().toDouble(); a[j * 3 + 2] = q.z().toDouble() } }
                                 val img = DoubleArray(63).also { a -> result.landmarks()[i].forEachIndexed { j, q -> a[j * 3] = q.x().toDouble(); a[j * 3 + 1] = q.y().toDouble(); a[j * 3 + 2] = q.z().toDouble() } }
-                                val fa = forearms[i]
-                                val joints = RawFbx.joints(RawHandFrame(finished / 1e9, mapOf(side to world), mapOf(side to img), aspect,
-                                    if (fa != null) mapOf(side to fa) else emptyMap()), side, liveArms.getOrPut(side) { ArmFollower() }) ?: return@mapNotNull null
-                                val sh = joints.copyOfRange(0, 3); val el = joints.copyOfRange(3, 6); val wr = joints.copyOfRange(6, 9)
-                                listOfNotNull(ArmRig.projectLine(wr, el, aspect), ArmRig.projectLine(el, sh, aspect))
-                            }.flatten() } catch (e: Throwable) {
-                                lastError = "팔: ${e.javaClass.simpleName} ${e.message}"
+                                HandPlace.onRays(world, img, aspect)?.let { Triple(side, it, HandPlace.palm(world)) }
+                            } } catch (e: Throwable) {
+                                lastError = "손 배치: ${e.javaClass.simpleName} ${e.message}"
                                 emptyList()
                             }
                             val now = SystemClock.uptimeMillis()
@@ -437,7 +405,10 @@ class MainActivity : ComponentActivity() {
                             if (uiQueued.compareAndSet(false, true)) runOnUiThread {
                                 try {
                                     if (!destroyed) {
-                                        overlay.update(points, arms, w, h)
+                                        handView.show(w, h, meshHands)
+                                        // Plain points until the hand model draws (or if it cannot).
+                                        overlay.update(if (handView.ready) emptyList() else points, w, h)
+                                        if (handView.lastError.isNotEmpty()) lastError = handView.lastError
                                         if (summary != null) status.text = summary
                                     }
                                 } finally { uiQueued.set(false) }

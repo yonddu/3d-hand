@@ -3,3 +3,5 @@ MediaPipe: Copyright The MediaPipe Authors, Apache-2.0
 AndroidX CameraX and Activity: Copyright The Android Open Source Project, Apache-2.0
 HandLandmarker model: Google MediaPipe Hand Tracking model card, Apache-2.0
 This application contains no Qualcomm QNN runtime.
+three.js 0.170.0 (in hand.html): Copyright 2010-2024 three.js authors, MIT
+Hand model (hand-left.glb, hand-right.glb in hand.html): WebXR Input Profiles generic hand, Copyright 2019 Amazon, MIT (see vendor-hand/LICENSE-webxr-input-profiles.txt in the source)
