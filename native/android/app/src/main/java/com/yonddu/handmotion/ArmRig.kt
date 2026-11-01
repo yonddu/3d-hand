@@ -82,33 +82,46 @@ object ArmRig {
      * wrist. Without a picture line, the hand's line itself. The upper arm
      * hangs from the elbow toward the usual first-person shoulder place.
      */
-    fun arm(side: String, cam: DoubleArray, image: DoubleArray? = null, forearm: DoubleArray? = null, aspect: Double = 9.0 / 16): Pair<DoubleArray, DoubleArray> {
+    fun arm(side: String, cam: DoubleArray, image: DoubleArray? = null, forearm: DoubleArray? = null, aspect: Double = 9.0 / 16,
+            follower: ArmFollower? = null, t: Double = 0.0): Pair<DoubleArray, DoubleArray> {
         val w = doubleArrayOf(cam[0], cam[1], cam[2])
-        var back = sub(w, doubleArrayOf(cam[27], cam[28], cam[29]))
-        back = if (len(back) > 1e-6) scale(back, 1 / len(back)) else doubleArrayOf(0.0, 1.0, 0.0)
-        var dir = back
-        if (forearm != null && image != null && forearm[2] >= MIN_LINE) {
-            val (fw, fh) = focal(aspect)
-            val u = image[0]; val v = image[1]
-            // Picture pixels -> normalized picture units (x by width, y by height).
-            val du = forearm[0]; val dv = forearm[1] * aspect
-            val k = 0.05 / max(sqrt(du * du + dv * dv), 1e-9)
-            val r0 = doubleArrayOf((u - 0.5) / fw, (v - 0.5) / fh, 1.0)
-            val r1 = doubleArrayOf((u + du * k - 0.5) / fw, (v + dv * k - 0.5) / fh, 1.0)
-            val along = sub(r1, r0)
-            var n = cross(r0, r1)
-            if (len(n) > 1e-9) {
-                n = scale(n, 1 / len(n))
-                var d = sub(back, scale(n, dot(back, n)))
-                if (len(d) < 0.2) d = along // the hand points at the camera: take the picture line flat
-                if (dot(d, along) < 0) d = scale(d, -1.0)
-                dir = scale(d, 1 / len(d))
-            }
-        }
+        val seen = pictureDir(cam, image, forearm, aspect)
+        val dir = follower?.step(t, cam, seen) ?: seen ?: handBack(cam)
         val e = add(w, scale(dir, FORE))
         val toShoulder = sub(shoulder(side), e)
         val s = if (len(toShoulder) > 1e-6) add(e, scale(toShoulder, UPPER / len(toShoulder))) else add(e, doubleArrayOf(0.0, 0.0, -UPPER))
         return Pair(s, e)
+    }
+
+    /** The hand's own line behind the wrist (middle-finger root -> wrist), unit. */
+    fun handBack(cam: DoubleArray): DoubleArray {
+        val back = sub(doubleArrayOf(cam[0], cam[1], cam[2]), doubleArrayOf(cam[27], cam[28], cam[29]))
+        return if (len(back) > 1e-6) scale(back, 1 / len(back)) else doubleArrayOf(0.0, 1.0, 0.0)
+    }
+
+    /**
+     * The forearm direction the picture shows (ForearmFinder line), lifted to
+     * space: of the directions that look like that line, the one nearest the
+     * hand's own line. null when there is no sure line.
+     */
+    fun pictureDir(cam: DoubleArray, image: DoubleArray?, forearm: DoubleArray?, aspect: Double): DoubleArray? {
+        if (forearm == null || image == null || forearm[2] < MIN_LINE) return null
+        val back = handBack(cam)
+        val (fw, fh) = focal(aspect)
+        val u = image[0]; val v = image[1]
+        // Picture pixels -> normalized picture units (x by width, y by height).
+        val du = forearm[0]; val dv = forearm[1] * aspect
+        val k = 0.05 / max(sqrt(du * du + dv * dv), 1e-9)
+        val r0 = doubleArrayOf((u - 0.5) / fw, (v - 0.5) / fh, 1.0)
+        val r1 = doubleArrayOf((u + du * k - 0.5) / fw, (v + dv * k - 0.5) / fh, 1.0)
+        val along = sub(r1, r0)
+        var n = cross(r0, r1)
+        if (len(n) < 1e-9) return null
+        n = scale(n, 1 / len(n))
+        var d = sub(back, scale(n, dot(back, n)))
+        if (len(d) < 0.2) d = along // the hand points at the camera: take the picture line flat
+        if (dot(d, along) < 0) d = scale(d, -1.0)
+        return scale(d, 1 / len(d))
     }
 
     /** Two-bone IK (web arm.js solveElbow): elbow on its circle, on the pole's side. */

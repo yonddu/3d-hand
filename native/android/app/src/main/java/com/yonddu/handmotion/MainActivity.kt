@@ -69,6 +69,7 @@ class MainActivity : ComponentActivity() {
     private var lastUi = 0L
     private var errors = 0
     @Volatile private var forearmErrors = 0
+    private val liveArms = HashMap<String, ArmFollower>() // worker only: the forearm held over time per side
     @Volatile private var lastError = ""
     private var processed = 0
     private var empty = 0
@@ -174,7 +175,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         val title = TextView(this).apply {
-            text = "Hand Motion · 네이티브 v0.10.1\n손 + 손목·팔 뼈대 · GPU / CPU 비교"
+            text = "Hand Motion · 네이티브 v0.11\n손 + 손목·팔 뼈대 · GPU / CPU 비교"
             textSize = 18f
         }
         root.addView(title)
@@ -259,7 +260,7 @@ class MainActivity : ComponentActivity() {
         root.addView(handsButton)
         root.addView(buttons)
         val note = TextView(this).apply {
-            text = "측정 중지 → FBX 저장 (원본 손 관절 + 팔뚝·위팔 뼈대)\n팔뚝 방향은 화면에서 읽고, 길이는 가정 · 손 메시 없음"
+            text = "측정 중지 → FBX 저장 (원본 손 관절 + 팔뚝·위팔 뼈대)\n손목만 꺾으면 팔뚝은 그대로, 팔을 움직이면 따라옴 · 길이는 가정 · 손 메시 없음"
             textSize = 12f
         }
         root.addView(note)
@@ -416,8 +417,8 @@ class MainActivity : ComponentActivity() {
                                 val world = DoubleArray(63).also { a -> result.worldLandmarks()[i].forEachIndexed { j, q -> a[j * 3] = q.x().toDouble(); a[j * 3 + 1] = q.y().toDouble(); a[j * 3 + 2] = q.z().toDouble() } }
                                 val img = DoubleArray(63).also { a -> result.landmarks()[i].forEachIndexed { j, q -> a[j * 3] = q.x().toDouble(); a[j * 3 + 1] = q.y().toDouble(); a[j * 3 + 2] = q.z().toDouble() } }
                                 val fa = forearms[i]
-                                val joints = RawFbx.joints(RawHandFrame(0.0, mapOf(side to world), mapOf(side to img), aspect,
-                                    if (fa != null) mapOf(side to fa) else emptyMap()), side) ?: return@mapNotNull null
+                                val joints = RawFbx.joints(RawHandFrame(finished / 1e9, mapOf(side to world), mapOf(side to img), aspect,
+                                    if (fa != null) mapOf(side to fa) else emptyMap()), side, liveArms.getOrPut(side) { ArmFollower() }) ?: return@mapNotNull null
                                 val sh = joints.copyOfRange(0, 3); val el = joints.copyOfRange(3, 6); val wr = joints.copyOfRange(6, 9)
                                 listOfNotNull(ArmRig.projectLine(wr, el, aspect), ArmRig.projectLine(el, sh, aspect))
                             }.flatten() } catch (e: Throwable) {

@@ -45,13 +45,13 @@ object RawFbx {
      * points) of one side in one frame, or null when that hand was not seen.
      * Without picture points the wrist is put 45 cm in front of the camera.
      */
-    fun joints(frame: RawHandFrame, side: String): DoubleArray? {
+    fun joints(frame: RawHandFrame, side: String, follower: ArmFollower? = null): DoubleArray? {
         val world = frame.hands[side]?.takeIf { valid(it) } ?: return null
         val image = frame.image[side]
         val t = (if (image != null && image.size >= 63) ArmRig.place(world, image, frame.aspect) else null)
             ?: doubleArrayOf(-world[0], -world[1], 0.45 - world[2])
         val cam = ArmRig.cameraPoints(world, t)
-        val (s, e) = ArmRig.arm(side, cam, image, frame.forearm[side], frame.aspect)
+        val (s, e) = ArmRig.arm(side, cam, image, frame.forearm[side], frame.aspect, follower, frame.t)
         return s + e + cam
     }
 
@@ -67,7 +67,7 @@ object RawFbx {
         require(frames.isNotEmpty()) { "손 관절 기록이 없습니다." }
         require(frames.all { it.t.isFinite() } && frames.zipWithNext().all { it.second.t > it.first.t }) { "기록 시간이 올바르지 않습니다." }
         val sides = listOf("left", "right").filter { side -> frames.any { valid(it.hands[side]) } }
-        val placed = sides.associateWith { side -> frames.map { joints(it, side) } }
+        val placed = sides.associateWith { side -> ArmFollower().let { f -> frames.map { joints(it, side, f) } } }
         require(sides.isNotEmpty()) { "기록에 손 관절이 없습니다. 손을 보이게 측정한 뒤 저장하세요." }
         val times = LongArray(frames.size) { ((frames[it].t - frames[0].t) * TICKS).roundToLong() }
         var next = 100000L
