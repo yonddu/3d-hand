@@ -141,3 +141,17 @@ gauntlet_rigged_left.glb: "make it like that". Also: "awkward, can't use it (wri
   the palm (arm swung with every wrist turn). User FBX take: forearm turn/frame mean 3.10 → 1.57°,
   p95 11.8 → 6.1. `HMS_NOARM` flag = old behaviour. Not phone-verified.
 - Harness: scratchpad hv/bake.cjs (take, model, out), shotf.cjs (prints window.lastFore with HMS_DEBUG).
+
+## v0.24 (2026-11-02, native 3ac4d5a) — steadier hands
+
+User GLB hand-anim-1793605873742.glb (gauntlet v1, not the baked model; 220 frames, 18.5 fps):
+"graphics jump around". Parts jump frame to frame (Thumb2 154°, root 50° in one frame). Raw
+MediaPipe itself jumps (nat1 native take, 11.9 fps: palm 16.7°/frame, p95 62°), so it is input
+noise + low fps, not the retarget.
+- Export (`exportGlb` anim): `medianFrames` ±2 frames per joint, then `smoothFrames` 0.12 s
+  (was 0.06). Jumps >15°/frame: user GLB 336→57 (max 154→28), nat1 281→100, fbx1 170→23.
+- Live: main.js `liveFilter` One Euro on cam + world points per side slot (min 1 Hz, beta 5,
+  reset after 300 ms unseen); record replays unfiltered. Python sim: palm turn/frame −25..35 %,
+  ~6 mm average offset. `HMS_NOFILTER` flag.
+- Smoothed copy of the user's GLB: project files native/hand-anim-1793605873742-smoothed.glb.
+- Open: low capture fps (12–18) on the phone; check what slows it (CPU MediaPipe? pose on?).
