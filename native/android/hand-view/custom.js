@@ -1,0 +1,195 @@
+// A hand model the user brings (GLB / glTF / FBX), driven by the raw MediaPipe
+// points like the built-in Quest hand, to see how their own rig deforms.
+//
+// Finds each finger's bones by name (Mixamo LeftHandIndex1, Unreal index_01_l,
+// Blender/Rigify f_index.01.L, Unity Index_Proximal_L, ...), ordered from the
+// palm out; the hand bone is their nearest common ancestor. Then:
+// - the whole model is moved, turned and scaled so its hand bone sits on the
+//   MediaPipe wrist with the palm turned like the seen palm (wrist -> index,
+//   middle, pinky roots), at the seen palm's size;
+// - each finger bone turns the least it must (in its own parent's frame) to aim
+//   at the next joint's MediaPipe point. Bone lengths stay the model's.
+// A model with one hand is mirrored for the other hand.
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
+import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
+
+const FINGERS = [
+  { key: 'thumb', mp: [1, 2, 3, 4], re: /thumb|pollex|(^|[^a-z])th(umb)?[_.\-\s]?\d/ },
+  { key: 'index', mp: [5, 6, 7, 8], re: /index|pointer|(^|[^a-z])ind\d/ },
+  { key: 'middle', mp: [9, 10, 11, 12], re: /middle|(^|[^a-z])mid(dle)?[_.\-\s]?\d/ },
+  { key: 'ring', mp: [13, 14, 15, 16], re: /ring|(^|[^a-z])rng\d/ },
+  { key: 'pinky', mp: [17, 18, 19, 20], re: /pinky|little|small|(^|[^a-z])pnk\d/ },
+];
+const TIP = /tip|end|nub|null|_4$|\.004$|4$|_end/;
+
+function sideOf(name) {
+  const n = name.toLowerCase();
+  if (/left|(^|[^a-z])l[_.\s]|[_.\s]l($|[^a-z])|^l(?=[A-Z])/.test(n) || /(^|[_.\s])l$/.test(n)) return 'left';
+  if (/right|(^|[^a-z])r[_.\s]|[_.\s]r($|[^a-z])/.test(n) || /(^|[_.\s])r$/.test(n)) return 'right';
+  // Mixamo / camel case: LeftHand, mixamorig:RightHandIndex1
+  if (/Left/.test(name)) return 'left';
+  if (/Right/.test(name)) return 'right';
+  return null;
+}
+
+function depth(o) { let d = 0; while (o.parent) { d++; o = o.parent; } return d; }
+function ancestors(o) { const a = []; while (o) { a.push(o); o = o.parent; } return a; }
+function commonAncestor(list) {
+  let anc = ancestors(list[0]);
+  for (const o of list.slice(1)) { const set = new Set(ancestors(o)); anc = anc.filter((x) => set.has(x)); }
+  return anc[0];
+}
+
+// One hand of the model: its bones per finger, mapped to MediaPipe points.
+function findHand(bones, side) {
+  const mine = bones.filter((b) => side === null || sideOf(b.name) === side);
+  const chains = {};
+  for (const f of FINGERS) {
+    let list = mine.filter((b) => f.re.test(b.name.toLowerCase().replace(/mixamorig[0-9]*:/, '')));
+    if (f.key !== 'thumb') list = list.filter((b) => !FINGERS[0].re.test(b.name.toLowerCase()));
+    list.sort((a, b) => depth(a) - depth(b));
+    // Keep one line of bones (a branch elsewhere is not this finger).
+    const line = [];
+    for (const b of list) if (!line.length || ancestors(b).includes(line[line.length - 1])) line.push(b);
+    let tip = null;
+    if (line.length > 3 && TIP.test(line[line.length - 1].name.toLowerCase())) tip = line.pop();
+    // Knuckle bones (metacarpals) ride with the palm: the last three are the moving ones.
+    const moving = line.slice(-3);
+    if (moving.length < 2) return null;
+    chains[f.key] = { bones: moving, tip, extra: line.slice(0, -3) };
+  }
+  const roots = FINGERS.map((f) => chains[f.key].extra[0] || chains[f.key].bones[0]);
+  let hand = commonAncestor(roots);
+  if (!hand || !(hand.isBone || /hand|wrist/i.test(hand.name))) {
+    hand = mine.find((b) => /hand|wrist/i.test(b.name) && !FINGERS.some((f) => f.re.test(b.name.toLowerCase()))) || roots[0].parent;
+  }
+  return { side, hand, chains };
+}
+
+export class CustomHand {
+  constructor(root, name) {
+    this.name = name;
+    this.template = root;
+    const bones = [];
+    root.traverse((o) => { if (o.isBone || (o.type === 'Object3D' && /hand|thumb|index|middle|ring|pinky|finger/i.test(o.name))) bones.push(o); });
+    const sides = new Set(bones.map((b) => sideOf(b.name)).filter(Boolean));
+    this.found = {};
+    for (const side of ['left', 'right']) if (sides.has(side)) this.found[side] = findHand(bones, side) && side;
+    if (!this.found.left && !this.found.right) {
+      const any = findHand(bones, null);
+      if (!any) throw new Error('손가락 뼈를 찾지 못했습니다 (thumb/index/middle/ring/pinky 이름 필요)');
+      this.found.any = true;
+    }
+    let meshes = 0; let tris = 0;
+    root.traverse((o) => {
+      if (o.isMesh) {
+        meshes++;
+        const g = o.geometry;
+        tris += g.index ? g.index.count / 3 : g.attributes.position.count / 3;
+        o.frustumCulled = false;
+      }
+    });
+    this.stats = { meshes, tris: Math.round(tris), bones: bones.length };
+    this.slots = { left: [], right: [] };
+  }
+
+  // A posable copy of the model for one hand of the picture.
+  instance(scene, side) {
+    const modelSide = this.found[side] ? side : this.found.any ? null : this.found.left ? 'left' : 'right';
+    const mirror = modelSide !== null && modelSide !== side;
+    const model = SkeletonUtils.clone(this.template);
+    // outer: mirror for the other hand; root: placed each frame (hand on the wrist); model: as loaded.
+    const outer = new THREE.Group();
+    const root = new THREE.Group();
+    outer.add(root); root.add(model);
+    root.updateMatrixWorld(true);
+    const bones = [];
+    model.traverse((o) => { if (o.isBone || (o.type === 'Object3D' && /hand|thumb|index|middle|ring|pinky|finger/i.test(o.name))) bones.push(o); });
+    const h = findHand(bones, modelSide);
+    // Rest (as loaded): local turns, and world points for the palm frame.
+    const restLocal = new Map();
+    model.traverse((o) => restLocal.set(o, o.quaternion.clone()));
+    const wp = (o) => o.getWorldPosition(new THREE.Vector3());
+    const c = h.chains;
+    const restFrame = frameOf(wp(h.hand), wp(c.index.bones[0]), wp(c.middle.bones[0]), wp(c.pinky.bones[0]));
+    const restPalm = wp(c.middle.bones[0]).distanceTo(wp(h.hand));
+    // The hand bone's place and turn in the model root's frame (root at rest = identity here).
+    const handM = h.hand.matrixWorld.clone();
+    if (mirror) {
+      outer.scale.x = -1;
+      model.traverse((o) => { if (o.isMesh) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => (m.side = THREE.DoubleSide)); });
+    }
+    scene.add(outer);
+    const inst = { outer, root, h, restLocal, restFrame, restPalm, handM, mirror };
+    if (window.HMS_DEBUG) window.customDebug = { hand: h.hand.name, chains: Object.fromEntries(Object.entries(c).map(([k, v]) => [k, v.bones.map((b) => b.name).concat(v.tip ? ['tip:' + v.tip.name] : [])])), restPalm, mirror };
+    outer.visible = false;
+    return inst;
+  }
+
+  pose(inst, P) {
+    const { outer, root, h, restLocal, restFrame, restPalm, mirror } = inst;
+    if (mirror) P = P.map((p) => new THREE.Vector3(-p.x, p.y, p.z)); // pose the model's own side, then flip
+    for (const [o, q] of restLocal) o.quaternion.copy(q);
+    // Root: hand bone onto the wrist, palm turned like the seen palm, seen size.
+    const s = P[9].distanceTo(P[0]) / Math.max(restPalm, 1e-6);
+    const W = new THREE.Matrix4().copy(frameOf(P[0], P[5], P[9], P[17])).multiply(restFrame.clone().transpose());
+    const handRestPos = new THREE.Vector3().setFromMatrixPosition(inst.handM);
+    // root matrix M: M * handRestPos = P0 and M turns by W, scales by s.
+    const M = new THREE.Matrix4().makeTranslation(P[0].x, P[0].y, P[0].z)
+      .multiply(W).multiply(new THREE.Matrix4().makeScale(s, s, s))
+      .multiply(new THREE.Matrix4().makeTranslation(-handRestPos.x, -handRestPos.y, -handRestPos.z));
+    root.matrixAutoUpdate = false;
+    root.matrix.copy(M);
+    outer.updateMatrixWorld(true);
+    // Fingers: each bone aims at the next joint's seen point. Worked in outer's own
+    // space (the mirrored one for the other hand), where P lives.
+    const outerInv = outer.matrixWorld.clone().invert();
+    const tmpM = new THREE.Matrix4(); const tmpS = new THREE.Vector3(); const tmpP = new THREE.Vector3();
+    const at = (o, v) => { o.updateWorldMatrix(true, false); return v.setFromMatrixPosition(tmpM.multiplyMatrices(outerInv, o.matrixWorld)); };
+    const turnOf = (o, qOut) => { o.updateWorldMatrix(true, false); tmpM.multiplyMatrices(outerInv, o.matrixWorld).decompose(tmpP, qOut, tmpS); return qOut; };
+    const q = new THREE.Quaternion(); const pq = new THREE.Quaternion();
+    const pos = new THREE.Vector3(); const nextPos = new THREE.Vector3(); const par = new THREE.Vector3();
+    for (const f of FINGERS) {
+      const ch = h.chains[f.key];
+      const list = ch.bones;
+      const off = 3 - list.length; // two bones only: they are the outer ones
+      list.forEach((bone, k) => {
+        at(bone, pos);
+        const child = list[k + 1] || ch.tip;
+        const was = child ? at(child, nextPos).sub(pos) : pos.clone().sub(at(bone.parent, par));
+        const target = P[f.mp[k + off + 1]].clone().sub(pos);
+        if (was.lengthSq() < 1e-12 || target.lengthSq() < 1e-12) return;
+        const turn = new THREE.Quaternion().setFromUnitVectors(was.normalize(), target.normalize());
+        // turn in outer space -> the bone's local turn: parent^-1 * turn * parent, applied before its own turn
+        turnOf(bone.parent, pq);
+        q.copy(pq).invert().multiply(turn).multiply(pq);
+        bone.quaternion.premultiply(q);
+        bone.updateWorldMatrix(false, true);
+      });
+    }
+    outer.visible = true;
+  }
+}
+
+export function frameOf(wrist, index, middle, pinky) {
+  const y = middle.clone().sub(wrist).normalize();
+  const x = index.clone().sub(pinky);
+  x.addScaledVector(y, -x.dot(y)).normalize();
+  const z = new THREE.Vector3().crossVectors(x, y);
+  return new THREE.Matrix4().makeBasis(x, y, z);
+}
+
+export async function parseModel(bytes, name) {
+  const lower = name.toLowerCase();
+  const buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  let root;
+  if (lower.endsWith('.fbx')) root = new FBXLoader().parse(buf, '');
+  else root = (await new Promise((ok, no) => new GLTFLoader().parse(buf, '', ok, no))).scene;
+  // Cameras and lights of the file are not wanted.
+  const drop = [];
+  root.traverse((o) => { if (o.isCamera || o.isLight) drop.push(o); });
+  drop.forEach((o) => o.parent && o.parent.remove(o));
+  return new CustomHand(root, name);
+}

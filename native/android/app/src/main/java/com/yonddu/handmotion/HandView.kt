@@ -3,6 +3,9 @@ package com.yonddu.handmotion
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Color
+import android.os.Handler
+import android.os.Looper
+import android.util.Base64
 import android.webkit.WebView
 import org.json.JSONArray
 import org.json.JSONObject
@@ -48,4 +51,31 @@ class HandView(context: Context) : WebView(context) {
             if (answer == "\"ok\"") ready = true else if (answer != "\"loading\"") lastError = "손 모델: $answer"
         }
     }
+
+    /**
+     * The user's own hand model (GLB / glTF / FBX bytes) instead of the Quest hand.
+     * done gets "ok:<summary>" or "error:<reason>". UI thread.
+     */
+    fun loadModel(name: String, bytes: ByteArray, done: (String) -> Unit) {
+        val b64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+        val pieces = b64.chunked(512 * 1024)
+        val main = Handler(Looper.getMainLooper())
+        fun poll(left: Int) {
+            evaluateJavascript("window.modelStatus || ''") { answer ->
+                val st = answer.trim('"')
+                if (st == "loading" && left > 0) main.postDelayed({ poll(left - 1) }, 300)
+                else done(if (st == "loading") "error:시간 초과" else st)
+            }
+        }
+        fun send(i: Int) {
+            if (i == pieces.size) { evaluateJavascript("modelEnd()") { poll(200) }; return }
+            evaluateJavascript("modelChunk('${pieces[i]}')") { send(i + 1) }
+        }
+        evaluateJavascript("window.modelBegin ? modelBegin(${JSONObject.quote(name)}) : 'missing'") { answer ->
+            if (answer != "\"ok\"") done("error:손 화면이 아직 준비되지 않았습니다") else send(0)
+        }
+    }
+
+    /** Back to the built-in Quest hand. */
+    fun resetModel() { evaluateJavascript("window.modelReset && modelReset()", null) }
 }

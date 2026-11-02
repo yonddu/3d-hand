@@ -56,6 +56,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var recordButton: Button
     private lateinit var handsButton: Button
     private lateinit var poseButton: Button
+    private lateinit var modelButton: Button
+    private lateinit var modelInfo: TextView
+    private var customModel = false
     @Volatile private var maxHands = 2
     private var recordedMaxHands = 2
     private lateinit var backendButton: Button
@@ -96,6 +99,38 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val openModel = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@registerForActivityResult
+        exportWorker.execute {
+            try {
+                val name = contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                    if (c.moveToFirst()) c.getString(0) else null
+                } ?: "model.glb"
+                val lower = name.lowercase(Locale.ROOT)
+                require(lower.endsWith(".glb") || lower.endsWith(".gltf") || lower.endsWith(".fbx")) { "GLB, glTF(파일 하나) 또는 FBX만 열 수 있습니다: $name" }
+                val bytes = contentResolver.openInputStream(uri)!!.use { it.readBytes() }
+                require(bytes.size <= 60 * 1024 * 1024) { "60 MB보다 큰 모델은 열지 않습니다" }
+                runOnUiThread {
+                    if (destroyed) return@runOnUiThread
+                    modelButton.isEnabled = false
+                    modelButton.text = "손 모델 불러오는 중… (${bytes.size / 1024} KB)"
+                    handView.loadModel(name, bytes) { result ->
+                        modelButton.isEnabled = true
+                        if (result.startsWith("ok:")) {
+                            customModel = true
+                            modelButton.text = "Quest 손으로 되돌리기"
+                            modelInfo.text = "내 손 모델: " + result.removePrefix("ok:")
+                        } else {
+                            modelButton.text = "내 손 모델 불러오기 (GLB/FBX)"
+                            modelInfo.text = "손 모델 열기 실패: " + result.removePrefix("error:")
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread { if (!destroyed) modelInfo.text = "손 모델 열기 실패: ${e.message}" }
+            }
+        }
+    }
     private val saveFbxDocument = registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         val file = pendingFbx
         pendingFbx = null
@@ -171,7 +206,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         val title = TextView(this).apply {
-            text = "Hand Motion · 네이티브 v0.13\nQuest 손 + MediaPipe Pose · GPU / CPU 비교"
+            text = "Hand Motion · 네이티브 v0.14\nQuest 손 / 내 손 모델 + MediaPipe Pose · GPU / CPU 비교"
             textSize = 18f
         }
         root.addView(title)
@@ -268,6 +303,18 @@ class MainActivity : ComponentActivity() {
             }
         }
         root.addView(poseButton)
+        modelButton = Button(this).apply {
+            text = "내 손 모델 불러오기 (GLB/FBX)"
+            setOnClickListener {
+                if (customModel) {
+                    handView.resetModel(); customModel = false
+                    text = "내 손 모델 불러오기 (GLB/FBX)"; modelInfo.text = ""
+                } else openModel.launch(arrayOf("*/*"))
+            }
+        }
+        root.addView(modelButton)
+        modelInfo = TextView(this).apply { textSize = 12f }
+        root.addView(modelInfo)
         root.addView(buttons)
         val note = TextView(this).apply {
             text = "측정 중지 → FBX 저장 (원본 손 관절, 팔 없음) · 기록 JSON에 몸 33점 포함\n화면 손: MediaPipe 점에 그대로 맞춘 Quest 손 모양 · 몸: MediaPipe Pose 선"

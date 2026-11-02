@@ -17,6 +17,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import leftGlb from '../vendor-hand/hand-left.glb';
 import rightGlb from '../vendor-hand/hand-right.glb';
+import { parseModel } from './custom.js';
 
 const NAMES = ['wrist',
   'thumb-metacarpal', 'thumb-phalanx-proximal', 'thumb-phalanx-distal', 'thumb-tip',
@@ -147,6 +148,34 @@ function layout(w, h) {
 // Camera space (x right, y down, z forward) -> three.js (y up, looking down -z): a turn, not a mirror.
 const toThree = (cam, j) => new THREE.Vector3(cam[j * 3], -cam[j * 3 + 1], -cam[j * 3 + 2]);
 
+// The user's own hand model (MainActivity sends the file in base64 pieces).
+let custom = null;
+let customSlots = { left: [], right: [] };
+let incoming = null;
+window.modelStatus = '';
+window.modelBegin = (name) => { incoming = { name, parts: [] }; window.modelStatus = 'loading'; return 'ok'; };
+window.modelChunk = (b64) => { incoming.parts.push(b64); return 'ok'; };
+window.modelEnd = () => {
+  const { name, parts } = incoming; incoming = null;
+  const bin = atob(parts.join(''));
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  parseModel(bytes, name).then((m) => {
+    dropCustom();
+    custom = m;
+    const st = m.stats;
+    const sides = Object.keys(m.found).filter((k) => m.found[k]).map((k) => (k === 'any' ? '방향 모름' : k === 'left' ? '왼손' : '오른손')).join('·');
+    window.modelStatus = `ok:${name} · ${sides} · 삼각형 ${st.tris.toLocaleString()} · 메시 ${st.meshes} · 뼈 ${st.bones}`;
+  }).catch((e) => { window.modelStatus = `error:${e && e.message ? e.message : e}`; });
+  return 'ok';
+};
+function dropCustom() {
+  for (const side of ['left', 'right']) customSlots[side].forEach((i) => scene.remove(i.outer));
+  customSlots = { left: [], right: [] };
+  custom = null;
+}
+window.modelReset = () => { dropCustom(); window.modelStatus = ''; return 'ok'; };
+
 window.setHands = function setHands(data) {
   if (!ready) return 'loading';
   const d = typeof data === 'string' ? JSON.parse(data) : data;
@@ -156,12 +185,21 @@ window.setHands = function setHands(data) {
   camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(0.5 / d.fh));
   camera.updateProjectionMatrix();
   for (const side of ['left', 'right']) hands[side].forEach((h) => (h.root.visible = false));
+  for (const side of ['left', 'right']) customSlots[side].forEach((i) => (i.outer.visible = false));
   const used = { left: 0, right: 0 };
   for (const hand of d.hands || []) {
     const side = hand.side === 'left' ? 'left' : 'right';
-    const model = hands[side][used[side]++];
-    if (!model || !hand.cam || hand.cam.length < 63) continue;
-    model.pose(Array.from({ length: 21 }, (_, j) => toThree(hand.cam, j)), hand.palm);
+    const n = used[side]++;
+    if (!hand.cam || hand.cam.length < 63) continue;
+    const P = Array.from({ length: 21 }, (_, j) => toThree(hand.cam, j));
+    if (custom) {
+      if (n > 1) continue;
+      if (!customSlots[side][n]) customSlots[side][n] = custom.instance(scene, side);
+      custom.pose(customSlots[side][n], P);
+    } else {
+      const model = hands[side][n];
+      if (model) model.pose(P, hand.palm);
+    }
   }
   renderer.render(scene, camera);
   return 'ok';
