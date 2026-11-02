@@ -35,6 +35,30 @@ function layout(w, h) {
 // Camera space (x right, y down, z forward) -> three.js (y up, looking down -z): a turn, not a mirror.
 const toThree = (cam, j) => new THREE.Vector3(cam[j * 3], -cam[j * 3 + 1], -cam[j * 3 + 2]);
 
+// The user's finger bone lengths per side, from MediaPipe's 3D (world) points: median over
+// the first CAL_FRAMES frames that side is seen, then kept (frame by frame they swing ~25%).
+const CAL_FRAMES = 60;
+const FINGER_MP = { thumb: [1, 2, 3, 4], index: [5, 6, 7, 8], middle: [9, 10, 11, 12], ring: [13, 14, 15, 16], pinky: [17, 18, 19, 20] };
+const cal = { left: { samples: [], lengths: null }, right: { samples: [], lengths: null } };
+const dist3 = (w, a, b) => Math.hypot(w[a * 3] - w[b * 3], w[a * 3 + 1] - w[b * 3 + 1], w[a * 3 + 2] - w[b * 3 + 2]);
+const median = (a) => { const s = [...a].sort((x, y) => x - y); return s[s.length >> 1]; };
+// true when the lengths changed (the models then need refitting)
+function calibrate(side, w) {
+  const c = cal[side];
+  if (c.samples.length >= CAL_FRAMES || !w || w.length < 63) return false;
+  const palm = dist3(w, 0, 9);
+  if (!(palm > 0.03 && palm < 0.2)) return false;
+  const one = {};
+  for (const [k, mp] of Object.entries(FINGER_MP)) one[k] = [0, 1, 2].map((i) => dist3(w, mp[i], mp[i + 1]) / palm);
+  c.samples.push(one);
+  const n = c.samples.length;
+  if (n !== 5 && n % 10 !== 0) return false;
+  c.lengths = {};
+  for (const k of Object.keys(FINGER_MP)) c.lengths[k] = [0, 1, 2].map((i) => median(c.samples.map((s) => s[k][i])));
+  return true;
+}
+window.calStatus = () => JSON.stringify({ left: cal.left.samples.length, right: cal.right.samples.length, fit: Object.fromEntries(['left', 'right'].map((s) => [s, customSlots[s].map((i) => i.fitted)])) });
+
 // The user's own hand model (MainActivity sends the file in base64 pieces).
 let custom = null;
 let customSlots = { left: [], right: [] };
@@ -87,8 +111,12 @@ window.setHands = function setHands(data) {
     const n = used[side]++;
     if (!hand.cam || hand.cam.length < 63) continue;
     const P = Array.from({ length: 21 }, (_, j) => toThree(hand.cam, j));
+    const refit = calibrate(side, hand.world);
     if (custom && n <= 1) {
-      if (!customSlots[side][n]) customSlots[side][n] = custom.instance(scene, side);
+      if (!customSlots[side][n]) {
+        customSlots[side][n] = custom.instance(scene, side);
+        if (cal[side].lengths) custom.fitLengths(customSlots[side][n], cal[side].lengths);
+      } else if (refit) customSlots[side].forEach((i) => custom.fitLengths(i, cal[side].lengths));
       // Body pose elbow for this hand (MainActivity): picture point + whether it is farther than the wrist.
       let elbow = null;
       if (hand.elbow && hand.elbow.length >= 3) {

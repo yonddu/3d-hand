@@ -27,3 +27,9 @@ turned about the elbow so the forearm runs from the pose elbow (on its picture
 ray, one model forearm from the wrist; nearer or farther as the pose says) to
 the MediaPipe wrist, and the hand bone is turned back to the seen palm. The
 upper arm stays as modelled.
+
+Finger lengths (v0.17): the page takes the user's finger bone lengths from MediaPipe's 3D
+(world) points, median of the first 60 frames per side (per frame they swing ~25%), and
+scales each model finger bone evenly about its joint (0.5 .. 1.6x) so it is as long,
+relative to the palm, as the user's. Fingertips then land on the points; fingers get
+thinner / thicker by the same factor. `calStatus()` shows samples and the scales used.

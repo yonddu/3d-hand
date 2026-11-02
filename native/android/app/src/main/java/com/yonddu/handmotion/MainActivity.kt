@@ -211,7 +211,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         val title = TextView(this).apply {
-            text = "Hand Motion · 네이티브 v0.16\nMediaPipe 점 / 내 손 모델(GLB·FBX) + MediaPipe Pose · GPU / CPU 비교"
+            text = "Hand Motion · 네이티브 v0.17\nMediaPipe 점 / 내 손 모델(GLB·FBX) + MediaPipe Pose · GPU / CPU 비교"
             textSize = 18f
         }
         root.addView(title)
@@ -505,7 +505,7 @@ class MainActivity : ComponentActivity() {
                                 val side = result.handedness()[i][0].categoryName().lowercase(Locale.ROOT)
                                 val world = DoubleArray(63).also { a -> result.worldLandmarks()[i].forEachIndexed { j, q -> a[j * 3] = q.x().toDouble(); a[j * 3 + 1] = q.y().toDouble(); a[j * 3 + 2] = q.z().toDouble() } }
                                 val img = DoubleArray(63).also { a -> result.landmarks()[i].forEachIndexed { j, q -> a[j * 3] = q.x().toDouble(); a[j * 3 + 1] = q.y().toDouble(); a[j * 3 + 2] = q.z().toDouble() } }
-                                HandPlace.onRays(world, img, aspect)?.let { MeshHand(side, it, HandPlace.palm(world), poseElbow(pose, img)) }
+                                HandPlace.onRays(world, img, aspect)?.let { MeshHand(side, it, HandPlace.palm(world), poseElbow(pose, img), world) }
                             } } catch (e: Throwable) {
                                 lastError = "손 배치: ${e.javaClass.simpleName} ${e.message}"
                                 emptyList()

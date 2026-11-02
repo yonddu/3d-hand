@@ -169,10 +169,39 @@ export class CustomHand {
       model.traverse((o) => { if (o.isMesh) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => (m.side = THREE.DoubleSide)); });
     }
     scene.add(outer);
-    const inst = { outer, root, h, restLocal, restFrame, restPalm, handM, mirror, restHandQ, fore: restFore > 1e-6 ? fore : null, restElbow, restFore };
+    // Model finger bone lengths (bone -> next joint), in model palms: matched to the user's own later (fitLengths).
+    const lengths = {};
+    for (const f of FINGERS) {
+      const ch = c[f.key];
+      lengths[f.key] = ch.bones.map((b, k) => { const n = ch.bones[k + 1] || ch.tip; return n ? wp(n).distanceTo(wp(b)) / restPalm : 0; });
+    }
+    const inst = { outer, root, h, restLocal, restFrame, restPalm, handM, mirror, restHandQ, fore: restFore > 1e-6 ? fore : null, restElbow, restFore, lengths, fitted: null };
     if (window.HMS_DEBUG) window.customDebug = { hand: h.hand.name, chains: Object.fromEntries(Object.entries(c).map(([k, v]) => [k, v.bones.map((b) => b.name).concat(v.tip ? ['tip:' + v.tip.name] : [])])), restPalm, mirror };
     outer.visible = false;
     return inst;
+  }
+
+  // The user's finger bone lengths (from MediaPipe's 3D points, in palms: wrist -> middle root),
+  // { thumb: [3], index: [3], ... }. Each model finger bone is scaled (evenly, about its joint)
+  // so it is as long, relative to the palm, as the user's: the fingertips land on the points
+  // instead of past them. Thicker / thinner by the same factor. 0.5 .. 1.6 at most.
+  fitLengths(inst, user) {
+    const out = {};
+    for (const f of FINGERS) {
+      const ch = inst.h.chains[f.key];
+      const off = 3 - ch.bones.length;
+      let prev = 1; out[f.key] = [];
+      ch.bones.forEach((bone, k) => {
+        const m = inst.lengths[f.key][k];
+        const t = user && user[f.key] ? user[f.key][k + off] : 0;
+        const q = m > 1e-6 && t > 1e-6 ? Math.min(1.6, Math.max(0.5, t / m)) : prev;
+        bone.scale.setScalar(q / prev);
+        out[f.key].push(+q.toFixed(2));
+        prev = q;
+      });
+    }
+    inst.fitted = out;
+    return out;
   }
 
   // elbow: the body pose's elbow for this hand, { ray: unit Vector3 from the camera

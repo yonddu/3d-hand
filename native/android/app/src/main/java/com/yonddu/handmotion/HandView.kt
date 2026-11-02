@@ -16,8 +16,9 @@ import org.json.JSONObject
  * ready turns true once the page answers "ok"; until then (or if it never
  * does) the caller keeps drawing the plain points.
  */
-/** One hand for the page: side, camera-space points (63), palm (m), body-pose elbow (u, v, farther 0/1) or null. */
-data class MeshHand(val side: String, val cam: DoubleArray, val palm: Double, val elbow: DoubleArray? = null)
+/** One hand for the page: side, camera-space points (63), palm (m), body-pose elbow (u, v, farther 0/1) or null,
+ *  MediaPipe world points (63, m; the page measures the user's finger bone lengths from them). */
+data class MeshHand(val side: String, val cam: DoubleArray, val palm: Double, val elbow: DoubleArray? = null, val world: DoubleArray? = null)
 
 @SuppressLint("SetJavaScriptEnabled")
 class HandView(context: Context) : WebView(context) {
@@ -46,6 +47,7 @@ class HandView(context: Context) : WebView(context) {
             hand.cam.forEach { pts.put(Math.round(it * 1e5) / 1e5) }
             val o = JSONObject().put("side", hand.side).put("cam", pts).put("palm", hand.palm)
             hand.elbow?.let { e -> o.put("elbow", JSONArray().put(e[0]).put(e[1]).put(e[2])) }
+            hand.world?.let { wp -> val a = JSONArray(); wp.forEach { a.put(Math.round(it * 1e5) / 1e5) }; o.put("world", a) }
             list.put(o)
         }
         val json = JSONObject().put("w", width).put("h", height).put("fw", fw).put("fh", fh).put("hands", list).toString()
