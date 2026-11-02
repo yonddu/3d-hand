@@ -461,7 +461,7 @@ class MainActivity : ComponentActivity() {
         optsButton.setOnClickListener { mainCol.visibility = android.view.View.GONE; optsScroll.visibility = android.view.View.VISIBLE; updateModelButtons() }
         back.setOnClickListener { optsScroll.visibility = android.view.View.GONE; mainCol.visibility = android.view.View.VISIBLE }
         val note = TextView(this).apply {
-            text = "기본 화면 = 내 손 (MediaPipe 점과 선) · 스킨 추가: 뼈가 있는 손 모델(GLB/FBX)을 불러오면 내 손 동작으로 뼈만 돌려 씌움 (텍스처 그대로)\n추적: 손 또는 몸 (몸 = MediaPipe Pose 33점) · 측정을 멈추면 녹화 영상을 처음부터 다시 분석해 보정한 동작을 보여줌"
+            text = "기본 화면 = 내 손 (MediaPipe 점과 선) · 스킨 추가: 뼈가 있는 손 모델(GLB/FBX)을 불러오면 내 손 동작으로 뼈만 돌려 씌움 (텍스처 그대로)\n추적: 손 또는 몸 (몸 = MediaPipe Pose 33점, 전신 스킨(Mixamo/VRM)을 추가하면 팔·몸통·다리·머리가 따라 움직임) · 측정을 멈추면 녹화 영상을 처음부터 다시 분석해 보정한 동작을 보여줌"
             textSize = 12f
         }
         opts.addView(note)
@@ -654,6 +654,13 @@ class MainActivity : ComponentActivity() {
                                 lastError = "손 배치: ${e.javaClass.simpleName} ${e.message}"
                                 emptyList()
                             }
+                            // Body tracking: Pose points for the full-body skin (lm x,y,z,vis; world m).
+                            val liveBody = pose?.takeIf { poseOn && it.landmarks().isNotEmpty() && it.worldLandmarks().isNotEmpty() }?.let { r ->
+                                val lm = JSONArray(); val world = JSONArray()
+                                r.landmarks()[0].forEach { q -> lm.put(q.x().toDouble()).put(q.y().toDouble()).put(q.z().toDouble()).put(q.visibility().orElse(0f).toDouble()) }
+                                r.worldLandmarks()[0].forEach { q -> world.put(q.x().toDouble()).put(q.y().toDouble()).put(q.z().toDouble()) }
+                                JSONObject().put("lm", lm).put("world", world)
+                            }
                             val now = SystemClock.uptimeMillis()
                             val updateStats = now - lastUi >= 300
                             if (updateStats) lastUi = now
@@ -667,7 +674,7 @@ class MainActivity : ComponentActivity() {
                             if (uiQueued.compareAndSet(false, true)) runOnUiThread {
                                 try {
                                     if (!destroyed) {
-                                        handView.show(w, h, meshHands)
+                                        handView.show(w, h, meshHands, liveBody)
                                         // Plain points until the hand model draws (or if it cannot).
                                         if (!handView.frozen) overlay.update(points, body, w, h) // frozen: a recorded take is shown
                                         if (handView.lastError.isNotEmpty()) lastError = handView.lastError
@@ -777,7 +784,7 @@ class MainActivity : ComponentActivity() {
         handView.reviewStop()
         handView.frozen = true; liveButton.isEnabled = true
         val (w, h, hands) = recordedHands(frames.getJSONObject(index))
-        handView.showRecorded(w, h, hands, frames.getJSONObject(index).optDouble("t", 0.0), index, false) {}
+        handView.showRecorded(w, h, hands, frames.getJSONObject(index).optDouble("t", 0.0), index, false, false, frames.getJSONObject(index).optJSONObject("pose")) {}
         modelInfo.text = modelInfo.text.lines().first() + "\n정적 포즈 후보: 프레임 ${index + 1}/${frames.length()} · 손 ${hands.size}개"
     }
 
@@ -807,7 +814,7 @@ class MainActivity : ComponentActivity() {
                     if (bytes == null) finish("GLB 실패: " + st.removePrefix("error:")) else {
                     val p = st.split(":")
                     pendingGlb = bytes
-                    finish("GLB 준비: ${if (p.getOrNull(1) == "left") "왼손" else "오른손"} · 프레임 ${p.getOrNull(2)} · ${bytes.size / 1024} KB")
+                    finish("GLB 준비: ${when (p.getOrNull(1)) { "left" -> "왼손"; "body" -> "전신"; else -> "오른손" }} · 프레임 ${p.getOrNull(2)} · ${bytes.size / 1024} KB")
                     liveButton.isEnabled = true
                     saveGlbDocument.launch("hand-${if (mode == "pose") "pose" else "anim"}-${System.currentTimeMillis()}.glb")
                     }
@@ -954,7 +961,7 @@ class MainActivity : ComponentActivity() {
             }
             val f = take.getJSONObject(i)
             val (w, h, hands) = recordedHands(f)
-            handView.showRecorded(w, h, hands, f.optDouble("t", 0.0), i, false, true) { feed(i + 1) }
+            handView.showRecorded(w, h, hands, f.optDouble("t", 0.0), i, false, true, f.optJSONObject("pose")) { feed(i + 1) }
         }
         handView.recBegin { feed(0) }
     }

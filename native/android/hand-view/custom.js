@@ -744,15 +744,21 @@ export function frameOf(wrist, index, middle, pinky) {
   return new THREE.Matrix4().makeBasis(x, y, z);
 }
 
-export async function parseModel(bytes, name) {
+// The file as a three.js scene (+ the glTF result for VRM's humanoid map).
+export async function loadFile(bytes, name) {
   const lower = name.toLowerCase();
   const buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-  let root;
+  let root; let gltf = null;
   if (lower.endsWith('.fbx')) root = new FBXLoader().parse(buf, '');
-  else root = (await new Promise((ok, no) => new GLTFLoader().parse(buf, '', ok, no))).scene;
+  else { gltf = await new Promise((ok, no) => new GLTFLoader().parse(buf, '', ok, no)); root = gltf.scene; }
   // Cameras and lights of the file are not wanted.
   const drop = [];
   root.traverse((o) => { if (o.isCamera || o.isLight) drop.push(o); });
   drop.forEach((o) => o.parent && o.parent.remove(o));
+  return { root, gltf };
+}
+
+export async function parseModel(bytes, name) {
+  const { root } = await loadFile(bytes, name);
   return new CustomHand(root, name);
 }

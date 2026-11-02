@@ -8,7 +8,8 @@
 //   cam: the hand's 21 points in camera space (m; x right, y down, z forward),
 //   already on their picture rays (MainActivity), so the model lies over the seen hand.
 import * as THREE from 'three';
-import { parseModel, exportGlb, bakeFitted, smoothTake } from './custom.js';
+import { CustomHand, loadFile, exportGlb, bakeFitted, smoothTake } from './custom.js';
+import { parseBody } from './body.js';
 import { cleanTake } from './clean.js';
 
 const canvas = document.getElementById('c');
@@ -145,7 +146,13 @@ const lastSeen = { left: [], right: [] };
 // posed); recFinish() cleans the whole take (clean.js), poses every cleaned frame for export
 // and returns the clean-up counts. reviewPlay() then shows the corrected, smoothed animation.
 let rec = null; let recIn = null; let review = null;
-window.recBegin = () => { rec = { left: [], right: [] }; recIn = []; reviewStop(); return 'ok'; };
+window.recBegin = () => { rec = { left: [], right: [], body: [] }; recIn = []; reviewStop(); return 'ok'; };
+// Which recorded track a save / review uses: the body (body tracking) or the hand seen most.
+function recTrack() {
+  if (rec.body.length > Math.max(rec.left.length, rec.right.length) && bodyModel && bodySlot) return { side: 'body', frames: rec.body, inst: bodySlot, template: bodyModel.template };
+  const side = rec.left.length > rec.right.length ? 'left' : 'right';
+  return { side, frames: rec[side], inst: custom && customSlots[side][0], template: custom && custom.template };
+}
 window.recFinish = () => {
   if (!recIn) return 'error:no take';
   const { frames, stats } = window.HMS_NOCLEAN ? { frames: recIn, stats: {} } : cleanTake(recIn);
@@ -157,19 +164,19 @@ function reviewStop() { if (review) { cancelAnimationFrame(review.raf); review =
 window.reviewStop = () => { reviewStop(); return 'ok'; };
 window.reviewPlay = () => {
   reviewStop();
-  if (!custom || !rec) return 'error:기록이 없습니다';
-  const side = rec.left.length > rec.right.length ? 'left' : 'right';
-  const inst = customSlots[side][0];
-  if (!inst || rec[side].length < 2) return 'error:손이 잡힌 프레임이 없습니다';
+  if (!(custom || bodyModel) || !rec) return 'error:기록이 없습니다';
+  const tr = recTrack(); const inst = tr.inst;
+  if (!inst || tr.frames.length < 2) return 'error:손(몸)이 잡힌 프레임이 없습니다';
   for (const s of ['left', 'right']) customSlots[s].forEach((i) => { i.outer.visible = i === inst; });
-  const frames = smoothTake(rec[side]);
+  if (bodySlot) bodySlot.outer.visible = bodySlot === inst;
+  const frames = smoothTake(tr.frames);
   const t0 = frames[0].t; const len = frames[frames.length - 1].t - t0;
   const start = performance.now(); let k = 0;
   const step = () => {
     const tt = ((performance.now() - start) / 1000) % (len + 0.5);
     if (tt < (k ? frames[k - 1].t - t0 : 0)) k = 0;
     while (k < frames.length - 1 && frames[k + 1].t - t0 <= tt) k++;
-    custom.applySnapshot(inst, frames[k]);
+    CustomHand.prototype.applySnapshot(inst, frames[k]);
     renderer.render(scene, camera);
     review.raf = requestAnimationFrame(step);
   };
@@ -178,16 +185,16 @@ window.reviewPlay = () => {
 };
 let exportOut = null; window.exportStatus = '';
 window.exportBegin = (mode, frameIndex) => {
-  if (!custom) return 'error:손 모델이 없습니다';
+  if (!custom && !bodyModel) return 'error:스킨이 없습니다';
   if (!rec) return 'error:기록이 없습니다';
-  const side = rec.left.length > rec.right.length ? 'left' : 'right';
-  let frames = rec[side];
-  if (!frames.length) return 'error:손이 잡힌 프레임이 없습니다';
+  const tr = recTrack(); const side = tr.side;
+  let frames = tr.frames;
+  if (!frames.length || !tr.inst) return 'error:손(몸)이 잡힌 프레임이 없습니다';
   let index = 0;
   if (mode === 'pose') { let best = Infinity; frames.forEach((f, i) => { const dd = Math.abs(f.fi - frameIndex); if (dd < best) { best = dd; index = i; } }); }
-  const inst = customSlots[side][0];
+  const inst = tr.inst;
   window.exportStatus = 'working';
-  exportGlb(custom.template, inst, frames, mode, index).then((buf) => {
+  exportGlb(tr.template, inst, frames, mode, index).then((buf) => {
     const u8 = new Uint8Array(buf); let bin = '';
     for (let i = 0; i < u8.length; i += 0x8000) bin += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
     exportOut = btoa(bin);
@@ -214,7 +221,7 @@ window.bakeBegin = () => {
 window.propOn = true;
 window.setProp = (on) => {
   window.propOn = !!on;
-  const apply = (root) => root && root.traverse((o) => { if (/^Kukri/.test(o.name)) o.visible = window.propOn; });
+  const apply = (root) => root && root.traverse((o) => { if (/^Kukri/.test(o.name)) o.visible = window.propOn; }); // eslint-disable-line
   if (custom) apply(custom.template);
   for (const side of ['left', 'right']) customSlots[side].forEach((i) => apply(i.model));
   return window.propOn ? 'on' : 'off';
@@ -235,12 +242,21 @@ window.modelEnd = () => {
   const bin = atob(parts.join(''));
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  parseModel(bytes, name).then((m) => {
+  loadFile(bytes, name).then(async (f) => {
+    // One skin can drive the hands (finger bones), the whole body (humanoid bones), or both.
+    let hand = null; let body = null; let why = '';
+    try { hand = new CustomHand(f.root, name); } catch (e) { why = e && e.message ? e.message : String(e); }
+    try { body = await parseBody(f.gltf || f.root, name); } catch (e) { body = null; }
+    if (!hand && !body) throw new Error(why || '뼈를 찾지 못했습니다');
     dropCustom();
-    custom = m;
-    const st = m.stats;
-    const sides = Object.keys(m.found).filter((k) => m.found[k]).map((k) => (k === 'any' ? '방향 모름' : k === 'left' ? '왼손' : '오른손')).join('·');
-    window.modelStatus = `ok:${name} · ${sides} · 삼각형 ${st.tris.toLocaleString()} · 메시 ${st.meshes} · 뼈 ${st.bones}`;
+    custom = hand; bodyModel = body;
+    const parts = [];
+    if (hand) {
+      const st = hand.stats;
+      parts.push(`손: ${Object.keys(hand.found).filter((k) => hand.found[k]).map((k) => (k === 'any' ? '방향 모름' : k === 'left' ? '왼손' : '오른손')).join('·')} · 삼각형 ${st.tris.toLocaleString()} · 뼈 ${st.bones}`);
+    }
+    if (body) parts.push(`전신${body.vrm ? '(VRM)' : ''}: 몸 뼈 ${body.found}개 인식 (몸 추적에서 움직임)`);
+    window.modelStatus = `ok:${name} · ${parts.join(' · ')}`;
   }).catch((e) => { window.modelStatus = `error:${e && e.message ? e.message : e}`; });
   return 'ok';
 };
@@ -248,7 +264,11 @@ function dropCustom() {
   for (const side of ['left', 'right']) customSlots[side].forEach((i) => scene.remove(i.outer));
   customSlots = { left: [], right: [] };
   custom = null;
+  if (bodySlot) scene.remove(bodySlot.outer);
+  bodySlot = null; bodyModel = null;
 }
+// The full-body skin (body tracking): one instance.
+let bodyModel = null; let bodySlot = null; let bodySeen = -1e9;
 window.modelReset = () => { dropCustom(); window.modelStatus = ''; return 'ok'; };
 // 'auto' | 'left' | 'right' | 'none': which hand the loaded model is (mirroring).
 window.modelHand = (choice) => {
@@ -311,6 +331,16 @@ window.setHands = function setHands(data) {
       if (rec && d.record && n === 0) rec[side].push({ ...custom.snapshot(inst, d.t || 0), fi: d.fi });
     }
   }
+  // Body tracking: the full-body skin follows MediaPipe Pose.
+  if (d.body && bodyModel && d.body.world && d.body.world.length >= 99 && d.body.lm && d.body.lm.length >= 132) {
+    if (!bodySlot) bodySlot = bodyModel.instance(scene);
+    let w = d.body.world;
+    if (!d.record && !window.HMS_NOFILTER) w = liveFilter('bodyw', w, now);
+    const W = Array.from({ length: 33 }, (_, j) => toThree(w, j));
+    bodyModel.pose(bodySlot, W, d.body.lm, d.fw, d.fh);
+    bodySeen = now;
+    if (rec && d.record) rec.body.push({ ...CustomHand.prototype.snapshot(bodySlot, d.t || 0), fi: d.fi });
+  } else if (bodySlot && now - bodySeen > HOLD_MS) bodySlot.outer.visible = false;
   if (calWanted) calWanted = !(d.hands || []).some((h) => h.world);
   for (const side of ['left', 'right']) {
     customSlots[side].forEach((i, n) => {

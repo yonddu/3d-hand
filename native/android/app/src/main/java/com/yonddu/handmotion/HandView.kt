@@ -41,9 +41,9 @@ class HandView(context: Context) : WebView(context) {
     /** Live frames are not drawn while a recorded frame is shown (choosing a still pose). */
     @Volatile var frozen = false
 
-    fun show(width: Int, height: Int, hands: List<MeshHand>) {
+    fun show(width: Int, height: Int, hands: List<MeshHand>, body: JSONObject? = null) {
         if (busy || frozen) return // the page has not drawn the last one yet: skip, never queue up
-        val json = handsJson(width, height, hands, null)
+        val json = handsJson(width, height, hands, body?.let { JSONObject().put("body", it) })
         busy = true
         evaluateJavascript("window.setHands ? setHands($json) : 'missing'") { answer ->
             busy = false
@@ -67,8 +67,9 @@ class HandView(context: Context) : WebView(context) {
     }
 
     /** One recorded frame, drawn (frozen view) or only posed and kept for export (record). UI thread. */
-    fun showRecorded(width: Int, height: Int, hands: List<MeshHand>, t: Double, index: Int, record: Boolean, collect: Boolean = false, done: () -> Unit) {
+    fun showRecorded(width: Int, height: Int, hands: List<MeshHand>, t: Double, index: Int, record: Boolean, collect: Boolean = false, body: JSONObject? = null, done: () -> Unit) {
         val extra = JSONObject().put("t", t).put("fi", index).put("record", record).put("noRender", record || collect)
+        if (body != null) extra.put("body", body)
         if (collect) extra.put("collect", true)
         evaluateJavascript("window.setHands ? setHands(${handsJson(width, height, hands, extra)}) : 'missing'") { done() }
     }
