@@ -233,7 +233,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         val title = TextView(this).apply {
-            text = "Hand Motion · 네이티브 v0.22"
+            text = "Hand Motion · 네이티브 v" + (try { packageManager.getPackageInfo(packageName, 0).versionName } catch (e: Exception) { "?" })
             textSize = 14f
         }
         root.addView(title)
@@ -444,6 +444,14 @@ class MainActivity : ComponentActivity() {
         loadBuiltInModel()
     }
 
+    /**
+     * MediaPipe names the hand as if the picture were a mirrored selfie; this app films with the
+     * back camera (not mirrored), so its 'Left' is the user's right hand. Saved takes and the
+     * screen use the real side ("labels": "real" in the take).
+     */
+    private fun realSide(mpName: String): String =
+        if (mpName.lowercase(Locale.ROOT) == "left") "right" else "left"
+
     /** The game's fixed hand (gauntlet left arm + kukri), shipped in assets, loaded at start. */
     private fun loadBuiltInModel(tries: Int = 0) {
         handView.evaluateJavascript("window.modelBegin ? 'ready' : ''") { st ->
@@ -603,7 +611,7 @@ class MainActivity : ComponentActivity() {
                                     points.forEach { lm.put(it.x().toDouble()).put(it.y().toDouble()).put(it.z().toDouble()) }
                                     val world = JSONArray()
                                     result.worldLandmarks()[i].forEach { world.put(it.x().toDouble()).put(it.y().toDouble()).put(it.z().toDouble()) }
-                                    hands.put(JSONObject().put("label", category.categoryName().lowercase(Locale.ROOT))
+                                    hands.put(JSONObject().put("label", realSide(category.categoryName()))
                                         .put("score", category.score().toDouble()).put("lm", lm).put("world", world))
                                 }
                                 val bodyJson = pose?.takeIf { it.landmarks().isNotEmpty() }?.let { r ->
@@ -635,7 +643,7 @@ class MainActivity : ComponentActivity() {
                             // The loaded hand model: each hand's points in front of the camera (HandPlace).
                             val aspect = w.toDouble() / h
                             val meshHands = try { result.landmarks().indices.mapNotNull { i ->
-                                val side = result.handedness()[i][0].categoryName().lowercase(Locale.ROOT)
+                                val side = realSide(result.handedness()[i][0].categoryName())
                                 val world = DoubleArray(63).also { a -> result.worldLandmarks()[i].forEachIndexed { j, q -> a[j * 3] = q.x().toDouble(); a[j * 3 + 1] = q.y().toDouble(); a[j * 3 + 2] = q.z().toDouble() } }
                                 val img = DoubleArray(63).also { a -> result.landmarks()[i].forEachIndexed { j, q -> a[j * 3] = q.x().toDouble(); a[j * 3 + 1] = q.y().toDouble(); a[j * 3 + 2] = q.z().toDouble() } }
                                 HandPlace.onRays(world, img, aspect)?.let { MeshHand(side, it, HandPlace.palm(world), poseElbow(pose, img), world) }
@@ -697,7 +705,7 @@ class MainActivity : ComponentActivity() {
         .put("timingScope", "analysis callback to synchronous result; excludes sensor exposure and display presentation")
         .put("liveBackpressure", "KEEP_ONLY_LATEST; camera frames may be dropped, not an offline all-frame pass")
         .put("raw", JSONObject().put("aspect", frameWidth.toDouble() / frameHeight)
-            .put("firstPerson", true).put("swap", false).put("rightOnImageRight", true)
+            .put("firstPerson", true).put("swap", false).put("labels", "real").put("rightOnImageRight", true)
             .put("offline", false).put("frames", frames))
         .toString()
 
