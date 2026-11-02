@@ -39,3 +39,11 @@ joints after a bone move along the finger and the skin is stretched / shortened 
 bone only, then re-bound (boneInverses shifted), so the model's finger thickness stays.
 Middle and end joints of the four fingers are hinges: the aim is projected onto the plane
 across the knuckle line (as turned by the bone before), so they never bend sideways or twist.
+
+v0.19 (skeleton fit): the calibration also takes the knuckles (finger roots, thumb base) in
+the palm's own frame; fitLengths moves the model's knuckles there (rest pose, re-bound,
+<= 0.6 palm) and rebuilds the palm frame. Each frame the knuckles are then put right on
+their MediaPipe points. PIP/DIP may bend up to 20 deg sideways (was 0; tips were off the
+points by 14-22% of the palm). Debug: HMS_DEBUG -> inst.err = picture distance per joint in
+% of the seen palm; flags HMS_NOFIT / HMS_NOKNUCKLE / HMS_NOROOT / HMS_NOHINGE.
+On the user's record (gauntlet v2, frames 65-118): no fit 14.8%, v0.18 11.6%, v0.19 6.0%.

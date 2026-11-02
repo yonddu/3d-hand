@@ -50,14 +50,26 @@ function calibrate(side, w) {
   if (!(palm > 0.03 && palm < 0.2)) return false;
   const one = {};
   for (const [k, mp] of Object.entries(FINGER_MP)) one[k] = [0, 1, 2].map((i) => dist3(w, mp[i], mp[i + 1]) / palm);
+  // Knuckles (finger roots, thumb base) in the palm's own frame, in palms: x toward the index
+  // side, y wrist -> middle root, z = x cross y.
+  const v = (i) => [w[i * 3] - w[0], w[i * 3 + 1] - w[1], w[i * 3 + 2] - w[2]];
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const unit = (a) => { const n = Math.hypot(...a) || 1; return a.map((x) => x / n); };
+  const y = unit(v(9)); let x = v(5).map((a, i) => a - w[17 * 3 + i] + w[i]);
+  x = unit(x.map((a, i) => a - dot(x, y) * y[i]));
+  const z = [x[1] * y[2] - x[2] * y[1], x[2] * y[0] - x[0] * y[2], x[0] * y[1] - x[1] * y[0]];
+  one.knuckles = {};
+  for (const [k, mp] of Object.entries(FINGER_MP)) { const p = v(mp[0]); one.knuckles[k] = [dot(p, x) / palm, dot(p, y) / palm, dot(p, z) / palm]; }
   c.samples.push(one);
   const n = c.samples.length;
   if (n !== 5 && n % 10 !== 0) return false;
   c.lengths = {};
   for (const k of Object.keys(FINGER_MP)) c.lengths[k] = [0, 1, 2].map((i) => median(c.samples.map((s) => s[k][i])));
+  c.lengths.knuckles = {};
+  for (const k of Object.keys(FINGER_MP)) c.lengths.knuckles[k] = [0, 1, 2].map((i) => median(c.samples.map((s) => s.knuckles[k][i])));
   return true;
 }
-window.calStatus = () => JSON.stringify({ left: cal.left.samples.length, right: cal.right.samples.length, fit: Object.fromEntries(['left', 'right'].map((s) => [s, customSlots[s].map((i) => i.fitted)])) });
+window.calStatus = () => JSON.stringify({ left: cal.left.samples.length, right: cal.right.samples.length, fit: Object.fromEntries(['left', 'right'].map((s) => [s, customSlots[s].map((i) => i.fitted)])), err: Object.fromEntries(['left', 'right'].map((s) => [s, customSlots[s].map((i) => i.err)])) });
 
 // The user's own hand model (MainActivity sends the file in base64 pieces).
 let custom = null;
@@ -115,8 +127,8 @@ window.setHands = function setHands(data) {
     if (custom && n <= 1) {
       if (!customSlots[side][n]) {
         customSlots[side][n] = custom.instance(scene, side);
-        if (cal[side].lengths) custom.fitLengths(customSlots[side][n], cal[side].lengths);
-      } else if (refit) customSlots[side].forEach((i) => custom.fitLengths(i, cal[side].lengths));
+        if (cal[side].lengths && !window.HMS_NOFIT) custom.fitLengths(customSlots[side][n], cal[side].lengths);
+      } else if (refit && !window.HMS_NOFIT) customSlots[side].forEach((i) => custom.fitLengths(i, cal[side].lengths));
       // Body pose elbow for this hand (MainActivity): picture point + whether it is farther than the wrist.
       let elbow = null;
       if (hand.elbow && hand.elbow.length >= 3) {

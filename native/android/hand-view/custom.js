@@ -23,6 +23,7 @@ const FINGERS = [
   { key: 'ring', mp: [13, 14, 15, 16], re: /ring|(^|[^a-z])rng\d/ },
   { key: 'pinky', mp: [17, 18, 19, 20], re: /pinky|little|small|(^|[^a-z])pnk\d/ },
 ];
+const SIDE = Math.sin(THREE.MathUtils.degToRad(+(window.HMS_SIDE || 20)));
 const TIP = /tip|end|nub|null|_4$|\.004$|4$|_end/;
 
 function sideOf(name) {
@@ -174,6 +175,10 @@ export class CustomHand {
       }
     }
     const restLat = new THREE.Vector3().setFromMatrixColumn(restFrame, 0).normalize(); // pinky -> index
+    const restHandPos = wp(h.hand);
+    // Finger roots: their parents' rest matrices (to move a root inside its parent).
+    const rootParentInv = new Map();
+    for (const f of FINGERS) { const b = c[f.key].bones[0]; rootParentInv.set(b, b.parent.matrixWorld.clone().invert()); }
     // Each instance stretches its own copy of the skin (fitLengths).
     const skins = [];
     model.traverse((o) => {
@@ -192,7 +197,7 @@ export class CustomHand {
       const ch = c[f.key];
       lengths[f.key] = ch.bones.map((b, k) => { const n = ch.bones[k + 1] || ch.tip; return n ? wp(n).distanceTo(wp(b)) / restPalm : 0; });
     }
-    const inst = { outer, root, h, restLocal, restFrame, restPalm, handM, mirror, restHandQ, fore: restFore > 1e-6 ? fore : null, restElbow, restFore, lengths, fitted: null, restBone, restPos, restLat, skins };
+    const inst = { outer, root, h, restLocal, restFrame, restPalm, handM, mirror, restHandQ, fore: restFore > 1e-6 ? fore : null, restElbow, restFore, lengths, fitted: null, restBone, restPos, restLat, skins, restHandPos, rootParentInv, restFrame0: restFrame.clone() };
     if (window.HMS_DEBUG) window.customDebug = { hand: h.hand.name, chains: Object.fromEntries(Object.entries(c).map(([k, v]) => [k, v.bones.map((b) => b.name).concat(v.tip ? ['tip:' + v.tip.name] : [])])), restPalm, mirror };
     outer.visible = false;
     return inst;
@@ -206,10 +211,30 @@ export class CustomHand {
   fitLengths(inst, user) {
     const out = {};
     const segs = new Map();
+    // Knuckles: each finger root (and the thumb base) where the user's is, in the model's palm
+    // frame at the model's palm size. The model's own palm frame is kept (wrist, middle root).
+    const R0 = inst.restFrame0;
+    const ex = new THREE.Vector3().setFromMatrixColumn(R0, 0); const ey = new THREE.Vector3().setFromMatrixColumn(R0, 1); const ez = new THREE.Vector3().setFromMatrixColumn(R0, 2);
+    const rootShift = {};
+    for (const f of FINGERS) {
+      const ch = inst.h.chains[f.key];
+      const k = !window.HMS_NOKNUCKLE && user && user.knuckles && user.knuckles[f.key];
+      const b = ch.bones[0];
+      const was = inst.restBone.get(b).p;
+      let s = new THREE.Vector3();
+      if (k && ch.bones.length === 3 && f.key !== 'middle') {
+        const zk = inst.mirror ? -k[2] : k[2];
+        const target = inst.restHandPos.clone().addScaledVector(ex, k[0] * inst.restPalm).addScaledVector(ey, k[1] * inst.restPalm).addScaledVector(ez, zk * inst.restPalm);
+        s = target.sub(was);
+        if (s.length() > 0.6 * inst.restPalm) s.setLength(0.6 * inst.restPalm); // never wild
+      }
+      rootShift[f.key] = s;
+      b.position.copy(was.clone().add(s).applyMatrix4(inst.rootParentInv.get(b)));
+    }
     for (const f of FINGERS) {
       const ch = inst.h.chains[f.key];
       const off = 3 - ch.bones.length;
-      const shift = new THREE.Vector3();
+      const shift = rootShift[f.key].clone();
       out[f.key] = [];
       ch.bones.forEach((bone, k) => {
         const next = ch.bones[k + 1] || ch.tip;
@@ -260,6 +285,11 @@ export class CustomHand {
         sk.mesh.skeleton.boneInverses[i].copy(m);
       });
     }
+    // The palm frame the pose uses: from the knuckles where they now are.
+    const np = (f) => inst.restBone.get(inst.h.chains[f].bones[0]).p.clone().add(rootShift[f]);
+    inst.restFrame = frameOf(inst.restHandPos, np('index'), np('middle'), np('pinky'));
+    inst.restLat = new THREE.Vector3().setFromMatrixColumn(inst.restFrame, 0).normalize();
+    out.knuckleMove = Object.fromEntries(Object.entries(rootShift).map(([k, v]) => [k, +(v.length() / inst.restPalm).toFixed(3)]));
     inst.fitted = out;
     return out;
   }
@@ -321,6 +351,19 @@ export class CustomHand {
     const turnOf = (o, qOut) => { o.updateWorldMatrix(true, false); tmpM.multiplyMatrices(outerInv, o.matrixWorld).decompose(tmpP, qOut, tmpS); return qOut; };
     const q = new THREE.Quaternion(); const pq = new THREE.Quaternion();
     const pos = new THREE.Vector3(); const nextPos = new THREE.Vector3(); const par = new THREE.Vector3();
+    // Finger roots (knuckles, thumb base) right on their MediaPipe points this frame: the seen
+    // palm's shape changes a little frame to frame (and with the points' depths); the fingers
+    // then start where the seen ones do. A small move: the fit already put them near.
+    if (!window.HMS_NOROOT) {
+      for (const f of FINGERS) {
+        const b = h.chains[f.key].bones[0];
+        const off = 3 - h.chains[f.key].bones.length;
+        b.parent.updateWorldMatrix(true, false);
+        const toLocal = tmpM.multiplyMatrices(outerInv, b.parent.matrixWorld).invert();
+        b.position.copy(P[f.mp[off]]).applyMatrix4(toLocal);
+        b.updateWorldMatrix(false, true);
+      }
+    }
     for (const f of FINGERS) {
       const ch = h.chains[f.key];
       const list = ch.bones;
@@ -330,13 +373,15 @@ export class CustomHand {
         const child = list[k + 1] || ch.tip;
         const was = child ? at(child, nextPos).sub(pos) : pos.clone().sub(at(bone.parent, par));
         const target = P[f.mp[k + off + 1]].clone().sub(pos);
-        // Middle and end joints of the four fingers are hinges: they bend only about the
-        // knuckle line (as turned by the bone before), never sideways or twisted.
-        if (f.key !== 'thumb' && k >= 1) {
+        // Middle and end joints of the four fingers are hinges: they bend about the knuckle line
+        // (as turned by the bone before) and only a little sideways; they never twist.
+        if (f.key !== 'thumb' && k >= 1 && !window.HMS_NOHINGE) {
           const par = list[k - 1];
           turnOf(par, pq);
           const axis = inst.restLat.clone().applyQuaternion(inst.restBone.get(par).q.clone().invert()).applyQuaternion(pq).normalize();
-          target.addScaledVector(axis, -target.dot(axis));
+          // up to SIDE (about 20 deg) sideways, as a real finger's give; no more.
+          const lim = SIDE * target.length(); const sd = target.dot(axis);
+          target.addScaledVector(axis, Math.max(-lim, Math.min(lim, sd)) - sd);
           was.addScaledVector(axis, -was.dot(axis));
         }
         if (was.lengthSq() < 1e-12 || target.lengthSq() < 1e-12) return;
@@ -347,6 +392,19 @@ export class CustomHand {
         bone.quaternion.premultiply(q);
         bone.updateWorldMatrix(false, true);
       });
+    }
+    if (window.HMS_DEBUG) {
+      // How far each model joint is from its MediaPipe point ON THE PICTURE, in % of the
+      // seen palm (wrist -> middle root) length; (depth is not seen, so it is left out).
+      const pr = (v) => new THREE.Vector2(v.x / -v.z, v.y / -v.z);
+      const palmPx = pr(P[0]).distanceTo(pr(P[9])) || 1;
+      const ds = [];
+      for (const f of FINGERS) {
+        const ch = h.chains[f.key]; const off = 3 - ch.bones.length;
+        ch.bones.forEach((b, k) => ds.push(pr(at(b, pos)).distanceTo(pr(P[f.mp[k + off]])) / palmPx));
+        if (ch.tip) ds.push(pr(at(ch.tip, pos)).distanceTo(pr(P[f.mp[3]])) / palmPx);
+      }
+      inst.err = { all: ds.map((d) => Math.round(d * 100)), mean: +(100 * ds.reduce((a, b) => a + b, 0) / ds.length).toFixed(1), max: Math.round(100 * Math.max(...ds)) };
     }
     outer.visible = true;
   }
