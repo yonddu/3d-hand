@@ -75,6 +75,8 @@ class HandView(context: Context) : WebView(context) {
     /** "편 손 캘리브레이션": the next frame's hands are the open hands. */
     fun calibrate(done: (String) -> Unit) { evaluateJavascript("window.calibrateOpen ? calibrateOpen() : ''") { done(it.trim('"')) } }
     /** On screen: the model's skeleton fitted to the user's hand (skin on the hand) or as modelled. */
+    fun setProp(on: Boolean) { evaluateJavascript("window.setProp && setProp($on)", null) }
+
     fun fitHand(on: Boolean) { evaluateJavascript("window.fitHand && fitHand($on)", null) }
     fun clearCalibration() { evaluateJavascript("window.calibrateClear && calibrateClear()", null) }
     fun recBegin(done: () -> Unit) { evaluateJavascript("window.recBegin ? recBegin() : ''") { done() } }

@@ -361,6 +361,16 @@ class MainActivity : ComponentActivity() {
         }
         modelInfo = TextView(this).apply { textSize = 12f }
         opts.addView(modelInfo)
+        var propOn = true
+        val propButton = Button(this).apply {
+            text = "무기: 쿠크리 (누르면 맨손)"
+            setOnClickListener {
+                propOn = !propOn
+                handView.setProp(propOn)
+                text = if (propOn) "무기: 쿠크리 (누르면 맨손)" else "무기: 맨손 (누르면 쿠크리)"
+            }
+        }
+        opts.addView(propButton)
         bakeButton = Button(this).apply {
             text = "이 모델을 내 손 비율로 고쳐 저장 (GLB)"; visibility = android.view.View.GONE
             setOnClickListener { bakeModel() }

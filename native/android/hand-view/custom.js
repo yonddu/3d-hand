@@ -638,6 +638,8 @@ export async function exportGlb(template, inst, frames, mode, index) { // eslint
   const nodes = [];
   model.traverse((o) => nodes.push(o));
   const pairs = inst.animNodes.map((o, i) => [i, nodes[i]]).filter(([i, n]) => n && n.name === inst.animNodes[i].name);
+  const hidden = nodes.filter((o) => o.isMesh && !o.visible);
+  hidden.forEach((o) => o.parent.remove(o)); // a hidden prop (bare hands) is not saved
   let clip = null;
   if (mode === 'pose') {
     // The pose held around the chosen frame: per joint, the median turn over +-POSE_WINDOW s

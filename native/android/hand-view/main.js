@@ -176,6 +176,15 @@ window.bakeBegin = () => {
   }).catch((e) => { window.exportStatus = `error:${e && e.message ? e.message : e}`; });
   return 'working';
 };
+// Weapon / prop (game build: 'Kukri' under the hand bone): shown or not, on screen and in saved GLBs.
+window.propOn = true;
+window.setProp = (on) => {
+  window.propOn = !!on;
+  const apply = (root) => root && root.traverse((o) => { if (/^Kukri/.test(o.name)) o.visible = window.propOn; });
+  if (custom) apply(custom.template);
+  for (const side of ['left', 'right']) customSlots[side].forEach((i) => apply(i.model));
+  return window.propOn ? 'on' : 'off';
+};
 window.exportChunks = (size) => (exportOut ? Math.ceil(exportOut.length / size) : 0);
 window.exportChunk = (i, size) => (exportOut ? exportOut.slice(i * size, (i + 1) * size) : '');
 window.exportDone = () => { exportOut = null; return 'ok'; };
