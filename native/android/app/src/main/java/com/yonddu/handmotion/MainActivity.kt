@@ -60,6 +60,14 @@ class MainActivity : ComponentActivity() {
     private lateinit var modelInfo: TextView
     private var customModel = false
     private lateinit var sideButton: Button
+    private lateinit var modelPanel: LinearLayout
+    private lateinit var calButton: Button
+    private lateinit var glbButton: Button
+    private lateinit var stillSeek: android.widget.SeekBar
+    private lateinit var stillButton: Button
+    private lateinit var liveButton: Button
+    private var glbBusy = false
+    private var pendingGlb: ByteArray? = null
     private var modelChoice = 0 // index into MODEL_HANDS
     @Volatile private var maxHands = 2
     private var recordedMaxHands = 2
@@ -123,6 +131,8 @@ class MainActivity : ComponentActivity() {
                             modelChoice = 0
                             sideButton.text = MODEL_HANDS[0].second
                             sideButton.visibility = android.view.View.VISIBLE
+                            modelPanel.visibility = android.view.View.VISIBLE
+                            updateModelButtons()
                             modelButton.text = "손 모델 내리기 (점만 보기)"
                             modelInfo.text = "내 손 모델: " + result.removePrefix("ok:")
                         } else {
@@ -134,6 +144,16 @@ class MainActivity : ComponentActivity() {
             } catch (e: Exception) {
                 runOnUiThread { if (!destroyed) modelInfo.text = "손 모델 열기 실패: ${e.message}" }
             }
+        }
+    }
+    private val saveGlbDocument = registerForActivityResult(ActivityResultContracts.CreateDocument("model/gltf-binary")) { uri ->
+        val data = pendingGlb
+        pendingGlb = null
+        if (uri != null && data != null) exportWorker.execute {
+            try {
+                contentResolver.openOutputStream(uri)?.use { it.write(data) } ?: error("저장 파일을 열 수 없습니다.")
+                runOnUiThread { if (!destroyed) Toast.makeText(this, "GLB 저장 완료 (${data.size / 1024} KB)", Toast.LENGTH_LONG).show() }
+            } catch (e: Exception) { showError("GLB 저장 실패: ${e.message}") }
         }
     }
     private val saveFbxDocument = registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
@@ -211,7 +231,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         val title = TextView(this).apply {
-            text = "Hand Motion · 네이티브 v0.19\nMediaPipe 점 / 내 손 모델(GLB·FBX) + MediaPipe Pose · GPU / CPU 비교"
+            text = "Hand Motion · 네이티브 v0.20\nMediaPipe 점 / 내 손 모델(GLB·FBX) + MediaPipe Pose · GPU / CPU 비교"
             textSize = 18f
         }
         root.addView(title)
@@ -240,6 +260,7 @@ class MainActivity : ComponentActivity() {
                         recordButton.text = "새 측정"; recordButton.isEnabled = true
                         saveButton.isEnabled = frames.length() > 0
                         fbxButton.isEnabled = frames.length() > 0 && !fbxBusy
+                        updateModelButtons()
                     } }
                 } else worker.execute {
                     frames = JSONArray(); timing.clear(); startedAt = 0
@@ -251,6 +272,8 @@ class MainActivity : ComponentActivity() {
                         recordButton.text = "측정 중지"; recordButton.isEnabled = true
                         saveButton.isEnabled = false
                         fbxButton.isEnabled = false
+                        handView.frozen = false
+                        updateModelButtons()
                     }
                 }
             }
@@ -314,6 +337,8 @@ class MainActivity : ComponentActivity() {
                 if (customModel) {
                     handView.resetModel(); customModel = false
                     sideButton.visibility = android.view.View.GONE
+                    modelPanel.visibility = android.view.View.GONE
+                    handView.frozen = false
                     text = "내 손 모델 불러오기 (GLB/FBX)"; modelInfo.text = ""
                 } else openModel.launch(arrayOf("*/*"))
             }
@@ -331,9 +356,41 @@ class MainActivity : ComponentActivity() {
         root.addView(sideButton)
         modelInfo = TextView(this).apply { textSize = 12f }
         root.addView(modelInfo)
+        modelPanel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = android.view.View.GONE }
+        calButton = Button(this).apply {
+            text = "편 손 캘리브레이션 (손을 쫙 펴고 누르기)"
+            setOnClickListener {
+                handView.calibrate { modelInfo.text = modelInfo.text.lines().first() + "\n편 손 캘리브레이션: 다음 프레임의 손을 모델 기본 자세로 저장" }
+            }
+        }
+        glbButton = Button(this).apply {
+            text = "GLB 저장 (뼈 회전 애니메이션)"; isEnabled = false
+            setOnClickListener { exportGlb("anim", 0) }
+        }
+        stillSeek = android.widget.SeekBar(this).apply {
+            isEnabled = false
+            setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(bar: android.widget.SeekBar, value: Int, fromUser: Boolean) { if (fromUser) showStill(value) }
+                override fun onStartTrackingTouch(bar: android.widget.SeekBar) {}
+                override fun onStopTrackingTouch(bar: android.widget.SeekBar) {}
+            })
+        }
+        stillButton = Button(this).apply {
+            text = "이 프레임 정적 포즈 GLB"; isEnabled = false
+            setOnClickListener { exportGlb("pose", stillSeek.progress) }
+        }
+        liveButton = Button(this).apply {
+            text = "실시간 보기"; isEnabled = false
+            setOnClickListener { handView.frozen = false; isEnabled = false }
+        }
+        val stillRow = LinearLayout(this).apply { gravity = Gravity.CENTER; addView(stillButton); addView(liveButton) }
+        modelPanel.addView(calButton); modelPanel.addView(glbButton)
+        modelPanel.addView(TextView(this).apply { text = "정적 포즈: 아래 막대로 기록 프레임 고르기 (화면이 그 프레임으로 멈춤)"; textSize = 12f })
+        modelPanel.addView(stillSeek); modelPanel.addView(stillRow)
+        root.addView(modelPanel)
         root.addView(buttons)
         val note = TextView(this).apply {
-            text = "측정 중지 → FBX 저장 (원본 손 관절, 팔 없음) · 기록 JSON에 몸 33점 포함\n화면 손: MediaPipe 리깅 점 그대로 · 손 모델을 불러오면 그 스킨이 점 위에 덮임 · 몸: MediaPipe Pose 선"
+            text = "측정 중지 → FBX 저장 (원본 손 관절, 팔 없음) · 기록 JSON에 몸 33점 포함\n화면 손: MediaPipe 리깅 점 그대로 · 손 모델을 불러오면 그 스킨이 덮임: 뼈 길이는 모델 그대로, MediaPipe 3D 방향으로 뼈만 회전 · 몸: MediaPipe Pose 선"
             textSize = 12f
         }
         root.addView(note)
@@ -363,7 +420,7 @@ class MainActivity : ComponentActivity() {
                     .setNumHands(maxHands)
                     .setMinHandDetectionConfidence(0.5f)
                     .setMinHandPresenceConfidence(0.5f)
-                    .setMinTrackingConfidence(0.5f)
+                    .setMinTrackingConfidence(0.3f) // keep a tracked hand longer (detection stays 0.5)
                     .build()
                 landmarker = HandLandmarker.createFromOptions(this, options)
                 poseLandmarker?.close()
@@ -573,6 +630,84 @@ class MainActivity : ComponentActivity() {
      * wrist in the picture (both seen), as (u, v, 1 if the elbow is farther from the
      * camera than the wrist else 0), or null.
      */
+    private fun updateModelButtons() {
+        val has = customModel && !recording && frames.length() > 0
+        glbButton.isEnabled = has && !glbBusy
+        stillSeek.isEnabled = has
+        stillSeek.max = maxOf(0, frames.length() - 1)
+        stillButton.isEnabled = has && !glbBusy
+    }
+
+    /** The model hands of one saved frame (same placement as live). */
+    private fun recordedHands(frame: JSONObject): Triple<Int, Int, List<MeshHand>> {
+        val w = frame.optInt("imageWidth", frameWidth); val h = frame.optInt("imageHeight", frameHeight)
+        val aspect = w.toDouble() / h
+        val list = ArrayList<MeshHand>()
+        val hands = frame.optJSONArray("hands") ?: JSONArray()
+        for (i in 0 until hands.length()) {
+            val o = hands.getJSONObject(i)
+            val lm = o.getJSONArray("lm"); val wd = o.getJSONArray("world")
+            val img = DoubleArray(63) { lm.getDouble(it) }; val world = DoubleArray(63) { wd.getDouble(it) }
+            val elbow = frame.optJSONObject("pose")?.let { recordedElbow(it, img) }
+            HandPlace.onRays(world, img, aspect)?.let { list.add(MeshHand(o.getString("label"), it, HandPlace.palm(world), elbow, world)) }
+        }
+        return Triple(w, h, list)
+    }
+
+    private fun recordedElbow(pose: JSONObject, hand: DoubleArray): DoubleArray? {
+        val lm = pose.optJSONArray("lm") ?: return null
+        if (lm.length() < 33 * 4) return null
+        val world = pose.optJSONArray("world")
+        fun c(i: Int, k: Int) = lm.getDouble(i * 4 + k)
+        var best: Int? = null; var bestD = 0.12
+        for (wrist in listOf(15, 16)) {
+            if (c(wrist, 3) < 0.3) continue
+            val d = Math.hypot(c(wrist, 0) - hand[0], c(wrist, 1) - hand[1])
+            if (d < bestD) { bestD = d; best = wrist }
+        }
+        val wrist = best ?: return null
+        if (c(wrist - 2, 3) < 0.5) return null
+        val farther = if (world != null && world.length() >= 99 && world.getDouble((wrist - 2) * 3 + 2) > world.getDouble(wrist * 3 + 2)) 1.0 else 0.0
+        return doubleArrayOf(c(wrist - 2, 0), c(wrist - 2, 1), farther)
+    }
+
+    private fun showStill(index: Int) {
+        if (index >= frames.length()) return
+        handView.frozen = true; liveButton.isEnabled = true
+        val (w, h, hands) = recordedHands(frames.getJSONObject(index))
+        handView.showRecorded(w, h, hands, frames.getJSONObject(index).optDouble("t", 0.0), index, false) {}
+        modelInfo.text = modelInfo.text.lines().first() + "\n정적 포즈 후보: 프레임 ${index + 1}/${frames.length()} · 손 ${hands.size}개"
+    }
+
+    /** Replays every saved frame through the model (same turns as live), then saves a GLB. */
+    private fun exportGlb(mode: String, index: Int) {
+        if (glbBusy || recording || frames.length() == 0) return
+        glbBusy = true; updateModelButtons()
+        val total = frames.length()
+        modelInfo.text = modelInfo.text.lines().first() + "\nGLB 만드는 중… 기록 $total 프레임 재생"
+        fun finish(note: String) { glbBusy = false; updateModelButtons(); modelInfo.text = modelInfo.text.lines().first() + "\n" + note }
+        fun feed(i: Int) {
+            if (destroyed) return
+            if (i == total) {
+                handView.exportGlb(mode, index) { st, bytes ->
+                    if (bytes == null) finish("GLB 실패: " + st.removePrefix("error:")) else {
+                    val p = st.split(":")
+                    pendingGlb = bytes
+                    finish("GLB 준비: ${if (p.getOrNull(1) == "left") "왼손" else "오른손"} · 프레임 ${p.getOrNull(2)} · ${bytes.size / 1024} KB")
+                    if (mode == "anim") handView.frozen = false else liveButton.isEnabled = true
+                    saveGlbDocument.launch("hand-${if (mode == "pose") "pose" else "anim"}-${System.currentTimeMillis()}.glb")
+                    }
+                }
+                return
+            }
+            val f = frames.getJSONObject(i)
+            val (w, h, hands) = recordedHands(f)
+            handView.showRecorded(w, h, hands, f.optDouble("t", 0.0), i, true) { feed(i + 1) }
+        }
+        handView.frozen = true
+        handView.recBegin { feed(0) }
+    }
+
     private fun poseElbow(pose: PoseLandmarkerResult?, hand: DoubleArray): DoubleArray? {
         val body = pose?.landmarks()?.firstOrNull() ?: return null
         val world = pose.worldLandmarks().firstOrNull()

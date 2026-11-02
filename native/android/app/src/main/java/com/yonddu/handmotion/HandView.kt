@@ -17,7 +17,7 @@ import org.json.JSONObject
  * does) the caller keeps drawing the plain points.
  */
 /** One hand for the page: side, camera-space points (63), palm (m), body-pose elbow (u, v, farther 0/1) or null,
- *  MediaPipe world points (63, m; the page measures the user's finger bone lengths from them). */
+ *  MediaPipe world points (63, m; the page turns the model's bones by their directions). */
 data class MeshHand(val side: String, val cam: DoubleArray, val palm: Double, val elbow: DoubleArray? = null, val world: DoubleArray? = null)
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -38,8 +38,20 @@ class HandView(context: Context) : WebView(context) {
         loadDataWithBaseURL("https://hand.local/", html, "text/html", "utf-8", null)
     }
 
+    /** Live frames are not drawn while a recorded frame is shown (choosing a still pose). */
+    @Volatile var frozen = false
+
     fun show(width: Int, height: Int, hands: List<MeshHand>) {
-        if (busy) return // the page has not drawn the last one yet: skip, never queue up
+        if (busy || frozen) return // the page has not drawn the last one yet: skip, never queue up
+        val json = handsJson(width, height, hands, null)
+        busy = true
+        evaluateJavascript("window.setHands ? setHands($json) : 'missing'") { answer ->
+            busy = false
+            if (answer == "\"ok\"") ready = true else if (answer != "\"loading\"") lastError = "손 모델: $answer"
+        }
+    }
+
+    private fun handsJson(width: Int, height: Int, hands: List<MeshHand>, extra: JSONObject?): String {
         val (fw, fh) = HandPlace.focal(width.toDouble() / height)
         val list = JSONArray()
         for (hand in hands) {
@@ -50,11 +62,45 @@ class HandView(context: Context) : WebView(context) {
             hand.world?.let { wp -> val a = JSONArray(); wp.forEach { a.put(Math.round(it * 1e5) / 1e5) }; o.put("world", a) }
             list.put(o)
         }
-        val json = JSONObject().put("w", width).put("h", height).put("fw", fw).put("fh", fh).put("hands", list).toString()
-        busy = true
-        evaluateJavascript("window.setHands ? setHands($json) : 'missing'") { answer ->
-            busy = false
-            if (answer == "\"ok\"") ready = true else if (answer != "\"loading\"") lastError = "손 모델: $answer"
+        val o = extra ?: JSONObject()
+        return o.put("w", width).put("h", height).put("fw", fw).put("fh", fh).put("hands", list).toString()
+    }
+
+    /** One recorded frame, drawn (frozen view) or only posed and kept for export (record). UI thread. */
+    fun showRecorded(width: Int, height: Int, hands: List<MeshHand>, t: Double, index: Int, record: Boolean, done: () -> Unit) {
+        val extra = JSONObject().put("t", t).put("fi", index).put("record", record).put("noRender", record)
+        evaluateJavascript("window.setHands ? setHands(${handsJson(width, height, hands, extra)}) : 'missing'") { done() }
+    }
+
+    /** "편 손 캘리브레이션": the next frame's hands are the open hands. */
+    fun calibrate(done: (String) -> Unit) { evaluateJavascript("window.calibrateOpen ? calibrateOpen() : ''") { done(it.trim('"')) } }
+    fun clearCalibration() { evaluateJavascript("window.calibrateClear && calibrateClear()", null) }
+    fun recBegin(done: () -> Unit) { evaluateJavascript("window.recBegin ? recBegin() : ''") { done() } }
+
+    /**
+     * The model as GLB: mode "anim" (bone turns over the recorded frames) or "pose" (the
+     * recorded frame nearest index). done gets ("ok:<side>:<frames>:<index>:<bytes>", bytes) or ("error:...", null).
+     */
+    fun exportGlb(mode: String, index: Int, done: (String, ByteArray?) -> Unit) {
+        val main = Handler(Looper.getMainLooper())
+        val size = 512 * 1024
+        fun pull(n: Int, i: Int, sb: StringBuilder, st: String) {
+            if (i == n) { evaluateJavascript("exportDone()", null); done(st, Base64.decode(sb.toString(), Base64.NO_WRAP)); return }
+            evaluateJavascript("exportChunk($i, $size)") { piece -> sb.append(piece.trim('"')); pull(n, i + 1, sb, st) }
+        }
+        fun poll(left: Int) {
+            evaluateJavascript("window.exportStatus || ''") { answer ->
+                val st = answer.trim('"')
+                when {
+                    st == "working" && left > 0 -> main.postDelayed({ poll(left - 1) }, 300)
+                    st.startsWith("ok:") -> evaluateJavascript("exportChunks($size)") { n -> pull(n.toIntOrNull() ?: 0, 0, StringBuilder(), st) }
+                    else -> done(if (st == "working") "error:시간 초과" else st, null)
+                }
+            }
+        }
+        evaluateJavascript("window.exportBegin ? exportBegin('$mode', $index) : 'error:화면 준비 안 됨'") { answer ->
+            val st = answer.trim('"')
+            if (st == "working") poll(400) else done(st, null)
         }
     }
 

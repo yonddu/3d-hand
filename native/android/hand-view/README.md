@@ -28,6 +28,27 @@ ray, one model forearm from the wrist; nearer or farther as the pose says) to
 the MediaPipe wrist, and the hand bone is turned back to the seen palm. The
 upper arm stays as modelled.
 
+## Rotation retarget (v0.20; replaces the v0.17-v0.19 length / knuckle fits)
+
+Only directions are used, never MediaPipe positions or lengths: every bone keeps its model
+length and no bone moves except the model root (hand bone onto the seen wrist, one even
+scale for the on-screen size only).
+- Hand: palm basis from MediaPipe 3D (world) points: wrist -> middle root (forward), pinky
+  root -> index root (side); left / right handled by mirroring a one-handed model.
+- First finger bones (MCP, thumb CMC): the seen 3D direction in the palm frame; four fingers
+  limited to 30 deg back .. 100 deg toward the palm.
+- Middle / end joints of the four fingers: the seen bend at that joint (flex about the knuckle
+  line + up to 20 deg sideways; the rest of a sideways reading counts as flex, as MediaPipe
+  reads the knuckle line twisted) applied to the model's own bone before: 0 .. 115 deg, never
+  backward, no twist (each bone turns the least it must). Thumb: seen directions.
+- Parent first: hand -> first bones -> middle -> end; each turn made local through the parent.
+- "편 손 캘리브레이션": one open-hand frame = the model's rest pose (first bones: palm-frame
+  turn; middle / end: flex / side offsets). Kept in localStorage per side.
+- A hand not seen keeps its last pose 0.5 s.
+- Export: MainActivity replays the saved frames (setHands record: true), exportBegin('anim')
+  = GLB with the model, root translation + rotation and bone rotation tracks only (no scale,
+  lengths as modelled); exportBegin('pose', frame) = the model posed at that frame.
+
 Finger lengths (v0.17): the page takes the user's finger bone lengths from MediaPipe's 3D
 (world) points, median of the first 60 frames per side (per frame they swing ~25%), and
 scales each model finger bone evenly about its joint (0.5 .. 1.6x) so it is as long,
