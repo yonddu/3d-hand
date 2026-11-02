@@ -11,6 +11,7 @@ import * as THREE from 'three';
 import { CustomHand, loadFile, exportGlb, bakeFitted, smoothTake } from './custom.js';
 import { parseBody } from './body.js';
 import { cleanTake } from './clean.js';
+import { openEditor, applyRig } from './rig.js';
 
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, premultipliedAlpha: false });
@@ -245,24 +246,64 @@ window.modelEnd = () => {
   const bin = atob(parts.join(''));
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  loadFile(bytes, name).then(async (f) => {
-    // One skin can drive the hands (finger bones), the whole body (humanoid bones), or both.
-    let hand = null; let body = null; let why = '';
-    try { hand = new CustomHand(f.root, name); } catch (e) { why = e && e.message ? e.message : String(e); }
-    try { body = await parseBody(f.gltf || f.root, name); } catch (e) { body = null; }
-    if (!hand && !body) throw new Error(why || '뼈를 찾지 못했습니다');
-    dropCustom();
-    custom = hand; bodyModel = body;
-    const parts = [];
-    if (hand) {
-      const st = hand.stats;
-      parts.push(`손: ${Object.keys(hand.found).filter((k) => hand.found[k]).map((k) => (k === 'any' ? '방향 모름' : k === 'left' ? '왼손' : '오른손')).join('·')} · 삼각형 ${st.tris.toLocaleString()} · 뼈 ${st.bones}`);
-    }
-    if (body) parts.push(`전신${body.vrm ? '(VRM)' : ''}: 몸 뼈 ${body.found}개 인식 (몸 추적에서 움직임)`);
-    window.modelStatus = `ok:${name} · ${parts.join(' · ')}`;
-  }).catch((e) => { window.modelStatus = `error:${e && e.message ? e.message : e}`; });
+  rigSource = { bytes, name };
+  let rig = null;
+  try { rig = JSON.parse(localStorage.getItem(rigKey(name)) || 'null'); } catch (e) { rig = null; }
+  useModel(bytes, name, rig).then((st) => { window.modelStatus = st; })
+    .catch((e) => { window.modelStatus = `error:${e && e.message ? e.message : e} · 옵션의 '리깅 잡기'로 점 21개를 찍으면 쓸 수 있어요`; });
   return 'ok';
 };
+// The last loaded file (the rig editor reloads it fresh), and the user's point marks per file.
+let rigSource = null;
+const rigKey = (name) => `hms.rig.${name}`;
+async function useModel(bytes, name, rig) {
+  const f = await loadFile(bytes, name);
+  // One skin can drive the hands (finger bones), the whole body (humanoid bones), or both.
+  let hand = null; let body = null; let why = ''; let rigNote = '';
+  if (rig) {
+    const r = applyRig(f.root, rig); rigNote = r.note;
+    hand = new CustomHand(f.root, name, r.map);
+  } else {
+    try { hand = new CustomHand(f.root, name); } catch (e) { why = e && e.message ? e.message : String(e); }
+  }
+  try { body = await parseBody(f.gltf || f.root, name); } catch (e) { body = null; }
+  if (!hand && !body) throw new Error(why || '뼈를 찾지 못했습니다');
+  dropCustom();
+  custom = hand; bodyModel = body;
+  const parts = [];
+  if (hand) {
+    const st = hand.stats;
+    parts.push(`손: ${Object.keys(hand.found).filter((k) => hand.found[k]).map((k) => (k === 'any' ? '방향 모름' : k === 'left' ? '왼손' : '오른손')).join('·')} · 삼각형 ${st.tris.toLocaleString()} · 뼈 ${st.bones}`);
+  }
+  if (rigNote) parts.push(rigNote);
+  if (body) parts.push(`전신${body.vrm ? '(VRM)' : ''}: 몸 뼈 ${body.found}개 인식 (몸 추적에서 움직임)`);
+  return `ok:${name} · ${parts.join(' · ')}`;
+}
+// "리깅 잡기": the editor over the whole page; rigStatus: 'open' | 'done:<status>' | 'error:..' | 'cancel'.
+let rigOpenNow = false;
+window.rigStatus = '';
+window.rigOpen = () => {
+  if (!rigSource) return 'error:먼저 스킨(GLB/FBX)을 불러오세요';
+  if (rigOpenNow) return 'open';
+  rigOpenNow = true; window.rigStatus = 'open';
+  reviewStop();
+  for (const side of ['left', 'right']) customSlots[side].forEach((i) => { i.outer.visible = false; });
+  const { bytes, name } = rigSource;
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(rigKey(name)) || 'null'); } catch (e) { saved = null; }
+  loadFile(bytes, name).then((f) => {
+    window.rigEditor = openEditor({ renderer, canvas, template: f.root, name, side: custom ? custom.handedness() : 'right', saved, onDone: (rig) => {
+      rigOpenNow = false; window.rigEditor = null;
+      last = null; // the next frame lays the canvas out again
+      if (!rig) { for (const side of ['left', 'right']) customSlots[side].forEach((i) => { i.outer.visible = true; }); window.rigStatus = 'cancel'; return; }
+      try { localStorage.setItem(rigKey(name), JSON.stringify(rig)); } catch (e) { /* kept for this run only */ }
+      useModel(bytes, name, rig).then((st) => { window.modelStatus = st; window.rigStatus = `done:${st}`; })
+        .catch((e) => { window.rigStatus = `error:${e && e.message ? e.message : e}`; });
+    } });
+  }).catch((e) => { rigOpenNow = false; window.rigStatus = `error:${e && e.message ? e.message : e}`; });
+  return 'open';
+};
+window.rigForget = () => { if (rigSource) try { localStorage.removeItem(rigKey(rigSource.name)); } catch (e) { /* ignore */ } return 'ok'; };
 function dropCustom() {
   for (const side of ['left', 'right']) customSlots[side].forEach((i) => scene.remove(i.outer));
   customSlots = { left: [], right: [] };
@@ -288,6 +329,7 @@ window.setHands = function setHands(data) {
   const d = typeof data === 'string' ? JSON.parse(data) : data;
   if (d.collect) { if (recIn) recIn.push(d); return 'ok'; }
   if (review && !d.record) return 'ok'; // the corrected take is playing
+  if (rigOpenNow) return 'ok'; // the rig editor has the page
   const key = `${d.w}x${d.h}x${window.innerWidth}x${window.innerHeight}`;
   if (key !== last) { layout(d.w, d.h); last = key; }
   camera.aspect = d.w / d.h;

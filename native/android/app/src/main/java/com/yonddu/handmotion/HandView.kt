@@ -149,6 +149,24 @@ class HandView(context: Context) : WebView(context) {
         evaluateJavascript("window.modelHand ? modelHand('$choice') : ''") { done(it.trim('"')) }
     }
 
+    /**
+     * The rig screen (page draws the loaded skin full size with the 21 point names). done gets
+     * "done:ok:<model summary>", "cancel" or "error:<reason>" when the user leaves it. UI thread.
+     */
+    fun rigOpen(done: (String) -> Unit) {
+        val main = Handler(Looper.getMainLooper())
+        fun poll() {
+            evaluateJavascript("window.rigStatus || ''") { answer ->
+                val st = answer.trim('"').replace("\\\"", "\"")
+                if (st == "open") main.postDelayed({ poll() }, 400) else done(st)
+            }
+        }
+        evaluateJavascript("window.rigOpen ? rigOpen() : 'error:이전 화면 버전'") { answer ->
+            val st = answer.trim('"')
+            if (st == "open") main.postDelayed({ poll() }, 400) else done(st)
+        }
+    }
+
     /** Drop the loaded model (only the MediaPipe points stay). */
     fun resetModel() { evaluateJavascript("window.modelReset && modelReset()", null) }
 }

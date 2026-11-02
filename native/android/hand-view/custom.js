@@ -95,15 +95,28 @@ function findHand(bones, side) {
   return { side, hand, chains };
 }
 
+// A hand from the user's own point marks ('리깅 잡기'): node indices in traverse order.
+function handFromMap(model, map) {
+  const nodes = []; model.traverse((o) => nodes.push(o));
+  const chains = {};
+  for (const f of FINGERS) { const c = map.chains[f.key]; chains[f.key] = { bones: c.bones.map((i) => nodes[i]), tip: c.tip != null ? nodes[c.tip] : null, extra: [] }; }
+  return { side: map.side, hand: nodes[map.hand], chains };
+}
+
 export class CustomHand {
-  constructor(root, name) {
+  constructor(root, name, rigMap = null) {
     this.name = name;
     this.template = root;
+    this.rigMap = rigMap;
     const bones = boneList(root);
+    if (rigMap) {
+      this.found = { [rigMap.side === 'left' ? 'left' : 'right']: rigMap.side === 'left' ? 'left' : 'right' };
+      this.choice = rigMap.side === 'left' ? 'left' : 'right';
+    }
     const sides = new Set(bones.map((b) => sideOf(b.name)).filter(Boolean));
-    this.found = {};
-    for (const side of ['left', 'right']) if (sides.has(side)) this.found[side] = findHand(bones, side) && side;
-    if (!this.found.left && !this.found.right) {
+    if (!rigMap) this.found = {};
+    if (!rigMap) for (const side of ['left', 'right']) if (sides.has(side)) this.found[side] = findHand(bones, side) && side;
+    if (!rigMap && !this.found.left && !this.found.right) {
       const any = findHand(bones, null);
       if (!any) {
         let skinned = false; root.traverse((o) => { if (o.isSkinnedMesh) skinned = true; });
@@ -124,7 +137,7 @@ export class CustomHand {
     });
     this.stats = { meshes, tris: Math.round(tris), bones: bones.length };
     this.slots = { left: [], right: [] };
-    this.choice = 'auto';
+    if (!rigMap) this.choice = 'auto';
   }
 
   // The user's choice (MainActivity button): 'auto' (bone names; unknown = right),
@@ -152,7 +165,7 @@ export class CustomHand {
     const root = new THREE.Group();
     outer.add(root); root.add(model);
     root.updateMatrixWorld(true);
-    const h = findHand(boneList(model), modelSide);
+    const h = this.rigMap ? handFromMap(model, this.rigMap) : findHand(boneList(model), modelSide);
     // Rest (as loaded): local turns, and world points for the palm frame.
     const restLocal = new Map();
     model.traverse((o) => restLocal.set(o, o.quaternion.clone()));

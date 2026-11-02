@@ -60,6 +60,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var preview: PreviewView
     private lateinit var overlay: LandmarkOverlay
     private lateinit var handView: HandView
+    private lateinit var rigButton: Button
+    private var modelFile = false // a skin file is loaded (it may still need its points: rig screen)
     private lateinit var status: TextView
     private lateinit var recordButton: Button
     private lateinit var handsButton: Button
@@ -144,19 +146,11 @@ class MainActivity : ComponentActivity() {
                     modelButton.text = "손 모델 불러오는 중… (${bytes.size / 1024} KB)"
                     handView.loadModel(name, bytes) { result ->
                         modelButton.isEnabled = true
-                        if (result.startsWith("ok:")) {
-                            customModel = true
-                            modelChoice = 0
-                            sideButton.text = MODEL_HANDS[0].second
-                            sideButton.visibility = android.view.View.VISIBLE
-                            modelPanel.visibility = android.view.View.VISIBLE
-                            calButton.visibility = android.view.View.VISIBLE
-                            updateModelButtons()
+                        modelFile = true; rigButton.visibility = android.view.View.VISIBLE
+                        if (result.startsWith("ok:")) modelLoaded(result)
+                        else {
                             modelButton.text = "스킨 빼기 (내 손 점만 보기)"
-                            modelInfo.text = "내 손 모델: " + result.removePrefix("ok:")
-                        } else {
-                            modelButton.text = "스킨 추가 (손 모델 GLB/FBX 불러오기)"
-                            modelInfo.text = "손 모델 열기 실패: " + result.removePrefix("error:")
+                            modelInfo.text = "손 모델: 아직 못 움직임: " + result.removePrefix("error:")
                         }
                     }
                 }
@@ -377,8 +371,9 @@ class MainActivity : ComponentActivity() {
         modelButton = Button(this).apply {
             text = "스킨 추가 (손 모델 GLB/FBX 불러오기)"
             setOnClickListener {
-                if (customModel) {
-                    handView.resetModel(); customModel = false; updateModelButtons()
+                if (customModel || modelFile) {
+                    handView.resetModel(); customModel = false; modelFile = false; updateModelButtons()
+                    rigButton.visibility = android.view.View.GONE
                     sideButton.visibility = android.view.View.GONE
                     modelPanel.visibility = android.view.View.GONE
                     calButton.visibility = android.view.View.GONE
@@ -460,6 +455,31 @@ class MainActivity : ComponentActivity() {
         opts.addView(back, 0)
         optsButton.setOnClickListener { mainCol.visibility = android.view.View.GONE; optsScroll.visibility = android.view.View.VISIBLE; updateModelButtons() }
         back.setOnClickListener { optsScroll.visibility = android.view.View.GONE; mainCol.visibility = android.view.View.VISIBLE }
+        // Rig screen (its own screen, camera off): mark the 21 MediaPipe points on the skin.
+        rigButton = Button(this).apply {
+            text = "리깅 잡기 화면 (스킨에 손 점 21개 찍기)"; visibility = android.view.View.GONE
+            setOnClickListener {
+                if (recording || analysing) { Toast.makeText(this@MainActivity, "측정을 멈춘 뒤 열 수 있습니다", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
+                stopPoints(); handView.reviewStop(); handView.frozen = true
+                provider?.unbindAll()
+                val hidden = listOf<android.view.View>(title, status, buttons, preview, overlay, busyLabel)
+                val was = hidden.map { it.visibility }
+                hidden.forEach { it.visibility = android.view.View.GONE }
+                optsScroll.visibility = android.view.View.GONE; mainCol.visibility = android.view.View.VISIBLE
+                handView.postDelayed({
+                    handView.rigOpen { result ->
+                        hidden.forEachIndexed { i, v -> v.visibility = was[i] }
+                        handView.frozen = false
+                        when {
+                            result.startsWith("done:") -> { modelLoaded(result.removePrefix("done:")); Toast.makeText(this@MainActivity, "리깅 저장 (이 모델 파일에 기억)", Toast.LENGTH_LONG).show() }
+                            result.startsWith("error:") -> modelInfo.text = "리깅 실패: " + result.removePrefix("error:")
+                        }
+                        startCamera()
+                    }
+                }, 250)
+            }
+        }
+        opts.addView(rigButton, opts.indexOfChild(sideButton) + 1)
         val note = TextView(this).apply {
             text = "기본 화면 = 내 손 (MediaPipe 점과 선) · 스킨 추가: 뼈가 있는 손 모델(GLB/FBX)을 불러오면 내 손 동작으로 뼈만 돌려 씌움 (텍스처 그대로)\n추적: 손 또는 몸 (몸 = MediaPipe Pose 33점, 전신 스킨(Mixamo/VRM)을 추가하면 팔·몸통·다리·머리가 따라 움직임) · 측정을 멈추면 녹화 영상을 처음부터 다시 분석해 보정한 동작을 보여줌"
             textSize = 12f
@@ -736,6 +756,18 @@ class MainActivity : ComponentActivity() {
      * wrist in the picture (both seen), as (u, v, 1 if the elbow is farther from the
      * camera than the wrist else 0), or null.
      */
+    private fun modelLoaded(result: String) {
+        customModel = true
+        modelChoice = 0
+        sideButton.text = MODEL_HANDS[0].second
+        sideButton.visibility = android.view.View.VISIBLE
+        modelPanel.visibility = android.view.View.VISIBLE
+        calButton.visibility = android.view.View.VISIBLE
+        updateModelButtons()
+        modelButton.text = "스킨 빼기 (내 손 점만 보기)"
+        modelInfo.text = "내 손 모델: " + result.removePrefix("ok:")
+    }
+
     private fun updateModelButtons() {
         val has = customModel && !recording && frames.length() > 0
         glbButton.isEnabled = has && !glbBusy
