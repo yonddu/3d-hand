@@ -235,7 +235,7 @@ MainActivity `realSide()` swaps the label for live sides and saved takes (take J
 the first-person shoulder on the right side. Title now shows the installed versionName
 (was hardcoded v0.22). Not phone-verified.
 
-## v0.33 (2026-11-02, native 849ddb1) — record → re-analyse → correct → review
+## v0.33 (2026-11-02, native 43fa82b, CI 41431184410) — record → re-analyse → correct → review
 
 User: the live hand/screen twists; record, correct, show the natural result (phone-as-sword
 idea dropped). While measuring, CameraX also records video (Recorder, HD, cacheDir/take.mp4;
