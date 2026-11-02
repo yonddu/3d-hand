@@ -252,7 +252,7 @@ turns 17°/frame on nat1 at 12 fps (flips are real but squeezed into 1–2 frame
 must come from the 30 fps re-read. Analysis time ≈ video length × (decode + detect); video
 ~5 Mbit/s temp. HMS_NOCLEAN skips clean.js. Not phone-verified.
 
-## v0.34 (2026-11-02, native c41fc8f) — my hand by default, skins optional, hand/body switch
+## v0.34 (2026-11-02, native c41fc8f + 88b2b76) — my hand by default, skins optional, hand/body switch
 
 User: remove the kukri and the built-in gauntlet; default = the user's own hand (MediaPipe
 points/lines); a skin (rigged GLB/FBX) is optional ('스킨 추가' in Options + model-hand side
@@ -265,3 +265,18 @@ native/gauntlet_kukri_right.glb). '몸 추적' is now a SWITCH: hand tracking OR
 Concept discussion same day: user wants a monetizable phone app; plan doc (Quest 3 as teacher,
 phone filmed together, correction model) https://claude.ai/artifact/5WnGYCBcrR5pKN4EkLwpNn —
 not started. Retarget onto other skins is NOT proven visually (only equal bend numbers).
+
+## v0.35 (2026-11-02, native 31d6bee + fix 134d21b) — full-body skin from body tracking
+- User: add features from Kalidokit (MIT) / SysMocap (MPL-2.0). Ideas only, no code copied.
+  Kalidokit's hand solver NOT used (measured worse 2026-10-26: 23.1 vs 20.2 deg).
+- hand-view/body.js: humanoid bones by name (Mixamo, Unreal, Rigify, VRoid J_Bip) or from the
+  VRM 0.x/1.0 humanoid map in the glTF JSON (no three-vrm). Hips on their picture ray (depth =
+  torso world length / picture length), size = median of 45 frames, turn from hip + shoulder
+  lines, limb bones aimed at Pose directions (visibility >= 0.5), head by the ears.
+- One skin can drive hands, body or both ('스킨 추가'). Record -> clean -> review -> GLB works
+  for body ('전신'). hand.html +9 KB.
+- Headless check: Vanguard (Mixamo FBX) + three-vrm-girl (VRM) follow T / arms down / mixed
+  poses; 50-frame body take exported. Not phone-verified.
+- v0.34's CI failed: `overlay` inside a Button.apply block resolved to View.getOverlay();
+  fixed with this@MainActivity.overlay (134d21b).
+- Next promised: manual bone mapping in options for rigs auto-detection misses.

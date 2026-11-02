@@ -87,4 +87,5 @@ v0.7의 원본 추적 경로를 유지하고 FBX 저장 코드·UI·검사를 �
 - 2026-11-02 native v0.31 (b57b810): weapon toggle kukri/bare hand. User concept: first-person action-game arm actions.
 - 2026-11-02 native v0.32 (2c82781): back camera -> MP handedness inverted; realSide() swaps (takes get "labels":"real"; older takes inverted). Title shows real version.
 - 2026-11-02 native v0.33 (43fa82b): record video while measuring, re-read every frame after stop (VideoPass.kt), whole-take clean (hand-view/clean.js), review loop. Not phone-verified.
-- 2026-11-02 native v0.34 (c41fc8f): default = MediaPipe hand, skins optional, hand/body tracking switch, correction notice. Quest-teacher plan doc (not started).
+- 2026-11-02 native v0.34 (c41fc8f + fix 88b2b76): default = MediaPipe hand, skins optional, hand/body tracking switch, correction notice. Quest-teacher plan doc (not started).
+- 2026-11-02 native v0.35 (31d6bee, fix 134d21b): body tracking drives a full-body Mixamo/VRM skin (body.js), body record -> GLB. Next: manual bone mapping.
