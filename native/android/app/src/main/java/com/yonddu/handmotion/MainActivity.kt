@@ -211,7 +211,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         val title = TextView(this).apply {
-            text = "Hand Motion · 네이티브 v0.17\nMediaPipe 점 / 내 손 모델(GLB·FBX) + MediaPipe Pose · GPU / CPU 비교"
+            text = "Hand Motion · 네이티브 v0.18\nMediaPipe 점 / 내 손 모델(GLB·FBX) + MediaPipe Pose · GPU / CPU 비교"
             textSize = 18f
         }
         root.addView(title)

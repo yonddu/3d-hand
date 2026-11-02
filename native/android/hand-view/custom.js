@@ -164,6 +164,23 @@ export class CustomHand {
     const fore = findForearm(h.hand);
     const restElbow = fore ? wp(fore) : null;
     const restFore = fore ? restElbow.distanceTo(wp(h.hand)) : 0;
+    // Rest data for the length fit and the hinge joints, in the model's rest space (= outer's own space).
+    const restBone = new Map(); const restPos = new Map();
+    for (const f of FINGERS) {
+      const ch = c[f.key];
+      for (const b of [...ch.bones, ...(ch.tip ? [ch.tip] : [])]) {
+        restBone.set(b, { p: wp(b), q: b.getWorldQuaternion(new THREE.Quaternion()) });
+        restPos.set(b, b.position.clone());
+      }
+    }
+    const restLat = new THREE.Vector3().setFromMatrixColumn(restFrame, 0).normalize(); // pinky -> index
+    // Each instance stretches its own copy of the skin (fitLengths).
+    const skins = [];
+    model.traverse((o) => {
+      if (!o.isSkinnedMesh) return;
+      o.geometry = o.geometry.clone();
+      skins.push({ mesh: o, orig: o.geometry.attributes.position.array.slice(), inv0: o.skeleton.boneInverses.map((m) => m.clone()), meshM: o.matrixWorld.clone() });
+    });
     if (mirror) {
       outer.scale.x = -1;
       model.traverse((o) => { if (o.isMesh) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => (m.side = THREE.DoubleSide)); });
@@ -175,29 +192,72 @@ export class CustomHand {
       const ch = c[f.key];
       lengths[f.key] = ch.bones.map((b, k) => { const n = ch.bones[k + 1] || ch.tip; return n ? wp(n).distanceTo(wp(b)) / restPalm : 0; });
     }
-    const inst = { outer, root, h, restLocal, restFrame, restPalm, handM, mirror, restHandQ, fore: restFore > 1e-6 ? fore : null, restElbow, restFore, lengths, fitted: null };
+    const inst = { outer, root, h, restLocal, restFrame, restPalm, handM, mirror, restHandQ, fore: restFore > 1e-6 ? fore : null, restElbow, restFore, lengths, fitted: null, restBone, restPos, restLat, skins };
     if (window.HMS_DEBUG) window.customDebug = { hand: h.hand.name, chains: Object.fromEntries(Object.entries(c).map(([k, v]) => [k, v.bones.map((b) => b.name).concat(v.tip ? ['tip:' + v.tip.name] : [])])), restPalm, mirror };
     outer.visible = false;
     return inst;
   }
 
   // The user's finger bone lengths (from MediaPipe's 3D points, in palms: wrist -> middle root),
-  // { thumb: [3], index: [3], ... }. Each model finger bone is scaled (evenly, about its joint)
-  // so it is as long, relative to the palm, as the user's: the fingertips land on the points
-  // instead of past them. Thicker / thinner by the same factor. 0.5 .. 1.6 at most.
+  // { thumb: [3], index: [3], ... }. Each model finger bone is made as long, relative to the
+  // palm, as the user's (0.5 .. 1.6x): the joints after it move along the finger and the skin
+  // is stretched / shortened ALONG the bone only, so the fingers keep the model's thickness.
+  // Done on the rest pose (skin re-bound), so posing stays a pure turn per joint.
   fitLengths(inst, user) {
     const out = {};
+    const segs = new Map();
     for (const f of FINGERS) {
       const ch = inst.h.chains[f.key];
       const off = 3 - ch.bones.length;
-      let prev = 1; out[f.key] = [];
+      const shift = new THREE.Vector3();
+      out[f.key] = [];
       ch.bones.forEach((bone, k) => {
+        const next = ch.bones[k + 1] || ch.tip;
+        const A = inst.restBone.get(bone).p;
         const m = inst.lengths[f.key][k];
         const t = user && user[f.key] ? user[f.key][k + off] : 0;
-        const q = m > 1e-6 && t > 1e-6 ? Math.min(1.6, Math.max(0.5, t / m)) : prev;
-        bone.scale.setScalar(q / prev);
+        const q = next && m > 1e-6 && t > 1e-6 ? Math.min(1.6, Math.max(0.5, t / m)) : 1;
+        let dir = null; let len = 0;
+        if (next) {
+          dir = inst.restBone.get(next).p.clone().sub(A); len = dir.length(); dir.normalize();
+          next.position.copy(inst.restPos.get(next)).multiplyScalar(q);
+        }
+        segs.set(bone, { A, dir, len, q, shift: shift.clone() });
+        if (dir) shift.addScaledVector(dir, len * (q - 1));
         out[f.key].push(+q.toFixed(2));
-        prev = q;
+      });
+      if (ch.tip) segs.set(ch.tip, { A: inst.restBone.get(ch.tip).p, dir: null, len: 0, q: 1, shift: shift.clone() });
+    }
+    const v = new THREE.Vector3(); const d = new THREE.Vector3(); const rel = new THREE.Vector3();
+    for (const sk of inst.skins) {
+      const g = sk.mesh.geometry;
+      const pos = g.attributes.position; const si = g.attributes.skinIndex; const sw = g.attributes.skinWeight;
+      const bones = sk.mesh.skeleton.bones;
+      const segOf = bones.map((b) => segs.get(b) || null);
+      const meshInv = sk.meshM.clone().invert();
+      for (let i = 0; i < pos.count; i++) {
+        v.set(sk.orig[i * 3], sk.orig[i * 3 + 1], sk.orig[i * 3 + 2]).applyMatrix4(sk.meshM);
+        d.set(0, 0, 0);
+        for (let j = 0; j < 4; j++) {
+          const w = sw.getComponent(i, j); if (!w) continue;
+          const sg = segOf[si.getComponent(i, j)]; if (!sg) continue;
+          d.addScaledVector(sg.shift, w);
+          if (sg.dir) {
+            const along = Math.min(Math.max(rel.copy(v).sub(sg.A).dot(sg.dir), 0), sg.len);
+            d.addScaledVector(sg.dir, w * along * (sg.q - 1));
+          }
+        }
+        v.add(d).applyMatrix4(meshInv);
+        pos.setXYZ(i, v.x, v.y, v.z);
+      }
+      pos.needsUpdate = true;
+      g.computeBoundingSphere();
+      // Bones that moved: bind them where they now rest.
+      bones.forEach((b, i) => {
+        const sg = segOf[i];
+        const m = sk.inv0[i].clone();
+        if (sg) m.multiply(new THREE.Matrix4().makeTranslation(-sg.shift.x, -sg.shift.y, -sg.shift.z));
+        sk.mesh.skeleton.boneInverses[i].copy(m);
       });
     }
     inst.fitted = out;
@@ -270,6 +330,15 @@ export class CustomHand {
         const child = list[k + 1] || ch.tip;
         const was = child ? at(child, nextPos).sub(pos) : pos.clone().sub(at(bone.parent, par));
         const target = P[f.mp[k + off + 1]].clone().sub(pos);
+        // Middle and end joints of the four fingers are hinges: they bend only about the
+        // knuckle line (as turned by the bone before), never sideways or twisted.
+        if (f.key !== 'thumb' && k >= 1) {
+          const par = list[k - 1];
+          turnOf(par, pq);
+          const axis = inst.restLat.clone().applyQuaternion(inst.restBone.get(par).q.clone().invert()).applyQuaternion(pq).normalize();
+          target.addScaledVector(axis, -target.dot(axis));
+          was.addScaledVector(axis, -was.dot(axis));
+        }
         if (was.lengthSq() < 1e-12 || target.lengthSq() < 1e-12) return;
         const turn = new THREE.Quaternion().setFromUnitVectors(was.normalize(), target.normalize());
         // turn in outer space -> the bone's local turn: parent^-1 * turn * parent, applied before its own turn

@@ -33,3 +33,9 @@ Finger lengths (v0.17): the page takes the user's finger bone lengths from Media
 scales each model finger bone evenly about its joint (0.5 .. 1.6x) so it is as long,
 relative to the palm, as the user's. Fingertips then land on the points; fingers get
 thinner / thicker by the same factor. `calStatus()` shows samples and the scales used.
+
+v0.18: the length fit no longer scales bones evenly (fingers got thin): on the rest pose the
+joints after a bone move along the finger and the skin is stretched / shortened along the
+bone only, then re-bound (boneInverses shifted), so the model's finger thickness stays.
+Middle and end joints of the four fingers are hinges: the aim is projected onto the plane
+across the knuckle line (as turned by the bone before), so they never bend sideways or twist.
