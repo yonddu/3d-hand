@@ -204,7 +204,13 @@ window.setHands = function setHands(data) {
     if (custom) {
       if (n > 1) continue;
       if (!customSlots[side][n]) customSlots[side][n] = custom.instance(scene, side);
-      custom.pose(customSlots[side][n], P);
+      // Body pose elbow for this hand (MainActivity): picture point + whether it is farther than the wrist.
+      let elbow = null;
+      if (hand.elbow && hand.elbow.length >= 3) {
+        const [u, v, farther] = hand.elbow;
+        elbow = { ray: new THREE.Vector3((u - 0.5) / d.fw, -(v - 0.5) / d.fh, -1).normalize(), farther: farther > 0 };
+      }
+      custom.pose(customSlots[side][n], P, elbow);
     } else {
       const model = hands[side][n];
       if (model) model.pose(P, hand.palm);

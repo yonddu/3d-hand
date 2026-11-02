@@ -48,6 +48,16 @@ function boneList(root) {
   return bones.length ? bones : named;
 }
 
+// The forearm bone above the hand (skipping twist / roll helpers): its place is the elbow.
+const FOREARM = /forearm|fore_arm|lowerarm|lower_arm|lowarm|elbow|loarm/i;
+function findForearm(hand) {
+  for (let o = hand.parent, n = 0; o && n < 6; o = o.parent, n++) {
+    if (/twist|roll|helper|bend/i.test(o.name)) continue;
+    if (FOREARM.test(o.name)) return o;
+  }
+  return null;
+}
+
 function depth(o) { let d = 0; while (o.parent) { d++; o = o.parent; } return d; }
 function ancestors(o) { const a = []; while (o) { a.push(o); o = o.parent; } return a; }
 function commonAncestor(list) {
@@ -144,20 +154,29 @@ export class CustomHand {
     const restPalm = wp(c.middle.bones[0]).distanceTo(wp(h.hand));
     // The hand bone's place and turn in the model root's frame (root at rest = identity here).
     const handM = h.hand.matrixWorld.clone();
+    const restHandQ = h.hand.getWorldQuaternion(new THREE.Quaternion());
+    // Elbow (forearm bone), when the model has an arm: the forearm can follow the body pose.
+    const fore = findForearm(h.hand);
+    const restElbow = fore ? wp(fore) : null;
+    const restFore = fore ? restElbow.distanceTo(wp(h.hand)) : 0;
     if (mirror) {
       outer.scale.x = -1;
       model.traverse((o) => { if (o.isMesh) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => (m.side = THREE.DoubleSide)); });
     }
     scene.add(outer);
-    const inst = { outer, root, h, restLocal, restFrame, restPalm, handM, mirror };
+    const inst = { outer, root, h, restLocal, restFrame, restPalm, handM, mirror, restHandQ, fore: restFore > 1e-6 ? fore : null, restElbow, restFore };
     if (window.HMS_DEBUG) window.customDebug = { hand: h.hand.name, chains: Object.fromEntries(Object.entries(c).map(([k, v]) => [k, v.bones.map((b) => b.name).concat(v.tip ? ['tip:' + v.tip.name] : [])])), restPalm, mirror };
     outer.visible = false;
     return inst;
   }
 
-  pose(inst, P) {
+  // elbow: the body pose's elbow for this hand, { ray: unit Vector3 from the camera
+  // through the seen elbow, farther: whether the elbow is farther from the camera
+  // than the wrist }, or null (no body pose: only the hand is placed).
+  pose(inst, P, elbow) {
     const { outer, root, h, restLocal, restFrame, restPalm, mirror } = inst;
     if (mirror) P = P.map((p) => new THREE.Vector3(-p.x, p.y, p.z)); // pose the model's own side, then flip
+    if (mirror && elbow) elbow = { ...elbow, ray: new THREE.Vector3(-elbow.ray.x, elbow.ray.y, elbow.ray.z) };
     for (const [o, q] of restLocal) o.quaternion.copy(q);
     // Root: hand bone onto the wrist, palm turned like the seen palm, seen size.
     const s = P[9].distanceTo(P[0]) / Math.max(restPalm, 1e-6);
@@ -170,6 +189,36 @@ export class CustomHand {
     root.matrixAutoUpdate = false;
     root.matrix.copy(M);
     outer.updateMatrixWorld(true);
+    inst.elbowUsed = false;
+    if (elbow && inst.fore) {
+      // The elbow on its picture ray, one (model) forearm away from the wrist.
+      const L = s * inst.restFore;
+      const r = elbow.ray.clone().normalize();
+      const b = r.dot(P[0]);
+      const disc = b * b - P[0].lengthSq() + L * L;
+      // Two places on the ray: the pose says nearer or farther than the wrist; one that
+      // would be behind or right at the camera is not possible.
+      const near = b - Math.sqrt(Math.max(disc, 0)); const far = b + Math.sqrt(Math.max(disc, 0));
+      const t = disc < 0 ? b : elbow.farther || near < 0.05 ? far : near;
+      if (t > 0.02) {
+        const E = r.multiplyScalar(t);
+        const Wq = new THREE.Quaternion().setFromRotationMatrix(W);
+        const handRest = new THREE.Vector3().setFromMatrixPosition(inst.handM);
+        const was = handRest.clone().sub(inst.restElbow).normalize().applyQuaternion(Wq);
+        const R = new THREE.Quaternion().setFromUnitVectors(was, P[0].clone().sub(E).normalize()).multiply(Wq);
+        // Model turned with the forearm from the elbow to the wrist; then the hand turned back to the seen palm.
+        root.matrix.compose(new THREE.Vector3(), R, new THREE.Vector3(s, s, s));
+        const shift = E.clone().sub(inst.restElbow.clone().applyMatrix4(root.matrix));
+        root.matrix.premultiply(new THREE.Matrix4().makeTranslation(shift.x, shift.y, shift.z));
+        outer.updateMatrixWorld(true);
+        const outerInv0 = outer.matrixWorld.clone().invert();
+        const pq0 = new THREE.Quaternion();
+        new THREE.Matrix4().multiplyMatrices(outerInv0, h.hand.parent.matrixWorld).decompose(new THREE.Vector3(), pq0, new THREE.Vector3());
+        h.hand.quaternion.copy(pq0.invert().multiply(Wq.clone().multiply(inst.restHandQ)));
+        h.hand.updateWorldMatrix(false, true);
+        inst.elbowUsed = true;
+      }
+    }
     // Fingers: each bone aims at the next joint's seen point. Worked in outer's own
     // space (the mirrored one for the other hand), where P lives.
     const outerInv = outer.matrixWorld.clone().invert();

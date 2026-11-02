@@ -211,7 +211,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         val title = TextView(this).apply {
-            text = "Hand Motion · 네이티브 v0.14.1\nQuest 손 / 내 손 모델 + MediaPipe Pose · GPU / CPU 비교"
+            text = "Hand Motion · 네이티브 v0.15\nQuest 손 / 내 손 모델 + MediaPipe Pose · GPU / CPU 비교"
             textSize = 18f
         }
         root.addView(title)
@@ -505,7 +505,7 @@ class MainActivity : ComponentActivity() {
                                 val side = result.handedness()[i][0].categoryName().lowercase(Locale.ROOT)
                                 val world = DoubleArray(63).also { a -> result.worldLandmarks()[i].forEachIndexed { j, q -> a[j * 3] = q.x().toDouble(); a[j * 3 + 1] = q.y().toDouble(); a[j * 3 + 2] = q.z().toDouble() } }
                                 val img = DoubleArray(63).also { a -> result.landmarks()[i].forEachIndexed { j, q -> a[j * 3] = q.x().toDouble(); a[j * 3 + 1] = q.y().toDouble(); a[j * 3 + 2] = q.z().toDouble() } }
-                                HandPlace.onRays(world, img, aspect)?.let { Triple(side, it, HandPlace.palm(world)) }
+                                HandPlace.onRays(world, img, aspect)?.let { MeshHand(side, it, HandPlace.palm(world), poseElbow(pose, img)) }
                             } } catch (e: Throwable) {
                                 lastError = "손 배치: ${e.javaClass.simpleName} ${e.message}"
                                 emptyList()
@@ -567,6 +567,28 @@ class MainActivity : ComponentActivity() {
             .put("firstPerson", true).put("swap", false).put("rightOnImageRight", true)
             .put("offline", false).put("frames", frames))
         .toString()
+
+    /**
+     * The body pose's elbow for a hand: the pose arm whose wrist is nearest the hand's
+     * wrist in the picture (both seen), as (u, v, 1 if the elbow is farther from the
+     * camera than the wrist else 0), or null.
+     */
+    private fun poseElbow(pose: PoseLandmarkerResult?, hand: DoubleArray): DoubleArray? {
+        val body = pose?.landmarks()?.firstOrNull() ?: return null
+        val world = pose.worldLandmarks().firstOrNull()
+        var best: Int? = null; var bestD = 0.12
+        for (wrist in listOf(15, 16)) {
+            val q = body[wrist]
+            if (q.visibility().orElse(0f) < 0.3f) continue
+            val d = Math.hypot(q.x() - hand[0], q.y() - hand[1])
+            if (d < bestD) { bestD = d; best = wrist }
+        }
+        val wrist = best ?: return null
+        val e = body[wrist - 2]
+        if (e.visibility().orElse(0f) < 0.5f) return null
+        val farther = if (world != null && world[wrist - 2].z() > world[wrist].z()) 1.0 else 0.0
+        return doubleArrayOf(e.x().toDouble(), e.y().toDouble(), farther)
+    }
 
     private fun showError(message: String) = runOnUiThread { if (!destroyed) status.text = message }
 

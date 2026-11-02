@@ -16,6 +16,9 @@ import org.json.JSONObject
  * ready turns true once the page answers "ok"; until then (or if it never
  * does) the caller keeps drawing the plain points.
  */
+/** One hand for the page: side, camera-space points (63), palm (m), body-pose elbow (u, v, farther 0/1) or null. */
+data class MeshHand(val side: String, val cam: DoubleArray, val palm: Double, val elbow: DoubleArray? = null)
+
 @SuppressLint("SetJavaScriptEnabled")
 class HandView(context: Context) : WebView(context) {
     @Volatile var ready = false
@@ -34,15 +37,16 @@ class HandView(context: Context) : WebView(context) {
         loadDataWithBaseURL("https://hand.local/", html, "text/html", "utf-8", null)
     }
 
-    /** hands: (side, camera-space points 63, palm m). */
-    fun show(width: Int, height: Int, hands: List<Triple<String, DoubleArray, Double>>) {
+    fun show(width: Int, height: Int, hands: List<MeshHand>) {
         if (busy) return // the page has not drawn the last one yet: skip, never queue up
         val (fw, fh) = HandPlace.focal(width.toDouble() / height)
         val list = JSONArray()
-        for ((side, cam, palm) in hands) {
+        for (hand in hands) {
             val pts = JSONArray()
-            cam.forEach { pts.put(Math.round(it * 1e5) / 1e5) }
-            list.put(JSONObject().put("side", side).put("cam", pts).put("palm", palm))
+            hand.cam.forEach { pts.put(Math.round(it * 1e5) / 1e5) }
+            val o = JSONObject().put("side", hand.side).put("cam", pts).put("palm", hand.palm)
+            hand.elbow?.let { e -> o.put("elbow", JSONArray().put(e[0]).put(e[1]).put(e[2])) }
+            list.put(o)
         }
         val json = JSONObject().put("w", width).put("h", height).put("fw", fw).put("fh", fh).put("hands", list).toString()
         busy = true

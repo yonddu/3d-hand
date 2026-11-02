@@ -20,3 +20,10 @@ with the palm; a last bone named tip/end/4 is the tip). The model is placed so
 its hand bone sits on the MediaPipe wrist with the seen palm's turn and size,
 and every finger bone turns the least it must to aim at the next MediaPipe
 point. A one-handed model is mirrored for the other hand.
+
+Elbow: when body tracking (MediaPipe Pose) is on and a model has a forearm
+bone (forearm / lowerarm / elbow in the name) above the hand, the model is
+turned about the elbow so the forearm runs from the pose elbow (on its picture
+ray, one model forearm from the wrist; nearer or farther as the pose says) to
+the MediaPipe wrist, and the hand bone is turned back to the seen palm. The
+upper arm stays as modelled.
