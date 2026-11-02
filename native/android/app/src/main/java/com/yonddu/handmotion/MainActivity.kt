@@ -342,7 +342,7 @@ class MainActivity : ComponentActivity() {
             text = "보정 재생"; isEnabled = false
             setOnClickListener {
                 if (!customModel) { playPoints(); return@setOnClickListener }
-                handView.frozen = true; overlay.update(emptyList(), emptyList(), 1, 1)
+                handView.frozen = true; this@MainActivity.overlay.update(emptyList(), emptyList(), 1, 1)
                 handView.reviewPlay { r -> liveButton.isEnabled = true; if (!r.startsWith("ok")) { handView.frozen = false; status.text = r.removePrefix("error:") } }
             }
         }
