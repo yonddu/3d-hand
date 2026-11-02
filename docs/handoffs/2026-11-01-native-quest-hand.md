@@ -28,3 +28,13 @@
 - 기록 JSON 프레임마다 `pose: {lm: 33×(x,y,z,visibility), world: 33×(x,y,z)}`. FBX는 손만(몸 미포함).
 - [CI run 41361313644](https://github.com/yonddu/3d-hand/actions/runs/41361313644) PASS. [APK ZIP](https://github.com/yonddu/3d-hand/actions/runs/41361313644/artifacts/13104959113) 22,540,567 bytes(+5.0 MB), 2026-11-15 만료. versionCode 14, `0.13-native-pose`. 폰 확인 전, 몸 켰을 때 FPS 미측정.
 - 주의: 1인칭(폰을 눈앞에 들고 손만 찍음)에서는 몸이 거의 안 보여 Pose가 대부분 못 찾음. 몸 전체가 보이게 찍어야 함.
+
+## v0.14 (2026-11-02, 코드 bfc15cb + 8e77b1c) — 내 손 모델 불러와서 MediaPipe로 움직이기
+- 사용자: 우리 손 리깅(FBX)을 게임에 넣으니 손이 다 뭉개짐 → 게임의 모델링·리깅된 손을 앱으로 가져와 MediaPipe에 맞춰 시뮬레이션하는 기능 요청(Quest 손 불러오듯).
+- 뭉개짐 원인(추정, 확인 필요): 우리 FBX는 21관절 **위치만** 애니메이션(회전 없음, v0.8 형식). 게임 리그는 뼈 **회전**으로 메시를 움직이므로 위치만 받으면 뼈 길이·방향이 깨짐. 다음 단계 후보 = 불러온 리그의 뼈 이름·축으로 회전 애니메이션 FBX 내보내기.
+- "내 손 모델 불러오기 (GLB/FBX)" 버튼 → OpenDocument → 바이트(≤60 MB)를 base64 512 KB 조각으로 hand.html에 전달(HandView.loadModel, modelBegin/Chunk/End, modelStatus 폴링). "Quest 손으로 되돌리기"로 복귀. 아래 줄에 파일명·찾은 손·삼각형·메시·뼈 수 표시.
+- `hand-view/custom.js`: 뼈 이름으로 손가락 찾기(thumb/index/middle/ring/pinky + left/right; Mixamo·Unreal·Rigify·Unity), 손가락마다 마지막 3개 뼈가 움직임(앞쪽은 손허리뼈로 손바닥과 함께, 이름이 tip/end/4로 끝나는 마지막 뼈는 끝점), 손 뼈 = 손가락 뿌리들의 공통 조상. 모델 전체를 손 뼈가 MediaPipe 손목에 오게, 손바닥 방향·크기를 맞춰 배치. 손가락 뼈는 부모 기준 최소 회전으로 다음 MediaPipe 점을 향함. 한쪽 손 모델은 반대 손에 좌우 반전. 모델 자체 재질 유지.
+- FBX 주의: three FBXLoader가 Mixamo FBX에서 같은 이름의 길이 0 뼈를 자식으로 하나 더 만듦 → 부모와 이름 같은 뼈는 건너뜀(8e77b1c).
+- 확인(헤드리스): 우리 웹 GLB(Mixamo 이름, 삼각형 18,066), three.js 예제 Samba Dancing.fbx(Mixamo, 삼각형 55,320, 양손) — 주먹·편 손이 점을 따라감. 이미지 `/mnt/project-files/hand-motion-studio/native/v0.14-own-hand-test.png`. 
+- [CI run 41367192766](https://github.com/yonddu/3d-hand/actions/runs/41367192766) PASS. [APK ZIP](https://github.com/yonddu/3d-hand/actions/runs/41367192766/artifacts/13107414131) 22,570,284 bytes, 2026-11-16 만료. versionCode 15, `0.14-native-own-hand`. 폰 확인 전.
+- 한계: 뼈 이름에 손가락 이름이 없으면 못 찾음(평평한 계층 WebXR식도 미지원). 손목 비틀림·손바닥 접힘(손허리뼈)은 따라가지 않음. 큰 모델(수십 MB)은 WebView 전달·표시가 느릴 수 있음.
