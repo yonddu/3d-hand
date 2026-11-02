@@ -105,3 +105,8 @@
   Exported GLB reloads (anim 9.0 s, 16 rotation + 1 root translation channel; bone translations = model).
   Files: native/v0.20-three-models.png, v0.20-exported-glb.png, v0.20-sample-pose.glb, v0.20-sample-anim.glb.
   Not phone-verified.
+
+## v0.21 (2026-11-02, native 30b170a): options screen
+- User: too many options, camera view squeezed. Camera screen: view, status (11sp), still-pose slider (model + recording),
+  측정 / 편 손 보정 / 옵션. Options screen (ScrollView): back button, GPU/CPU, hands, pose, model load/side, info,
+  GLB anim / JSON / FBX saves, notes. CI 41382928418 artifact 13114765015. Not phone-verified.
