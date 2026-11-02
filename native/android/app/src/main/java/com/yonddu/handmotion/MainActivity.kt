@@ -462,7 +462,7 @@ class MainActivity : ComponentActivity() {
                 if (recording || analysing) { Toast.makeText(this@MainActivity, "측정을 멈춘 뒤 열 수 있습니다", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
                 stopPoints(); handView.reviewStop(); handView.frozen = true
                 provider?.unbindAll()
-                val hidden = listOf<android.view.View>(title, status, buttons, preview, overlay, busyLabel)
+                val hidden = listOf<android.view.View>(title, this@MainActivity.status, buttons, this@MainActivity.preview, this@MainActivity.overlay, this@MainActivity.busyLabel)
                 val was = hidden.map { it.visibility }
                 hidden.forEach { it.visibility = android.view.View.GONE }
                 optsScroll.visibility = android.view.View.GONE; mainCol.visibility = android.view.View.VISIBLE
