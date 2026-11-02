@@ -9,7 +9,8 @@
 //   middle, pinky roots), at the seen palm's size;
 // - each finger bone turns the least it must (in its own parent's frame) to aim
 //   at the next joint's MediaPipe point. Bone lengths stay the model's.
-// A model with one hand is mirrored for the other hand.
+// A model with one hand is mirrored for the other hand (the user can say which
+// hand the model is, or turn mirroring off).
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
@@ -105,12 +106,28 @@ export class CustomHand {
     });
     this.stats = { meshes, tris: Math.round(tris), bones: bones.length };
     this.slots = { left: [], right: [] };
+    this.choice = 'auto';
+  }
+
+  // The user's choice (MainActivity button): 'auto' (bone names; unknown = right),
+  // 'left' / 'right' (the model is that hand), 'none' (never mirror).
+  handedness() {
+    if (this.choice === 'left' || this.choice === 'right') return this.choice;
+    return this.found.left && !this.found.right ? 'left' : 'right';
+  }
+
+  mirrorFor(side) {
+    if (this.choice === 'none') return false;
+    if (this.found.left && this.found.right && (this.choice || 'auto') === 'auto') return false; // both hands in the file
+    return this.handedness() !== side;
   }
 
   // A posable copy of the model for one hand of the picture.
   instance(scene, side) {
-    const modelSide = this.found[side] ? side : this.found.any ? null : this.found.left ? 'left' : 'right';
-    const mirror = modelSide !== null && modelSide !== side;
+    // Which bones to use (a model with both hands: that side's), and which hand the model is.
+    const both = this.found.left && this.found.right;
+    const modelSide = both ? side : this.found.any ? null : this.found.left ? 'left' : 'right';
+    const mirror = this.mirrorFor(side);
     const model = SkeletonUtils.clone(this.template);
     // outer: mirror for the other hand; root: placed each frame (hand on the wrist); model: as loaded.
     const outer = new THREE.Group();

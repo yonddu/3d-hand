@@ -59,6 +59,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var modelButton: Button
     private lateinit var modelInfo: TextView
     private var customModel = false
+    private lateinit var sideButton: Button
+    private var modelChoice = 0 // index into MODEL_HANDS
     @Volatile private var maxHands = 2
     private var recordedMaxHands = 2
     private lateinit var backendButton: Button
@@ -118,6 +120,9 @@ class MainActivity : ComponentActivity() {
                         modelButton.isEnabled = true
                         if (result.startsWith("ok:")) {
                             customModel = true
+                            modelChoice = 0
+                            sideButton.text = MODEL_HANDS[0].second
+                            sideButton.visibility = android.view.View.VISIBLE
                             modelButton.text = "Quest 손으로 되돌리기"
                             modelInfo.text = "내 손 모델: " + result.removePrefix("ok:")
                         } else {
@@ -206,7 +211,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         val title = TextView(this).apply {
-            text = "Hand Motion · 네이티브 v0.14\nQuest 손 / 내 손 모델 + MediaPipe Pose · GPU / CPU 비교"
+            text = "Hand Motion · 네이티브 v0.14.1\nQuest 손 / 내 손 모델 + MediaPipe Pose · GPU / CPU 비교"
             textSize = 18f
         }
         root.addView(title)
@@ -308,11 +313,22 @@ class MainActivity : ComponentActivity() {
             setOnClickListener {
                 if (customModel) {
                     handView.resetModel(); customModel = false
+                    sideButton.visibility = android.view.View.GONE
                     text = "내 손 모델 불러오기 (GLB/FBX)"; modelInfo.text = ""
                 } else openModel.launch(arrayOf("*/*"))
             }
         }
         root.addView(modelButton)
+        sideButton = Button(this).apply {
+            visibility = android.view.View.GONE
+            setOnClickListener {
+                modelChoice = (modelChoice + 1) % MODEL_HANDS.size
+                val (choice, label) = MODEL_HANDS[modelChoice]
+                text = label
+                handView.modelHand(choice) { note -> if (note.isNotEmpty()) modelInfo.text = modelInfo.text.lines().first() + "\n" + note }
+            }
+        }
+        root.addView(sideButton)
         modelInfo = TextView(this).apply { textSize = 12f }
         root.addView(modelInfo)
         root.addView(buttons)
@@ -563,5 +579,14 @@ class MainActivity : ComponentActivity() {
         pendingFbx?.delete()
         exportWorker.shutdown()
         super.onDestroy()
+    }
+
+    companion object {
+        /** Which hand the loaded model is (button cycles): bone names, right, left, never mirror. */
+        private val MODEL_HANDS = listOf(
+            "auto" to "모델 손: 자동 (뼈 이름, 모르면 오른손) · 바꾸기",
+            "right" to "모델 손: 오른손 · 왼손엔 좌우 반전 · 바꾸기",
+            "left" to "모델 손: 왼손 · 오른손엔 좌우 반전 · 바꾸기",
+            "none" to "모델 손: 반전 안 함 (양손 그대로) · 바꾸기")
     }
 }

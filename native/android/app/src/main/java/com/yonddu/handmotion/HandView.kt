@@ -76,6 +76,11 @@ class HandView(context: Context) : WebView(context) {
         }
     }
 
+    /** Which hand the loaded model is: auto / left / right / none (never mirror). done gets a short note. */
+    fun modelHand(choice: String, done: (String) -> Unit) {
+        evaluateJavascript("window.modelHand ? modelHand('$choice') : ''") { done(it.trim('"')) }
+    }
+
     /** Back to the built-in Quest hand. */
     fun resetModel() { evaluateJavascript("window.modelReset && modelReset()", null) }
 }

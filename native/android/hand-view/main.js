@@ -175,6 +175,15 @@ function dropCustom() {
   custom = null;
 }
 window.modelReset = () => { dropCustom(); window.modelStatus = ''; return 'ok'; };
+// 'auto' | 'left' | 'right' | 'none': which hand the loaded model is (mirroring).
+window.modelHand = (choice) => {
+  if (!custom) return 'none-loaded';
+  custom.choice = choice;
+  for (const side of ['left', 'right']) customSlots[side].forEach((i) => scene.remove(i.outer));
+  customSlots = { left: [], right: [] };
+  const h = custom.handedness();
+  return choice === 'none' ? '반전 안 함' : `${h === 'left' ? '왼손' : '오른손'} 모델로 봄 · 반대 손은 좌우 반전`;
+};
 
 window.setHands = function setHands(data) {
   if (!ready) return 'loading';
