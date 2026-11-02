@@ -280,3 +280,11 @@ not started. Retarget onto other skins is NOT proven visually (only equal bend n
 - v0.34's CI failed: `overlay` inside a Button.apply block resolved to View.getOverlay();
   fixed with this@MainActivity.overlay (134d21b).
 - Next promised: manual bone mapping in options for rigs auto-detection misses.
+
+## v0.36 (2026-11-02, native e52d1c1, CI 41542379862) — depth filter + sideways 15 deg
+- User asked (GPT-style list reviewed): stronger z filter, finger sideways +-15. Measured on nat1/fbx1/u4 with user_g1.
+- Live One Euro: world z cutoff x0.5 (OE_ZK, HMS_OEZ). Live jumps >15 deg 202/159/183 -> 187/147/186; lag vs raw +1.2..1.7 deg mean. Kept.
+- clean.js smoothZ (record->correct): no gain (0.08 s: 73/14/73 -> 75/14/74), OFF (Z_SIGMA 0, HMS_ZSIGMA to test).
+- PIP/DIP sideways SIDE_RAD 20 -> 15: exported jumps 75/15/75 -> 73/14/73. Kept.
+- Rejected after review: bone-length z = ±sqrt(L²-dx²-dy²) (old web lift, sign is the error); palm side from handedness (labels flip at flips; world palm vs picture disagree only 2/117 in take-flip).
+- Harness: scratchpad hv/exp5.cjs (ZS env), live2.cjs (OEZ, LOUT), lcmp.py, gdiff.py.
