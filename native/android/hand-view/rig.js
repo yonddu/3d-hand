@@ -226,14 +226,14 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
     if (down.size === 1) gizmo = !!(tc.dragging || tc.axis);
     if (gizmo) return;
     moved = false; t0 = performance.now(); last = [e.clientX, e.clientY];
-    if (down.size === 2) { const [a, b] = [...down.values()]; pinch0 = Math.hypot(a[0] - b[0], a[1] - b[1]); dist0 = dist; }
+    if (down.size === 2) { const [a, b] = [...down.values()]; pinch0 = Math.hypot(a[0] - b[0], a[1] - b[1]); dist0 = dist; moved = true; }
   };
   const onMove = (e) => {
     if (!down.has(e.pointerId)) return;
     down.set(e.pointerId, [e.clientX, e.clientY]);
     if (gizmo || tc.dragging) return;
-    if (down.size === 2) { const [a, b] = [...down.values()]; const d = Math.hypot(a[0] - b[0], a[1] - b[1]); if (pinch0 > 0) { dist = Math.max(size * 0.2, Math.min(size * 6, dist0 * pinch0 / d)); place(); } moved = true; return; }
-    if (!last) return;
+    if (down.size === 2) { const [a, b] = [...down.values()]; const d = Math.hypot(a[0] - b[0], a[1] - b[1]); if (pinch0 > 0) { dist = Math.max(size * 0.01, Math.min(size * 6, dist0 * pinch0 / d)); } moved = true; last = null; return; }
+    if (!last) { last = [e.clientX, e.clientY]; return; }
     const dx = e.clientX - last[0]; const dy = e.clientY - last[1];
     if (Math.abs(dx) + Math.abs(dy) > 2) moved = moved || Math.hypot(e.clientX - last[0], e.clientY - last[1]) > 6;
     if (moved) {
@@ -297,6 +297,7 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
   return {
     setPoint: (i, p) => { pts[i] = new THREE.Vector3(...p); select(i); },
     tap,
+    dist: () => dist,
     setSide: (v) => { side0 = v; sideBtn.textContent = side0 === 'left' ? '모델: 왼손' : '모델: 오른손'; },
     finish,
   };
