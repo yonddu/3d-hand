@@ -423,7 +423,7 @@ class MainActivity : ComponentActivity() {
         optsButton.setOnClickListener { mainCol.visibility = android.view.View.GONE; optsScroll.visibility = android.view.View.VISIBLE; updateModelButtons() }
         back.setOnClickListener { optsScroll.visibility = android.view.View.GONE; mainCol.visibility = android.view.View.VISIBLE }
         val note = TextView(this).apply {
-            text = "측정 중지 → FBX 저장 (원본 손 관절, 팔 없음) · 기록 JSON에 몸 33점 포함\n손 모델: 앱에 들어있는 건틀렛 왼팔 + 쿠크리 (오른손은 좌우 반전) · 뼈 길이는 모델 그대로, MediaPipe 3D 방향으로 뼈만 회전 · 몸: MediaPipe Pose 선"
+            text = "측정 중지 → FBX 저장 (원본 손 관절, 팔 없음) · 기록 JSON에 몸 33점 포함\n손 모델: 앱에 들어있는 건틀렛 오른팔 + 쿠크리 (왼손이 보이면 좌우 반전) · 뼈 길이는 모델 그대로, MediaPipe 3D 방향으로 뼈만 회전 · 몸: MediaPipe Pose 선"
             textSize = 12f
         }
         opts.addView(note)
@@ -448,7 +448,7 @@ class MainActivity : ComponentActivity() {
                     val bytes = assets.open("hand_model.glb").use { it.readBytes() }
                     runOnUiThread {
                         if (destroyed) return@runOnUiThread
-                        handView.loadModel("gauntlet_kukri_left.glb", bytes) { result ->
+                        handView.loadModel("gauntlet_kukri_right.glb", bytes) { result ->
                             if (result.startsWith("ok:")) {
                                 customModel = true
                                 handView.fitHand(false)
