@@ -74,3 +74,14 @@
   ring .51/.61/.64, pinky .50/.66/.62. Fingertips now end at the points (v0.17-length-fit.png);
   fingers thinner by the same factor. MeshHand carries world[63]. Not phone-verified.
 - Open: knuckle spread (index MCP -> pinky MCP) model 0.87 palms vs MP 0.64 is NOT fitted.
+
+## v0.18 (2026-11-02, native fffdcff): thickness kept, hinge PIP/DIP
+
+- User (gauntlet v2, data/models/gauntlet2_rigged_left.glb): fingers twist / look odd, make them thicker.
+- fitLengths now edits the rest pose: next joint position *= q, skin vertices move by
+  sum(w * (shift + dir * clamp(along,0,len) * (q-1))) per finger bone, boneInverses *= T(-shift);
+  each instance clones its geometry. Thickness = model's. Scales on the record (v2): thumb .94/1.29/1.24,
+  index .77/.83/.88, middle .80/.78/.89, ring .65/.76/.85, pinky .56/.87/.86.
+- pose(): PIP/DIP of index..pinky aim projected off the knuckle-line axis (restLat turned by parent),
+  so no sideways bend / twist; MCP and thumb free. Points may sit slightly beside the fingertip when
+  MediaPipe reads a sideways bend. Picture: native/v0.18-thick-hinge.png. Not phone-verified.
