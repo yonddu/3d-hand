@@ -232,7 +232,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         val title = TextView(this).apply {
-            text = "Hand Motion · 네이티브 v0.21"
+            text = "Hand Motion · 네이티브 v0.22"
             textSize = 14f
         }
         root.addView(title)
@@ -401,7 +401,17 @@ class MainActivity : ComponentActivity() {
         val saves = LinearLayout(this).apply { gravity = Gravity.CENTER }
         buttons.removeView(saveButton); buttons.removeView(fbxButton)
         saves.addView(saveButton); saves.addView(fbxButton)
-        opts.addView(TextView(this).apply { text = "저장 (측정 중지 후)"; textSize = 12f })
+        var fitOn = true
+        val fitButton = Button(this).apply {
+            text = "화면: 내 손에 스킨 씌우기 (모델 뼈를 내 손에 맞춤)"
+            setOnClickListener {
+                fitOn = !fitOn
+                handView.fitHand(fitOn)
+                text = if (fitOn) "화면: 내 손에 스킨 씌우기 (모델 뼈를 내 손에 맞춤)" else "화면: 모델 비율 그대로 (회전만)"
+            }
+        }
+        opts.addView(fitButton)
+        opts.addView(TextView(this).apply { text = "저장 (측정 중지 후) · GLB는 항상 원래 모델 뼈 길이 + 회전만"; textSize = 12f })
         opts.addView(glbButton); opts.addView(saves)
         val optsButton = Button(this).apply { text = "옵션" }
         buttons.addView(calButton); buttons.addView(optsButton)

@@ -35,11 +35,53 @@ function layout(w, h) {
 // Camera space (x right, y down, z forward) -> three.js (y up, looking down -z): a turn, not a mirror.
 const toThree = (cam, j) => new THREE.Vector3(cam[j * 3], -cam[j * 3 + 1], -cam[j * 3 + 2]);
 
+// "내 손에 스킨 씌우기" (screen only): the user's finger bone lengths and knuckles from
+// MediaPipe's 3D points, median of the first CAL_FRAMES frames per side, then kept.
+const CAL_FRAMES = 60;
+const FINGER_MP = { thumb: [1, 2, 3, 4], index: [5, 6, 7, 8], middle: [9, 10, 11, 12], ring: [13, 14, 15, 16], pinky: [17, 18, 19, 20] };
+const fitCal = { left: { samples: [], lengths: null }, right: { samples: [], lengths: null } };
+const dist3 = (w, a, b) => Math.hypot(w[a * 3] - w[b * 3], w[a * 3 + 1] - w[b * 3 + 1], w[a * 3 + 2] - w[b * 3 + 2]);
+const median = (a) => { const s = [...a].sort((x, y) => x - y); return s[s.length >> 1]; };
+// true when the lengths changed (the models then need refitting)
+function calibrateFit(side, w) {
+  const c = fitCal[side];
+  if (c.samples.length >= CAL_FRAMES || !w || w.length < 63) return false;
+  const palm = dist3(w, 0, 9);
+  if (!(palm > 0.03 && palm < 0.2)) return false;
+  const one = {};
+  for (const [k, mp] of Object.entries(FINGER_MP)) one[k] = [0, 1, 2].map((i) => dist3(w, mp[i], mp[i + 1]) / palm);
+  // Knuckles (finger roots, thumb base) in the palm's own frame, in palms: x toward the index
+  // side, y wrist -> middle root, z = x cross y.
+  const v = (i) => [w[i * 3] - w[0], w[i * 3 + 1] - w[1], w[i * 3 + 2] - w[2]];
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const unit = (a) => { const n = Math.hypot(...a) || 1; return a.map((x) => x / n); };
+  const y = unit(v(9)); let x = v(5).map((a, i) => a - w[17 * 3 + i] + w[i]);
+  x = unit(x.map((a, i) => a - dot(x, y) * y[i]));
+  const z = [x[1] * y[2] - x[2] * y[1], x[2] * y[0] - x[0] * y[2], x[0] * y[1] - x[1] * y[0]];
+  one.knuckles = {};
+  for (const [k, mp] of Object.entries(FINGER_MP)) { const p = v(mp[0]); one.knuckles[k] = [dot(p, x) / palm, dot(p, y) / palm, dot(p, z) / palm]; }
+  c.samples.push(one);
+  const n = c.samples.length;
+  if (n !== 5 && n % 10 !== 0) return false;
+  c.lengths = {};
+  for (const k of Object.keys(FINGER_MP)) c.lengths[k] = [0, 1, 2].map((i) => median(c.samples.map((s) => s[k][i])));
+  c.lengths.knuckles = {};
+  for (const k of Object.keys(FINGER_MP)) c.lengths.knuckles[k] = [0, 1, 2].map((i) => median(c.samples.map((s) => s.knuckles[k][i])));
+  return true;
+}
 // "편 손 캘리브레이션": the next frame's 3D points of each seen hand are its open hand (kept,
 // also for models loaded later, and across app starts).
 const calRaw = { left: null, right: null };
 try { for (const side of ['left', 'right']) { const v = localStorage.getItem(`hms.openHand.${side}`); if (v) calRaw[side] = JSON.parse(v); } } catch (e) { /* none kept */ }
 let calWanted = false;
+let fitOn = !window.HMS_NOFIT;
+window.fitHand = (on) => {
+  fitOn = !!on;
+  // Rebuild the shown models (a fitted one keeps its stretched skin).
+  for (const side of ['left', 'right']) customSlots[side].forEach((i) => scene.remove(i.outer));
+  customSlots = { left: [], right: [] };
+  return 'ok';
+};
 window.calibrateOpen = () => { calWanted = true; return 'ok'; };
 window.calibrateClear = () => {
   calRaw.left = calRaw.right = null;
@@ -47,7 +89,7 @@ window.calibrateClear = () => {
   for (const side of ['left', 'right']) customSlots[side].forEach((i) => { i.cal = null; });
   return 'ok';
 };
-window.calStatus = () => JSON.stringify({ left: !!calRaw.left, right: !!calRaw.right, err: Object.fromEntries(['left', 'right'].map((s) => [s, customSlots[s].map((i) => i.err)])), bends: Object.fromEntries(['left', 'right'].map((s) => [s, customSlots[s].map((i) => i.bends)])) });
+window.calStatus = () => JSON.stringify({ fitN: { left: fitCal.left.samples.length, right: fitCal.right.samples.length }, fit: Object.fromEntries(['left', 'right'].map((s) => [s, customSlots[s].map((i) => i.fitted)])), left: !!calRaw.left, right: !!calRaw.right, err: Object.fromEntries(['left', 'right'].map((s) => [s, customSlots[s].map((i) => i.err)])), bends: Object.fromEntries(['left', 'right'].map((s) => [s, customSlots[s].map((i) => i.bends)])) });
 const toVecs = (a) => Array.from({ length: 21 }, (_, j) => toThree(a, j));
 
 // A hand not seen for a moment keeps its last pose (MediaPipe drops a hand for a frame or two).
@@ -135,6 +177,7 @@ window.setHands = function setHands(data) {
     if (!hand.cam || hand.cam.length < 63) continue;
     const P = toVecs(hand.cam);
     const Wd = hand.world && hand.world.length >= 63 ? toVecs(hand.world) : null;
+    const refit = !d.record && fitOn && calibrateFit(side, hand.world);
     if (calWanted && Wd && n === 0) {
       calRaw[side] = Wd.map((v) => v.toArray()).flat();
       try { localStorage.setItem(`hms.openHand.${side}`, JSON.stringify(calRaw[side])); } catch (e) { /* not kept */ }
@@ -144,7 +187,8 @@ window.setHands = function setHands(data) {
       if (!customSlots[side][n]) {
         customSlots[side][n] = custom.instance(scene, side);
         if (calRaw[side]) customSlots[side][n].calW = toVecs(calRaw[side]);
-      }
+        if (fitOn && fitCal[side].lengths) custom.fitLengths(customSlots[side][n], fitCal[side].lengths);
+      } else if (refit) customSlots[side].forEach((i) => custom.fitLengths(i, fitCal[side].lengths));
       // Body pose elbow for this hand (MainActivity): picture point + whether it is farther than the wrist.
       let elbow = null;
       if (hand.elbow && hand.elbow.length >= 3) {

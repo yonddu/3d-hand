@@ -24,6 +24,7 @@ const FINGERS = [
   { key: 'pinky', mp: [17, 18, 19, 20], re: /pinky|little|small|(^|[^a-z])pnk\d/ },
 ];
 const SIDE_RAD = THREE.MathUtils.degToRad(20); // most a middle / end finger joint bends sideways
+const DIP_RATIO = 2 / 3; // end joint bend / middle joint bend (tendon coupling)
 const TIP = /tip|end|nub|null|_4$|\.004$|4$|_end/;
 
 function sideOf(name) {
@@ -172,6 +173,25 @@ export class CustomHand {
       for (const b of [...ch.bones, ...(ch.tip ? [ch.tip] : [])]) restBone.set(b, { p: wp(b), q: b.getWorldQuaternion(new THREE.Quaternion()) });
     }
     const restLat = new THREE.Vector3().setFromMatrixColumn(restFrame, 0).normalize(); // pinky -> index
+    const restPos = new Map();
+    for (const b of restBone.keys()) restPos.set(b, b.position.clone());
+    const restHandPos = wp(h.hand);
+    // Finger roots: their parents' rest matrices (to move a root inside its parent).
+    const rootParentInv = new Map();
+    for (const f of FINGERS) { const b = c[f.key].bones[0]; rootParentInv.set(b, b.parent.matrixWorld.clone().invert()); }
+    // Each instance stretches its own copy of the skin (fitLengths).
+    const skins = [];
+    model.traverse((o) => {
+      if (!o.isSkinnedMesh) return;
+      o.geometry = o.geometry.clone();
+      skins.push({ mesh: o, orig: o.geometry.attributes.position.array.slice(), inv0: o.skeleton.boneInverses.map((m) => m.clone()), meshM: o.matrixWorld.clone() });
+    });
+    // Model finger bone lengths (bone -> next joint), in model palms.
+    const lengths = {};
+    for (const f of FINGERS) {
+      const ch = c[f.key];
+      lengths[f.key] = ch.bones.map((b, k) => { const n = ch.bones[k + 1] || ch.tip; return n ? wp(n).distanceTo(wp(b)) / restPalm : 0; });
+    }
     // Palm side: for a right hand the palm faces +z of the palm frame (x to the index, y to the
     // middle finger), for a left hand -z. The model is posed as its own hand (mirrored after).
     const ownHand = modelSide || this.handedness();
@@ -184,7 +204,7 @@ export class CustomHand {
       model.traverse((o) => { if (o.isMesh) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => (m.side = THREE.DoubleSide)); });
     }
     scene.add(outer);
-    const inst = { outer, root, model, h, restLocal, restFrame, restPalm, handM, mirror, restHandQ, fore: restFore > 1e-6 ? fore : null, restElbow, restFore, restBone, restLat, palmSign, animNodes, cal: null };
+    const inst = { outer, root, model, h, restLocal, restFrame, restPalm, handM, mirror, restHandQ, fore: restFore > 1e-6 ? fore : null, restElbow, restFore, restBone, restLat, palmSign, animNodes, cal: null, restPos, restHandPos, rootParentInv, skins, lengths, restFrame0: restFrame.clone(), fitted: null };
     inst.restAngles = this.restAngles(inst);
     if (window.HMS_DEBUG) window.customDebug = { hand: h.hand.name, chains: Object.fromEntries(Object.entries(c).map(([k, v]) => [k, v.bones.map((b) => b.name).concat(v.tip ? ['tip:' + v.tip.name] : [])])), restPalm, mirror, palmSign };
     outer.visible = false;
@@ -211,6 +231,7 @@ export class CustomHand {
   // first bones: the turn (in the palm frame) from the seen direction to the model's;
   // middle / end joints: flex and side angle offsets (model rest - seen).
   calibrate(inst, Wd) {
+    inst.calSrc = Wd;
     const F = frameOf(Wd[0], Wd[5], Wd[9], Wd[17]);
     const Fi = new THREE.Matrix3().setFromMatrix4(F).transpose();
     const lat = new THREE.Vector3().setFromMatrixColumn(F, 0);
@@ -229,6 +250,94 @@ export class CustomHand {
       });
     }
     inst.cal = cal;
+  }
+
+  fitLengths(inst, user) {
+    const out = {};
+    const segs = new Map();
+    // Knuckles: each finger root (and the thumb base) where the user's is, in the model's palm
+    // frame at the model's palm size. The model's own palm frame is kept (wrist, middle root).
+    const R0 = inst.restFrame0;
+    const ex = new THREE.Vector3().setFromMatrixColumn(R0, 0); const ey = new THREE.Vector3().setFromMatrixColumn(R0, 1); const ez = new THREE.Vector3().setFromMatrixColumn(R0, 2);
+    const rootShift = {};
+    for (const f of FINGERS) {
+      const ch = inst.h.chains[f.key];
+      const k = user && user.knuckles && user.knuckles[f.key];
+      const b = ch.bones[0];
+      const was = inst.restBone.get(b).p;
+      let s = new THREE.Vector3();
+      if (k && ch.bones.length === 3 && f.key !== 'middle') {
+        const zk = inst.mirror ? -k[2] : k[2];
+        const target = inst.restHandPos.clone().addScaledVector(ex, k[0] * inst.restPalm).addScaledVector(ey, k[1] * inst.restPalm).addScaledVector(ez, zk * inst.restPalm);
+        s = target.sub(was);
+        if (s.length() > 0.6 * inst.restPalm) s.setLength(0.6 * inst.restPalm); // never wild
+      }
+      rootShift[f.key] = s;
+      b.position.copy(was.clone().add(s).applyMatrix4(inst.rootParentInv.get(b)));
+    }
+    for (const f of FINGERS) {
+      const ch = inst.h.chains[f.key];
+      const off = 3 - ch.bones.length;
+      const shift = rootShift[f.key].clone();
+      out[f.key] = [];
+      ch.bones.forEach((bone, k) => {
+        const next = ch.bones[k + 1] || ch.tip;
+        const A = inst.restBone.get(bone).p;
+        const m = inst.lengths[f.key][k];
+        const t = user && user[f.key] ? user[f.key][k + off] : 0;
+        const q = next && m > 1e-6 && t > 1e-6 ? Math.min(1.6, Math.max(0.5, t / m)) : 1;
+        let dir = null; let len = 0;
+        if (next) {
+          dir = inst.restBone.get(next).p.clone().sub(A); len = dir.length(); dir.normalize();
+          next.position.copy(inst.restPos.get(next)).multiplyScalar(q);
+        }
+        segs.set(bone, { A, dir, len, q, shift: shift.clone() });
+        if (dir) shift.addScaledVector(dir, len * (q - 1));
+        out[f.key].push(+q.toFixed(2));
+      });
+      if (ch.tip) segs.set(ch.tip, { A: inst.restBone.get(ch.tip).p, dir: null, len: 0, q: 1, shift: shift.clone() });
+    }
+    const v = new THREE.Vector3(); const d = new THREE.Vector3(); const rel = new THREE.Vector3();
+    for (const sk of inst.skins) {
+      const g = sk.mesh.geometry;
+      const pos = g.attributes.position; const si = g.attributes.skinIndex; const sw = g.attributes.skinWeight;
+      const bones = sk.mesh.skeleton.bones;
+      const segOf = bones.map((b) => segs.get(b) || null);
+      const meshInv = sk.meshM.clone().invert();
+      for (let i = 0; i < pos.count; i++) {
+        v.set(sk.orig[i * 3], sk.orig[i * 3 + 1], sk.orig[i * 3 + 2]).applyMatrix4(sk.meshM);
+        d.set(0, 0, 0);
+        for (let j = 0; j < 4; j++) {
+          const w = sw.getComponent(i, j); if (!w) continue;
+          const sg = segOf[si.getComponent(i, j)]; if (!sg) continue;
+          d.addScaledVector(sg.shift, w);
+          if (sg.dir) {
+            const along = Math.min(Math.max(rel.copy(v).sub(sg.A).dot(sg.dir), 0), sg.len);
+            d.addScaledVector(sg.dir, w * along * (sg.q - 1));
+          }
+        }
+        v.add(d).applyMatrix4(meshInv);
+        pos.setXYZ(i, v.x, v.y, v.z);
+      }
+      pos.needsUpdate = true;
+      g.computeBoundingSphere();
+      // Bones that moved: bind them where they now rest.
+      bones.forEach((b, i) => {
+        const sg = segOf[i];
+        const m = sk.inv0[i].clone();
+        if (sg) m.multiply(new THREE.Matrix4().makeTranslation(-sg.shift.x, -sg.shift.y, -sg.shift.z));
+        sk.mesh.skeleton.boneInverses[i].copy(m);
+      });
+    }
+    // The palm frame the pose uses: from the knuckles where they now are.
+    const np = (f) => inst.restBone.get(inst.h.chains[f].bones[0]).p.clone().add(rootShift[f]);
+    inst.restFrame = frameOf(inst.restHandPos, np('index'), np('middle'), np('pinky'));
+    inst.restLat = new THREE.Vector3().setFromMatrixColumn(inst.restFrame, 0).normalize();
+    out.knuckleMove = Object.fromEntries(Object.entries(rootShift).map(([k, v]) => [k, +(v.length() / inst.restPalm).toFixed(3)]));
+    inst.restAngles = this.restAngles(inst); // model directions in the (new) palm frame
+    if (inst.calSrc) this.calibrate(inst, inst.calSrc);
+    inst.fitted = out;
+    return out;
   }
 
   // P: the 21 points on their picture rays (where the hand is); Wd: MediaPipe's 3D (world)
@@ -299,6 +408,17 @@ export class CustomHand {
     const pos = new THREE.Vector3(); const nextPos = new THREE.Vector3(); const par = new THREE.Vector3();
     const F3 = new THREE.Matrix3().setFromMatrix4(F); const Fi = F3.clone().transpose();
     const latSeen = new THREE.Vector3().setFromMatrixColumn(F, 0);
+    // On screen with the user's skeleton: finger roots right on their points this frame.
+    if (inst.fitted && !window.HMS_NOROOT) {
+      for (const f of FINGERS) {
+        const b = h.chains[f.key].bones[0];
+        const off = 3 - h.chains[f.key].bones.length;
+        b.parent.updateWorldMatrix(true, false);
+        const toLocal = tmpM.multiplyMatrices(outerInv, b.parent.matrixWorld).invert();
+        b.position.copy(P[f.mp[off]]).applyMatrix4(toLocal);
+        b.updateWorldMatrix(false, true);
+      }
+    }
     const ps = inst.palmSign;
     const cal = inst.cal;
     const D2R = Math.PI / 180;
@@ -307,6 +427,7 @@ export class CustomHand {
       const list = ch.bones;
       const off = 3 - list.length; // two bones only: they are the outer ones
       const seen = [0, 1, 2].map((k) => Wd[f.mp[k + 1]].clone().sub(Wd[f.mp[k]]).normalize());
+      let pipFlex = 0;
       list.forEach((bone, k) => {
         at(bone, pos);
         const child = list[k + 1] || ch.tip;
@@ -332,6 +453,13 @@ export class CustomHand {
           let side = a.side + (o ? o.side : 0);
           flex = Math.min(115 * D2R, Math.max(0, flex));
           side = Math.min(SIDE_RAD, Math.max(-SIDE_RAD, side));
+          // End joint moves with the middle one (one tendon drives both): about 2/3 of its bend,
+          // straight in line; MediaPipe's own end-joint reading is mostly depth noise.
+          if (k === 2 && off === 0 && !window.HMS_NOCOUPLE) {
+            flex = DIP_RATIO * pipFlex;
+            side = 0;
+          }
+          if (k === 1) pipFlex = flex;
           const pBone = list[k - 1];
           const pd = pos.clone().sub(at(pBone, par)).normalize();
           turnOf(pBone, pq);
@@ -407,10 +535,43 @@ function seenBend(a, b, lat, palmSign) {
   return { flex: Math.sqrt(Math.max(0, total * total - side * side)), side };
 }
 
+const POSE_WINDOW = 0.5; // s, still pose: median over this much either side
+const SMOOTH_SIGMA = 0.06; // s, animation: Gaussian, forward and back (no lag)
+
+// Turns as [x,y,z,w]; all put on the same side as ref (q and -q are one turn).
+function aligned(list, ref) { return list.map((q) => (q[0] * ref[0] + q[1] * ref[1] + q[2] * ref[2] + q[3] * ref[3] < 0 ? q.map((v) => -v) : q)); }
+function norm4(q) { const n = Math.hypot(...q) || 1; return q.map((v) => v / n); }
+function medianQuat(list, ref) {
+  const a = aligned(list, ref);
+  return norm4([0, 1, 2, 3].map((c) => { const v = a.map((q) => q[c]).sort((x, y) => x - y); return v[v.length >> 1]; }));
+}
+// Every joint's turn and the root place smoothed over time, looking both ways (no lag).
+function smoothFrames(frames, sigma) {
+  if (frames.length < 3) return frames;
+  let lo = 0; let hi = 0;
+  return frames.map((f) => {
+    while (frames[lo].t < f.t - 4 * sigma) lo++;
+    while (hi + 1 < frames.length && frames[hi + 1].t <= f.t + 4 * sigma) hi++;
+    const near = frames.slice(lo, hi + 1);
+    const ws = near.map((g) => Math.exp(-0.5 * ((g.t - f.t) / sigma) ** 2));
+    const sum = ws.reduce((x, y) => x + y, 0);
+    const avg = (get, ref) => {
+      const out = new Array(ref.length).fill(0);
+      near.forEach((g, j) => {
+        let v = get(g);
+        if (ref.length === 4 && v[0] * ref[0] + v[1] * ref[1] + v[2] * ref[2] + v[3] * ref[3] < 0) v = v.map((x) => -x);
+        v.forEach((x, c) => (out[c] += (x * ws[j]) / sum));
+      });
+      return ref.length === 4 ? norm4(out) : out;
+    };
+    return { ...f, p: avg((g) => g.p, f.p), q: avg((g) => g.q, f.q), nodes: f.nodes.map((q, i) => avg((g) => g.nodes[i], q)) };
+  });
+}
+
 // GLB of the model: 'anim' = the recorded turns as an animation (bone turns only; the root
 // moves and turns; lengths and scale as modelled), 'pose' = one recorded frame as a still
 // pose at the origin. frames: snapshots of one instance.
-export async function exportGlb(template, inst, frames, mode, index) {
+export async function exportGlb(template, inst, frames, mode, index) { // eslint-disable-line no-param-reassign
   const { GLTFExporter } = await import('three/examples/jsm/exporters/GLTFExporter.js');
   const model = SkeletonUtils.clone(template);
   const wrap = new THREE.Group(); wrap.name = 'HandMotionRoot'; wrap.add(model);
@@ -420,10 +581,14 @@ export async function exportGlb(template, inst, frames, mode, index) {
   const pairs = inst.animNodes.map((o, i) => [i, nodes[i]]).filter(([i, n]) => n && n.name === inst.animNodes[i].name);
   let clip = null;
   if (mode === 'pose') {
-    const fr = frames[Math.max(0, Math.min(frames.length - 1, index))];
-    for (const [i, n] of pairs) n.quaternion.fromArray(fr.nodes[i]);
+    // The pose held around the chosen frame: per joint, the median turn over +-POSE_WINDOW s
+    // (one frame alone carries MediaPipe's frame noise).
+    const mid = frames[Math.max(0, Math.min(frames.length - 1, index))];
+    const win = frames.filter((f) => Math.abs(f.t - mid.t) <= POSE_WINDOW);
+    for (const [i, n] of pairs) n.quaternion.fromArray(medianQuat(win.map((f) => f.nodes[i]), mid.nodes[i]));
     model.name = `${model.name || 'model'}_pose`;
   } else {
+    frames = smoothFrames(frames, SMOOTH_SIGMA);
     const times = frames.map((f) => f.t - frames[0].t);
     const tracks = [
       new THREE.VectorKeyframeTrack(`${wrap.uuid}.position`, times, frames.flatMap((f) => f.p)),
