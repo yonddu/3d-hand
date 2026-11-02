@@ -85,3 +85,23 @@
 - pose(): PIP/DIP of index..pinky aim projected off the knuckle-line axis (restLat turned by parent),
   so no sideways bend / twist; MCP and thumb free. Points may sit slightly beside the fingertip when
   MediaPipe reads a sideways bend. Picture: native/v0.18-thick-hinge.png. Not phone-verified.
+
+## v0.20 (2026-11-02, native 63bb5b7): rotation retarget (user spec, 7 items)
+
+- User spec (likely GPT-written, given as [지시]): directions only, model bone lengths kept, no bone
+  translation except wrist root; palm basis wrist->middle MCP + index->pinky MCP; no twist + joint limits;
+  open-hand calibration button; keep last pose when lost; GLB rotation animation + still-pose GLB.
+  v0.17-v0.19 length/knuckle fits REMOVED (contradict the spec).
+- custom.js pose(inst, P, elbow, Wd): Wd = MP world points (three axes). First bones: seen dir in palm frame
+  (+cal q0), MCP flex clamp -30..100. PIP/DIP: seenBend (flex about knuckle line; side clamp 20 deg, rest of
+  the bend counted as flex, back only if < -10 deg) applied to model parent dir about its turned knuckle
+  axis, flex 0..115. Thumb free. calibrate(): q0 per finger + flex/side offsets vs model rest. palmSign from
+  model handedness (right +z). snapshot()/exportGlb() (GLTFExporter, root pos+quat + bone quat tracks).
+- main.js: calibrateOpen/calibrateClear (localStorage hms.openHand.<side>), HOLD_MS 500, recBegin /
+  exportBegin / exportChunk. MainActivity: model panel (calibration, GLB anim, SeekBar still pose,
+  실시간 보기), replays saved frames incl. recorded pose elbow; minTrackingConfidence 0.3.
+- Checks on hand-native-1793581459272.json: PIP/DIP bends of gauntlet v1, v2, Mixamo arm identical, median
+  |model-MP| 0.4 deg (mean 9.6 = clamps). Picture distance 31-36% of palm (model lengths kept, by design).
+  Exported GLB reloads (anim 9.0 s, 16 rotation + 1 root translation channel; bone translations = model).
+  Files: native/v0.20-three-models.png, v0.20-exported-glb.png, v0.20-sample-pose.glb, v0.20-sample-anim.glb.
+  Not phone-verified.
