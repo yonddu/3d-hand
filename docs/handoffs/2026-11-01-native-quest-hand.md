@@ -288,3 +288,29 @@ not started. Retarget onto other skins is NOT proven visually (only equal bend n
 - PIP/DIP sideways SIDE_RAD 20 -> 15: exported jumps 75/15/75 -> 73/14/73. Kept.
 - Rejected after review: bone-length z = ±sqrt(L²-dx²-dy²) (old web lift, sign is the error); palm side from handedness (labels flip at flips; world palm vs picture disagree only 2/117 in take-flip).
 - Harness: scratchpad hv/exp5.cjs (ZS env), live2.cjs (OEZ, LOUT), lcmp.py, gdiff.py.
+
+## v0.37 (8fcb749, 6b758e6, fix a96057a) — rig screen (user marks MediaPipe's 21 points)
+- Options -> '리깅 잡기 화면': separate full screen (camera unbound, title/status/buttons/preview/overlay hidden).
+  hand-view/rig.js openEditor: point names (0 손목 WRIST .. 20 새끼 끝 PINKY_TIP), tap = point between ray
+  entry/exit of the skin, TransformControls X/Y/Z arrows, 1-finger turn (view follows current point),
+  pinch zoom, tap a point to fix it, model side button. Saved localStorage hms.rig.<file name>, applied on load.
+- applyRig: model with >=16 bones -> each point to nearest bone head (CustomHand rigMap, node indices);
+  no bones -> Mixamo-named bones on the points + skin (top-4 nearest segments, falloff 0.06 palm).
+- Headless: gauntlet with true points = identical export to name auto-detection; gauntlet stripped of
+  rig + 4 mm jitter rebuilt, follows nat1 like the original (images native/v0.37-rig-*.png).
+- Kotlin gotcha (twice now): `overlay` inside Button.apply = View.getOverlay(); use this@MainActivity.overlay.
+
+## v0.38 (5844855) — thumb tip meets the touched fingertip
+- custom.js touch(): MP thumb tip within 0.2 palm of a fingertip (leave 0.28) -> CCD on the 3 thumb bones
+  (12 x 40 deg, ease 0.25) to MP's offset from that tip (scaled to model palm). HMS_NOTOUCH.
+- Gap error (palms) nat1/fbx1/u4 0.72/1.08/0.97 -> 0.30/0.56/0.12; live jumps 226/264/194 -> 244/309/207;
+  GLB jumps 104/87/98 -> 89/87/97.
+- FINDING: pre-v0.32 takes (nat1/fbx1/u4) carry MediaPipe labels = opposite hand. Use *_sw.json (sides
+  swapped) in scratchpad hv/. v0.25-v0.36 numbers were measured on the mirrored labels.
+
+## v0.39 (0034925) — body contacts
+- body.js contacts(): planted foot (picture speed < 0.35 torso/s, leave 0.7) held at plant place via
+  two-bone leg reach; wrist near other wrist / head / own hip (< 0.16 torso, leave 0.24) -> arm reach to
+  the person's offset (claps meet halfway). HMS_NOCONTACT. Clock = frame t (reset on time jump).
+- Synthetic (hv/body3.cjs): foot drift Vanguard 5.3 -> 0 %, VRM 10.0 -> 0 % torso; clap gap error
+  0.159 -> 0 / 0.026 -> 0. No real body take yet.
