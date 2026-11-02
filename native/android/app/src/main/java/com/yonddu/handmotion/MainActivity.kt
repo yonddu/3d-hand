@@ -109,6 +109,7 @@ class MainActivity : ComponentActivity() {
     @Volatile private var analysing = false
     private var takePrepared = false // the page holds this take cleaned + posed
     private lateinit var reviewButton: Button
+    private lateinit var busyLabel: TextView
     private var takeNote = ""
 
     private val permission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -151,10 +152,10 @@ class MainActivity : ComponentActivity() {
                             modelPanel.visibility = android.view.View.VISIBLE
                             calButton.visibility = android.view.View.VISIBLE
                             updateModelButtons()
-                            modelButton.text = "손 모델 내리기 (점만 보기)"
+                            modelButton.text = "스킨 빼기 (내 손 점만 보기)"
                             modelInfo.text = "내 손 모델: " + result.removePrefix("ok:")
                         } else {
-                            modelButton.text = "내 손 모델 불러오기 (GLB/FBX)"
+                            modelButton.text = "스킨 추가 (손 모델 GLB/FBX 불러오기)"
                             modelInfo.text = "손 모델 열기 실패: " + result.removePrefix("error:")
                         }
                     }
@@ -267,6 +268,11 @@ class MainActivity : ComponentActivity() {
         stage.addView(preview, FrameLayout.LayoutParams(-1, -1))
         stage.addView(handView, FrameLayout.LayoutParams(-1, -1))
         stage.addView(overlay, FrameLayout.LayoutParams(-1, -1))
+        busyLabel = TextView(this).apply {
+            visibility = android.view.View.GONE; gravity = Gravity.CENTER; textSize = 16f
+            setTextColor(android.graphics.Color.WHITE); setBackgroundColor(android.graphics.Color.argb(170, 0, 0, 0)); setPadding(32, 32, 32, 32)
+        }
+        stage.addView(busyLabel, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
         mainCol.addView(stage, LinearLayout.LayoutParams(-1, 0, 1f))
         status = TextView(this).apply { text = "손 검출 모델 준비 중…"; textSize = 11f }
         mainCol.addView(status)
@@ -334,7 +340,11 @@ class MainActivity : ComponentActivity() {
         }
         reviewButton = Button(this).apply {
             text = "보정 재생"; isEnabled = false
-            setOnClickListener { handView.frozen = true; handView.reviewPlay { r -> liveButton.isEnabled = true; if (!r.startsWith("ok")) { handView.frozen = false; status.text = r.removePrefix("error:") } } }
+            setOnClickListener {
+                if (!customModel) { playPoints(); return@setOnClickListener }
+                handView.frozen = true; overlay.update(emptyList(), emptyList(), 1, 1)
+                handView.reviewPlay { r -> liveButton.isEnabled = true; if (!r.startsWith("ok")) { handView.frozen = false; status.text = r.removePrefix("error:") } }
+            }
         }
         buttons.addView(recordButton); buttons.addView(saveButton); buttons.addView(fbxButton)
         // Game build: one fixed hand (built-in model), backend chosen automatically.
@@ -365,7 +375,7 @@ class MainActivity : ComponentActivity() {
         }
         opts.addView(poseButton)
         modelButton = Button(this).apply {
-            text = "내 손 모델 불러오기 (GLB/FBX)"
+            text = "스킨 추가 (손 모델 GLB/FBX 불러오기)"
             setOnClickListener {
                 if (customModel) {
                     handView.resetModel(); customModel = false; updateModelButtons()
@@ -373,7 +383,7 @@ class MainActivity : ComponentActivity() {
                     modelPanel.visibility = android.view.View.GONE
                     calButton.visibility = android.view.View.GONE
                     handView.frozen = false
-                    text = "내 손 모델 불러오기 (GLB/FBX)"; modelInfo.text = ""
+                    text = "스킨 추가 (손 모델 GLB/FBX 불러오기)"; modelInfo.text = ""
                 } else openModel.launch(arrayOf("*/*"))
             }
         }
@@ -388,16 +398,7 @@ class MainActivity : ComponentActivity() {
         }
         modelInfo = TextView(this).apply { textSize = 12f }
         opts.addView(modelInfo)
-        var propOn = true
-        val propButton = Button(this).apply {
-            text = "무기: 쿠크리 (누르면 맨손)"
-            setOnClickListener {
-                propOn = !propOn
-                handView.setProp(propOn)
-                text = if (propOn) "무기: 쿠크리 (누르면 맨손)" else "무기: 맨손 (누르면 쿠크리)"
-            }
-        }
-        opts.addView(propButton)
+        opts.addView(modelButton); opts.addView(sideButton)
         bakeButton = Button(this).apply {
             text = "이 모델을 내 손 비율로 고쳐 저장 (GLB)"; visibility = android.view.View.GONE
             setOnClickListener { bakeModel() }
@@ -430,7 +431,7 @@ class MainActivity : ComponentActivity() {
         }
         liveButton = Button(this).apply {
             text = "실시간 보기"; isEnabled = false
-            setOnClickListener { handView.reviewStop(); handView.frozen = false; isEnabled = false }
+            setOnClickListener { stopPoints(); handView.reviewStop(); handView.frozen = false; isEnabled = false }
         }
         val stillRow = LinearLayout(this).apply { gravity = Gravity.CENTER; addView(stillButton); addView(liveButton) }
         // Options screen: the GLB save with the other saves. Camera screen: what needs the view
@@ -450,7 +451,7 @@ class MainActivity : ComponentActivity() {
                 text = if (fitOn) "화면: 내 손에 스킨 씌우기 (모델 뼈를 내 손에 맞춤)" else "화면: 모델 비율 그대로 (회전만)"
             }
         }
-        opts.addView(TextView(this).apply { text = "저장 (측정 중지 후) · GLB = 건틀렛+쿠크리 손 뼈 회전 애니메이션 (화면과 같음)"; textSize = 12f })
+        opts.addView(TextView(this).apply { text = "저장 (측정 중지 후) · GLB = 추가한 스킨의 뼈 회전 애니메이션 (보정 재생과 같음, 스킨이 있을 때만) · FBX = 내 손 21관절"; textSize = 12f })
         opts.addView(glbButton); opts.addView(saves)
         val optsButton = Button(this).apply { text = "옵션" }
         buttons.addView(reviewButton); buttons.addView(calButton); buttons.addView(optsButton)
@@ -460,7 +461,8 @@ class MainActivity : ComponentActivity() {
         optsButton.setOnClickListener { mainCol.visibility = android.view.View.GONE; optsScroll.visibility = android.view.View.VISIBLE; updateModelButtons() }
         back.setOnClickListener { optsScroll.visibility = android.view.View.GONE; mainCol.visibility = android.view.View.VISIBLE }
         val note = TextView(this).apply {
-            text = "측정 중지 → FBX 저장 (원본 손 관절, 팔 없음) · 기록 JSON에 몸 33점 포함\n손 모델: 앱에 들어있는 건틀렛 오른팔 + 쿠크리 (왼손이 보이면 좌우 반전) · 뼈 길이는 모델 그대로, MediaPipe 3D 방향으로 뼈만 회전 · 몸: MediaPipe Pose 선"
+            text = "기본 화면 = 내 손 (MediaPipe 점과 선) · 스킨 추가: 뼈가 있는 손 모델(GLB/FBX)을 불러오면 내 손 동작으로 뼈만 돌려 씌움 (텍스처 그대로)
+추적: 손 또는 몸 (몸 = MediaPipe Pose 33점) · 측정을 멈추면 녹화 영상을 처음부터 다시 분석해 보정한 동작을 보여줌"
             textSize = 12f
         }
         opts.addView(note)
@@ -468,7 +470,6 @@ class MainActivity : ComponentActivity() {
         root.addView(optsScroll, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
         startModel()
-        loadBuiltInModel()
     }
 
     /**
@@ -478,36 +479,6 @@ class MainActivity : ComponentActivity() {
      */
     private fun realSide(mpName: String): String =
         if (mpName.lowercase(Locale.ROOT) == "left") "right" else "left"
-
-    /** The game's fixed hand (gauntlet left arm + kukri), shipped in assets, loaded at start. */
-    private fun loadBuiltInModel(tries: Int = 0) {
-        handView.evaluateJavascript("window.modelBegin ? 'ready' : ''") { st ->
-            if (destroyed) return@evaluateJavascript
-            if (!st.contains("ready")) {
-                if (tries < 100) handView.postDelayed({ loadBuiltInModel(tries + 1) }, 200)
-                return@evaluateJavascript
-            }
-            modelInfo.text = "손 모델 준비 중…"
-            exportWorker.execute {
-                try {
-                    val bytes = assets.open("hand_model.glb").use { it.readBytes() }
-                    runOnUiThread {
-                        if (destroyed) return@runOnUiThread
-                        handView.loadModel("gauntlet_kukri_right.glb", bytes) { result ->
-                            if (result.startsWith("ok:")) {
-                                customModel = true
-                                handView.fitHand(false)
-                                modelPanel.visibility = android.view.View.VISIBLE
-                                calButton.visibility = android.view.View.VISIBLE
-                                updateModelButtons()
-                                modelInfo.text = "손 모델: " + result.removePrefix("ok:")
-                            } else modelInfo.text = "손 모델 열기 실패: " + result.removePrefix("error:")
-                        }
-                    }
-                } catch (e: Exception) { runOnUiThread { modelInfo.text = "손 모델 열기 실패: ${e.message}" } }
-            }
-        }
-    }
 
     private fun startModel() {
         ready = false
@@ -533,7 +504,8 @@ class MainActivity : ComponentActivity() {
                     .setMinHandPresenceConfidence(0.5f)
                     .setMinTrackingConfidence(0.3f) // keep a tracked hand longer (detection stays 0.5)
                     .build()
-                landmarker = HandLandmarker.createFromOptions(this, options)
+                // Hand OR body tracking (user: a switch, not both).
+                landmarker = if (poseOn) null else HandLandmarker.createFromOptions(this, options)
                 poseLandmarker?.close()
                 poseLandmarker = null
                 if (poseOn) try {
@@ -553,7 +525,7 @@ class MainActivity : ComponentActivity() {
                         recordButton.isEnabled = true
                         handsButton.isEnabled = true
                         poseButton.isEnabled = true
-                        poseButton.text = if (poseOn) "몸 추적 켜짐 · 끄기" else "몸 추적(MediaPipe Pose) 켜기"
+                        poseButton.text = if (poseOn) "추적: 몸 (누르면 손 추적으로)" else "추적: 손 (누르면 몸 추적으로)"
                         handsButton.text = if (maxHands == 2) "현재 두 손 · 한 손 비교로 전환" else "현재 한 손만 추적 · 두 손으로 전환"
                         backendButton.isEnabled = true
                         backendButton.text = if (backend == Delegate.GPU) "CPU로 전환" else "GPU로 전환"
@@ -612,7 +584,7 @@ class MainActivity : ComponentActivity() {
                             var pose: PoseLandmarkerResult? = null
                             var handsDone = 0L
                             val result = try {
-                                landmarker!!.detectForVideo(input, timestamp).also {
+                                landmarker?.detectForVideo(input, timestamp).also {
                                     handsDone = SystemClock.elapsedRealtimeNanos()
                                     // The body on the same picture, before close() recycles it.
                                     pose = try { poseLandmarker?.detectForVideo(input, timestamp) } catch (e: Throwable) {
@@ -620,6 +592,9 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                             } finally { input.close() }
+                            val hLm = result?.landmarks() ?: emptyList()
+                            val hHd = result?.handedness() ?: emptyList()
+                            val hWd = result?.worldLandmarks() ?: emptyList()
                             val finished = SystemClock.elapsedRealtimeNanos()
                             poseMs = if (poseLandmarker != null) (finished - handsDone) / 1e6 else 0.0
                             val preMs = (inferenceStart - entered) / 1e6
@@ -629,16 +604,16 @@ class MainActivity : ComponentActivity() {
                             frameWidth = uw; frameHeight = uh
                             timing.add(at, preMs, inferMs, callbackMs)
                             processed++
-                            if (result.landmarks().isEmpty()) empty++
+                            if (hLm.isEmpty()) empty++
                             if (recording) {
                                 if (startedAt == 0L) startedAt = entered
                                 val hands = JSONArray()
-                                result.landmarks().forEachIndexed { i, points ->
-                                    val category = result.handedness()[i][0]
+                                hLm.forEachIndexed { i, points ->
+                                    val category = hHd[i][0]
                                     val lm = JSONArray()
                                     points.forEach { lm.put(it.x().toDouble()).put(it.y().toDouble()).put(it.z().toDouble()) }
                                     val world = JSONArray()
-                                    result.worldLandmarks()[i].forEach { world.put(it.x().toDouble()).put(it.y().toDouble()).put(it.z().toDouble()) }
+                                    hWd[i].forEach { world.put(it.x().toDouble()).put(it.y().toDouble()).put(it.z().toDouble()) }
                                     hands.put(JSONObject().put("label", realSide(category.categoryName()))
                                         .put("score", category.score().toDouble()).put("lm", lm).put("world", world))
                                 }
@@ -665,16 +640,16 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                             }
-                            val points = result.landmarks().map { hand -> hand.map { Pair(it.x(), it.y()) } }
+                            val points = hLm.map { hand -> hand.map { Pair(it.x(), it.y()) } }
                             // Body points (x, y, visibility); empty when pose is off or sees nobody.
                             val body = pose?.landmarks()?.firstOrNull()?.map { Triple(it.x(), it.y(), it.visibility().orElse(0f)) } ?: emptyList()
                             val w = frameWidth; val h = frameHeight
                             // The loaded hand model: each hand's points in front of the camera (HandPlace).
                             val aspect = w.toDouble() / h
-                            val meshHands = try { result.landmarks().indices.mapNotNull { i ->
-                                val side = realSide(result.handedness()[i][0].categoryName())
-                                val world = DoubleArray(63).also { a -> result.worldLandmarks()[i].forEachIndexed { j, q -> a[j * 3] = q.x().toDouble(); a[j * 3 + 1] = q.y().toDouble(); a[j * 3 + 2] = q.z().toDouble() } }
-                                val img = DoubleArray(63).also { a -> result.landmarks()[i].forEachIndexed { j, q -> a[j * 3] = q.x().toDouble(); a[j * 3 + 1] = q.y().toDouble(); a[j * 3 + 2] = q.z().toDouble() } }
+                            val meshHands = try { hLm.indices.mapNotNull { i ->
+                                val side = realSide(hHd[i][0].categoryName())
+                                val world = DoubleArray(63).also { a -> hWd[i].forEachIndexed { j, q -> a[j * 3] = q.x().toDouble(); a[j * 3 + 1] = q.y().toDouble(); a[j * 3 + 2] = q.z().toDouble() } }
+                                val img = DoubleArray(63).also { a -> hLm[i].forEachIndexed { j, q -> a[j * 3] = q.x().toDouble(); a[j * 3 + 1] = q.y().toDouble(); a[j * 3 + 2] = q.z().toDouble() } }
                                 HandPlace.onRays(world, img, aspect)?.let { MeshHand(side, it, HandPlace.palm(world), poseElbow(pose, img), world) }
                             } } catch (e: Throwable) {
                                 lastError = "손 배치: ${e.javaClass.simpleName} ${e.message}"
@@ -695,7 +670,7 @@ class MainActivity : ComponentActivity() {
                                     if (!destroyed) {
                                         handView.show(w, h, meshHands)
                                         // Plain points until the hand model draws (or if it cannot).
-                                        if (handView.frozen) overlay.update(emptyList(), emptyList(), w, h) else overlay.update(points, body, w, h)
+                                        if (!handView.frozen) overlay.update(points, body, w, h) // frozen: a recorded take is shown
                                         if (handView.lastError.isNotEmpty()) lastError = handView.lastError
                                         if (summary != null) status.text = summary
                                     }
@@ -843,6 +818,42 @@ class MainActivity : ComponentActivity() {
         if (takePrepared) save() else prepareTake(false) { save() }
     }
 
+    /** No skin: the recorded (re-read) take played as points and lines, in a loop. */
+    private var pointPlay: Runnable? = null
+    private fun stopPoints() { pointPlay?.let { overlay.removeCallbacks(it) }; pointPlay = null }
+    private fun playPoints() {
+        stopPoints()
+        val take = frames; val n = take.length()
+        if (n < 2) return
+        handView.frozen = true; liveButton.isEnabled = true; reviewButton.isEnabled = true
+        val t0 = take.getJSONObject(0).optDouble("t", 0.0)
+        val len = take.getJSONObject(n - 1).optDouble("t", 0.0) - t0
+        val start = SystemClock.uptimeMillis()
+        var k = 0
+        status.text = "보정된 동작 재생 중 · '실시간 보기'로 카메라로"
+        val r = object : Runnable {
+            override fun run() {
+                if (destroyed || pointPlay !== this) return
+                val tt = ((SystemClock.uptimeMillis() - start) / 1000.0) % (len + 0.5)
+                if (k > 0 && take.getJSONObject(k).optDouble("t", 0.0) - t0 > tt) k = 0
+                while (k < n - 1 && take.getJSONObject(k + 1).optDouble("t", 0.0) - t0 <= tt) k++
+                val f = take.getJSONObject(k)
+                val hands = f.optJSONArray("hands") ?: JSONArray()
+                val pts = (0 until hands.length()).mapNotNull { i ->
+                    val lm = hands.getJSONObject(i).optJSONArray("lm")
+                    if (lm == null || lm.length() < 63) null else (0 until 21).map { j -> Pair(lm.getDouble(j * 3).toFloat(), lm.getDouble(j * 3 + 1).toFloat()) }
+                }
+                val plm = f.optJSONObject("pose")?.optJSONArray("lm")
+                val body = if (plm != null && plm.length() >= 132) (0 until 33).map { j ->
+                    Triple(plm.getDouble(j * 4).toFloat(), plm.getDouble(j * 4 + 1).toFloat(), plm.getDouble(j * 4 + 3).toFloat()) } else emptyList()
+                overlay.update(pts, body, f.optInt("imageWidth", frameWidth), f.optInt("imageHeight", frameHeight))
+                overlay.postDelayed(this, 33)
+            }
+        }
+        pointPlay = r
+        overlay.post(r)
+    }
+
     /** Video recording next to the live analysis (none if the camera could not add it). */
     @SuppressLint("MissingPermission")
     private fun startVideo() {
@@ -877,14 +888,16 @@ class MainActivity : ComponentActivity() {
         val portrait = frameHeight >= frameWidth
         val delegate = backend; val hands = recordedMaxHands
         status.text = "녹화 영상 다시 분석 준비…"
+        stopPoints(); overlay.update(emptyList(), emptyList(), 1, 1)
+        busyLabel.text = BUSY_TEXT; busyLabel.visibility = android.view.View.VISIBLE
         provider?.unbindAll()
         worker.execute {
             var note: String
             try {
                 val started = SystemClock.elapsedRealtime()
                 val off = VideoPass.run(this, file, hands, delegate, portrait, ::realSide,
-                    { i, n -> if (i % 32 == 0 || i == n) showError("녹화 영상 다시 분석 중… $i / $n 프레임") }, { destroyed })
-                fun seen(a: JSONArray) = (0 until a.length()).count { (a.getJSONObject(it).optJSONArray("hands")?.length() ?: 0) > 0 }
+                    { i, n -> if (i % 32 == 0 || i == n) runOnUiThread { if (!destroyed) { busyLabel.text = BUSY_TEXT + "\n\n$i / $n 프레임"; status.text = "녹화 영상 다시 분석 중… $i / $n 프레임" } } }, { destroyed }, poseOn)
+                fun seen(a: JSONArray) = (0 until a.length()).count { (a.getJSONObject(it).optJSONArray("hands")?.length() ?: 0) > 0 || a.getJSONObject(it).has("pose") }
                 val offSeen = seen(off); val liveSeen = seen(live)
                 val secs = (SystemClock.elapsedRealtime() - started) / 1000.0
                 note = if (offSeen > 0 && offSeen * 2 >= liveSeen) {
@@ -897,6 +910,7 @@ class MainActivity : ComponentActivity() {
             runOnUiThread {
                 analysing = false
                 if (destroyed) return@runOnUiThread
+                busyLabel.visibility = android.view.View.GONE
                 takeNote = note
                 recordButton.isEnabled = true
                 saveButton.isEnabled = frames.length() > 0
@@ -914,7 +928,8 @@ class MainActivity : ComponentActivity() {
      * played (play) and/or done().
      */
     private fun prepareTake(play: Boolean, done: (() -> Unit)? = null) {
-        if (!customModel || frames.length() == 0) { done?.invoke(); return }
+        if (frames.length() == 0) { done?.invoke(); return }
+        if (!customModel) { if (play) playPoints(); done?.invoke(); return }
         val take = frames
         val total = take.length()
         handView.frozen = true
@@ -927,6 +942,7 @@ class MainActivity : ComponentActivity() {
                     val st = try { JSONObject(stats) } catch (e: Exception) { JSONObject() }
                     val fix = "보정: 좌우 고침 ${st.optInt("relabelled")} · 튄 프레임 ${st.optInt("spikes")} · 빈틈 채움 ${st.optInt("filled")} · 버린 짧은 손 ${st.optInt("dropped")}"
                     modelInfo.text = modelInfo.text.lines().first() + "\n" + listOf(takeNote, fix).filter { it.isNotEmpty() }.joinToString("\n")
+                    if (play) overlay.update(emptyList(), emptyList(), 1, 1)
                     if (play) handView.reviewPlay { r ->
                         reviewButton.isEnabled = r.startsWith("ok")
                         liveButton.isEnabled = true
@@ -976,6 +992,7 @@ class MainActivity : ComponentActivity() {
     }
 
     companion object {
+        private const val BUSY_TEXT = "화면 보정 중입니다\n녹화한 영상을 처음부터 한 장씩 다시 분석하고 있어요.\n완료되면 실시간 화면보다 훨씬 깔끔한 동작으로 보여드려요."
         /** Which hand the loaded model is (button cycles): bone names, right, left, never mirror. */
         private val MODEL_HANDS = listOf(
             "auto" to "모델 손: 자동 (뼈 이름, 모르면 오른손) · 바꾸기",

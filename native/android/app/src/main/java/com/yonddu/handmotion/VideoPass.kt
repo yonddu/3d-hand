@@ -11,6 +11,7 @@ import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.core.Delegate
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarker
+import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarker
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -45,12 +46,21 @@ object VideoPass {
      * MediaPipe's label to the real hand. [progress] gets (done, total).
      */
     fun run(context: Context, file: File, maxHands: Int, delegate: Delegate, portrait: Boolean,
-            side: (String) -> String, progress: (Int, Int) -> Unit, cancelled: () -> Boolean): JSONArray {
+            side: (String) -> String, progress: (Int, Int) -> Unit, cancelled: () -> Boolean, body: Boolean = false): JSONArray {
         val times = frameTimes(file.path)
         val out = JSONArray()
         if (times.isEmpty()) return out
         val mmr = MediaMetadataRetriever()
-        val landmarker = HandLandmarker.createFromOptions(context, HandLandmarker.HandLandmarkerOptions.builder()
+        // Body mode: MediaPipe Pose instead of hands (the app tracks one or the other).
+        val poser = if (!body) null else PoseLandmarker.createFromOptions(context, PoseLandmarker.PoseLandmarkerOptions.builder()
+            .setBaseOptions(BaseOptions.builder().setModelAssetPath("pose_landmarker_lite.task").setDelegate(delegate).build())
+            .setRunningMode(RunningMode.VIDEO)
+            .setNumPoses(1)
+            .setMinPoseDetectionConfidence(0.5f)
+            .setMinPosePresenceConfidence(0.5f)
+            .setMinTrackingConfidence(0.5f)
+            .build())
+        val landmarker = if (body) null else HandLandmarker.createFromOptions(context, HandLandmarker.HandLandmarkerOptions.builder()
             .setBaseOptions(BaseOptions.builder().setModelAssetPath("hand_landmarker.task").setDelegate(delegate).build())
             .setRunningMode(RunningMode.VIDEO)
             .setNumHands(maxHands)
@@ -80,9 +90,18 @@ object VideoPass {
                     val ms = maxOf(us / 1000, lastMs + 1); lastMs = ms
                     val w = img.width; val h = img.height
                     val input = BitmapImageBuilder(img).build()
-                    val result = try { landmarker.detectForVideo(input, ms) } finally { input.close() } // close() recycles img
+                    var pose: JSONObject? = null
+                    val result = try {
+                        poser?.detectForVideo(input, ms)?.takeIf { it.landmarks().isNotEmpty() }?.let { r ->
+                            val lm = JSONArray(); val world = JSONArray()
+                            r.landmarks()[0].forEach { q -> lm.put(q.x().toDouble()).put(q.y().toDouble()).put(q.z().toDouble()).put(q.visibility().orElse(0f).toDouble()) }
+                            r.worldLandmarks().getOrNull(0)?.forEach { q -> world.put(q.x().toDouble()).put(q.y().toDouble()).put(q.z().toDouble()) }
+                            pose = JSONObject().put("lm", lm).put("world", world)
+                        }
+                        landmarker?.detectForVideo(input, ms)
+                    } finally { input.close() } // close() recycles img
                     val hands = JSONArray()
-                    result.landmarks().forEachIndexed { j, points ->
+                    if (result != null) result.landmarks().forEachIndexed { j, points ->
                         val category = result.handedness()[j][0]
                         val lm = JSONArray()
                         points.forEach { lm.put(it.x().toDouble()).put(it.y().toDouble()).put(it.z().toDouble()) }
@@ -94,13 +113,13 @@ object VideoPass {
                     out.put(JSONObject().put("t", us / 1e6).put("hands", hands)
                         .put("imageWidth", w).put("imageHeight", h)
                         .put("maxHands", maxHands).put("delegate", "mediapipe-" + delegate.name.lowercase())
-                        .put("source", "video"))
+                        .put("source", "video").apply { pose?.let { put("pose", it) } })
                 }
                 i += n
                 progress(i, total)
             }
         } finally {
-            landmarker.close()
+            landmarker?.close(); poser?.close()
             mmr.release()
         }
         return out
