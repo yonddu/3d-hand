@@ -86,3 +86,4 @@ v0.7의 원본 추적 경로를 유지하고 FBX 저장 코드·UI·검사를 �
 - 2026-11-02 native v0.29 (MCP never toward back) + v0.30 (built-in hand is a RIGHT hand, tools/autorig/mirror_glb.py).
 - 2026-11-02 native v0.31 (b57b810): weapon toggle kukri/bare hand. User concept: first-person action-game arm actions.
 - 2026-11-02 native v0.32 (2c82781): back camera -> MP handedness inverted; realSide() swaps (takes get "labels":"real"; older takes inverted). Title shows real version.
+- 2026-11-02 native v0.33 (849ddb1): record video while measuring, re-read every frame after stop (VideoPass.kt), whole-take clean (hand-view/clean.js), review loop. Not phone-verified.

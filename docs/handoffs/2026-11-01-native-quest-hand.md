@@ -234,3 +234,20 @@ MainActivity `realSide()` swaps the label for live sides and saved takes (take J
 `"labels": "real"`). Takes saved before v0.32 carry MP's raw (inverted) labels. This also puts
 the first-person shoulder on the right side. Title now shows the installed versionName
 (was hardcoded v0.22). Not phone-verified.
+
+## v0.33 (2026-11-02, native 849ddb1) — record → re-analyse → correct → review
+
+User: the live hand/screen twists; record, correct, show the natural result (phone-as-sword
+idea dropped). While measuring, CameraX also records video (Recorder, HD, cacheDir/take.mp4;
+bind falls back to no video). On stop: camera unbound, VideoPass.kt (MediaExtractor frame
+times + MediaMetadataRetriever.getFramesAtIndex batches of 8, landscape frames turned upright,
+fresh VIDEO-mode HandLandmarker) re-reads EVERY frame; frames replaced unless the video found
+< half the live hand frames; file deleted. Then prepareTake: frames fed with `collect: true`,
+page `recFinish()` runs hand-view/clean.js (tracks by picture position, one side per track by
+score vote, tracks < 0.25 s / 5 frames dropped, per-point Hampel ±4 samples 3 MAD (min 12 mm
+world / 25 mm cam), gaps < 0.3 s interpolated) and poses for export; `reviewPlay()` loops the
+export-smoothed snapshots (custom.applySnapshot). '보정 재생' button; '실시간 보기' stops it.
+Cleaner alone on old live takes: export jumps nat1 74→75, fbx1 11→15, u4 75→75; raw MP palm
+turns 17°/frame on nat1 at 12 fps (flips are real but squeezed into 1–2 frames), so the gain
+must come from the 30 fps re-read. Analysis time ≈ video length × (decode + detect); video
+~5 Mbit/s temp. HMS_NOCLEAN skips clean.js. Not phone-verified.
