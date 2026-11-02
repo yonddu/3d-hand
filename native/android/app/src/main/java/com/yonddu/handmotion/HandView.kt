@@ -83,7 +83,12 @@ class HandView(context: Context) : WebView(context) {
      * The model as GLB: mode "anim" (bone turns over the recorded frames) or "pose" (the
      * recorded frame nearest index). done gets ("ok:<side>:<frames>:<index>:<bytes>", bytes) or ("error:...", null).
      */
-    fun exportGlb(mode: String, index: Int, done: (String, ByteArray?) -> Unit) {
+    fun exportGlb(mode: String, index: Int, done: (String, ByteArray?) -> Unit) = pullGlb("window.exportBegin ? exportBegin('$mode', $index) : 'error:화면 준비 안 됨'", done)
+
+    /** The loaded model rebuilt to the user's measured hand (bones = MediaPipe's), as a GLB. */
+    fun bakeModel(done: (String, ByteArray?) -> Unit) = pullGlb("window.bakeBegin ? bakeBegin() : 'error:화면 준비 안 됨'", done)
+
+    private fun pullGlb(begin: String, done: (String, ByteArray?) -> Unit) {
         val main = Handler(Looper.getMainLooper())
         val size = 512 * 1024
         fun pull(n: Int, i: Int, sb: StringBuilder, st: String) {
@@ -100,7 +105,7 @@ class HandView(context: Context) : WebView(context) {
                 }
             }
         }
-        evaluateJavascript("window.exportBegin ? exportBegin('$mode', $index) : 'error:화면 준비 안 됨'") { answer ->
+        evaluateJavascript(begin) { answer ->
             val st = answer.trim('"')
             if (st == "working") poll(400) else done(st, null)
         }

@@ -8,7 +8,7 @@
 //   cam: the hand's 21 points in camera space (m; x right, y down, z forward),
 //   already on their picture rays (MainActivity), so the model lies over the seen hand.
 import * as THREE from 'three';
-import { parseModel, exportGlb } from './custom.js';
+import { parseModel, exportGlb, bakeFitted } from './custom.js';
 
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, premultipliedAlpha: false });
@@ -119,6 +119,21 @@ window.exportBegin = (mode, frameIndex) => {
   }).catch((e) => { window.exportStatus = `error:${e && e.message ? e.message : e}`; });
   return 'working';
 };
+// The model rebuilt to the user's measured hand (needs the first frames of a hand seen live).
+window.bakeBegin = () => {
+  if (!custom) return 'error:손 모델이 없습니다';
+  const side = fitCal.left.samples.length > fitCal.right.samples.length ? 'left' : 'right';
+  if (!fitCal[side].lengths) return 'error:손 길이를 아직 못 쟀습니다 (손을 화면에 몇 초 보여주세요)';
+  window.exportStatus = 'working';
+  bakeFitted(custom, scene, side, fitCal[side].lengths).then(({ buf, fit }) => {
+    const u8 = new Uint8Array(buf); let bin = '';
+    for (let i = 0; i < u8.length; i += 0x8000) bin += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+    exportOut = btoa(bin);
+    window.bakeFit = fit;
+    window.exportStatus = `ok:${side}:${fitCal[side].samples.length}:0:${u8.length}`;
+  }).catch((e) => { window.exportStatus = `error:${e && e.message ? e.message : e}`; });
+  return 'working';
+};
 window.exportChunks = (size) => (exportOut ? Math.ceil(exportOut.length / size) : 0);
 window.exportChunk = (i, size) => (exportOut ? exportOut.slice(i * size, (i + 1) * size) : '');
 window.exportDone = () => { exportOut = null; return 'ok'; };
@@ -177,7 +192,7 @@ window.setHands = function setHands(data) {
     if (!hand.cam || hand.cam.length < 63) continue;
     const P = toVecs(hand.cam);
     const Wd = hand.world && hand.world.length >= 63 ? toVecs(hand.world) : null;
-    const refit = !d.record && fitOn && calibrateFit(side, hand.world);
+    const refit = !d.record && calibrateFit(side, hand.world) && fitOn; // measured also with the fit off (for the bake)
     if (calWanted && Wd && n === 0) {
       calRaw[side] = Wd.map((v) => v.toArray()).flat();
       try { localStorage.setItem(`hms.openHand.${side}`, JSON.stringify(calRaw[side])); } catch (e) { /* not kept */ }

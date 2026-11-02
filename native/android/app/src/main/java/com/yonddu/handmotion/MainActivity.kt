@@ -68,6 +68,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var liveButton: Button
     private var glbBusy = false
     private var pendingGlb: ByteArray? = null
+    private lateinit var bakeButton: Button
     private var modelChoice = 0 // index into MODEL_HANDS
     @Volatile private var maxHands = 2
     private var recordedMaxHands = 2
@@ -340,7 +341,7 @@ class MainActivity : ComponentActivity() {
             text = "내 손 모델 불러오기 (GLB/FBX)"
             setOnClickListener {
                 if (customModel) {
-                    handView.resetModel(); customModel = false
+                    handView.resetModel(); customModel = false; updateModelButtons()
                     sideButton.visibility = android.view.View.GONE
                     modelPanel.visibility = android.view.View.GONE
                     calButton.visibility = android.view.View.GONE
@@ -362,6 +363,12 @@ class MainActivity : ComponentActivity() {
         opts.addView(sideButton)
         modelInfo = TextView(this).apply { textSize = 12f }
         opts.addView(modelInfo)
+        bakeButton = Button(this).apply {
+            text = "이 모델을 내 손 비율로 고쳐 저장 (GLB)"; visibility = android.view.View.GONE
+            setOnClickListener { bakeModel() }
+        }
+        opts.addView(bakeButton)
+        opts.addView(TextView(this).apply { text = "↑ 손을 카메라에 몇 초 보여준 뒤 누르기. 모델 뼈 길이·손가락 뿌리를 내 손(MediaPipe)으로 바꾼 새 모델 → 이걸 다시 불러오고 게임에도 쓰면 화면 = 게임"; textSize = 11f })
         modelPanel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = android.view.View.GONE }
         calButton = Button(this).apply {
             text = "편 손 보정"; visibility = android.view.View.GONE
@@ -411,7 +418,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         opts.addView(fitButton)
-        opts.addView(TextView(this).apply { text = "저장 (측정 중지 후) · GLB는 항상 원래 모델 뼈 길이 + 회전만"; textSize = 12f })
+        opts.addView(TextView(this).apply { text = "저장 (측정 중지 후) · GLB는 불러온 모델 뼈 길이 + 회전만 (내 손 비율 모델을 불러왔으면 화면과 같음)"; textSize = 12f })
         opts.addView(glbButton); opts.addView(saves)
         val optsButton = Button(this).apply { text = "옵션" }
         buttons.addView(calButton); buttons.addView(optsButton)
@@ -670,6 +677,8 @@ class MainActivity : ComponentActivity() {
         modelPanel.visibility = if (has) android.view.View.VISIBLE else android.view.View.GONE
         stillSeek.max = maxOf(0, frames.length() - 1)
         stillButton.isEnabled = has && !glbBusy
+        bakeButton.visibility = if (customModel) android.view.View.VISIBLE else android.view.View.GONE
+        bakeButton.isEnabled = customModel && !glbBusy && !recording
     }
 
     /** The model hands of one saved frame (same placement as live). */
@@ -711,6 +720,20 @@ class MainActivity : ComponentActivity() {
         val (w, h, hands) = recordedHands(frames.getJSONObject(index))
         handView.showRecorded(w, h, hands, frames.getJSONObject(index).optDouble("t", 0.0), index, false) {}
         modelInfo.text = modelInfo.text.lines().first() + "\n정적 포즈 후보: 프레임 ${index + 1}/${frames.length()} · 손 ${hands.size}개"
+    }
+
+    /** The loaded model rebuilt to the user's hand (measured live, first frames), saved as a GLB. */
+    private fun bakeModel() {
+        if (glbBusy) return
+        glbBusy = true; updateModelButtons()
+        modelInfo.text = modelInfo.text.lines().first() + "\n내 손 비율 모델 만드는 중…"
+        handView.bakeModel { st, bytes ->
+            glbBusy = false; updateModelButtons()
+            if (bytes == null) { modelInfo.text = modelInfo.text.lines().first() + "\n실패: " + st.removePrefix("error:"); return@bakeModel }
+            pendingGlb = bytes
+            modelInfo.text = modelInfo.text.lines().first() + "\n내 손 비율 모델 준비 (${bytes.size / 1024} KB) · 저장 후 이 파일을 다시 불러오세요"
+            saveGlbDocument.launch("hand-model-myhand-${System.currentTimeMillis()}.glb")
+        }
     }
 
     /** Replays every saved frame through the model (same turns as live), then saves a GLB. */

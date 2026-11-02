@@ -270,7 +270,7 @@ export class CustomHand {
         const zk = inst.mirror ? -k[2] : k[2];
         const target = inst.restHandPos.clone().addScaledVector(ex, k[0] * inst.restPalm).addScaledVector(ey, k[1] * inst.restPalm).addScaledVector(ez, zk * inst.restPalm);
         s = target.sub(was);
-        if (s.length() > 0.6 * inst.restPalm) s.setLength(0.6 * inst.restPalm); // never wild
+        if (s.length() > (inst.wide ? 1 : 0.6) * inst.restPalm) s.setLength((inst.wide ? 1 : 0.6) * inst.restPalm); // never wild
       }
       rootShift[f.key] = s;
       b.position.copy(was.clone().add(s).applyMatrix4(inst.rootParentInv.get(b)));
@@ -285,7 +285,7 @@ export class CustomHand {
         const A = inst.restBone.get(bone).p;
         const m = inst.lengths[f.key][k];
         const t = user && user[f.key] ? user[f.key][k + off] : 0;
-        const q = next && m > 1e-6 && t > 1e-6 ? Math.min(1.6, Math.max(0.5, t / m)) : 1;
+        const q = next && m > 1e-6 && t > 1e-6 ? Math.min(inst.wide ? 3 : 1.6, Math.max(inst.wide ? 0.25 : 0.5, t / m)) : 1;
         let dir = null; let len = 0;
         if (next) {
           dir = inst.restBone.get(next).p.clone().sub(A); len = dir.length(); dir.normalize();
@@ -374,6 +374,7 @@ export class CustomHand {
     outer.updateMatrixWorld(true);
     inst.elbowUsed = false;
     const Wq = new THREE.Quaternion().setFromRotationMatrix(W);
+    let E = null;
     if (elbow && inst.fore) {
       // The elbow on its picture ray, one (model) forearm away from the wrist.
       const L = s * inst.restFore;
@@ -382,8 +383,16 @@ export class CustomHand {
       const disc = b * b - P[0].lengthSq() + L * L;
       const near = b - Math.sqrt(Math.max(disc, 0)); const far = b + Math.sqrt(Math.max(disc, 0));
       const t = disc < 0 ? b : elbow.farther || near < 0.05 ? far : near;
-      if (t > 0.02) {
-        const E = r.multiplyScalar(t);
+      if (t > 0.02) E = r.multiplyScalar(t);
+    } else if (inst.fore && !window.HMS_NOARM) {
+      // No body pose: a first-person arm. The forearm reaches from the wrist toward a shoulder
+      // below and beside the camera (two-bone reach, elbow down and out), and the wrist bends
+      // at most WRIST_MAX from the forearm line, so the arm no longer turns with every wrist turn.
+      E = firstPersonElbow(P[0], new THREE.Vector3().setFromMatrixColumn(F, 1), s * inst.restFore, inst.palmSign);
+    }
+    if (window.HMS_DEBUG && inst.fore) { inst.root.updateMatrixWorld(true); const fw = new THREE.Vector3(); inst.fore.getWorldPosition(fw); window.lastFore = P[0].clone().sub(fw).normalize().toArray(); }
+    {
+      if (E) {
         const was = handRestPos.clone().sub(inst.restElbow).normalize().applyQuaternion(Wq);
         const R = new THREE.Quaternion().setFromUnitVectors(was, P[0].clone().sub(E).normalize()).multiply(Wq);
         // Model turned with the forearm from the elbow to the wrist; then the hand turned back to the seen palm.
@@ -397,6 +406,7 @@ export class CustomHand {
         h.hand.quaternion.copy(pq0.invert().multiply(Wq.clone().multiply(inst.restHandQ)));
         h.hand.updateWorldMatrix(false, true);
         inst.elbowUsed = true;
+        if (window.HMS_DEBUG) window.lastFore = P[0].clone().sub(E).normalize().toArray();
       }
     }
     // Fingers, in outer's own space (the mirrored one for the other hand).
@@ -603,6 +613,60 @@ export async function exportGlb(template, inst, frames, mode, index) { // eslint
     clip = new THREE.AnimationClip('hand_motion', -1, tracks);
   }
   return new Promise((ok, no) => new GLTFExporter().parse(wrap, ok, no, { binary: true, animations: clip ? [clip] : [] }));
+}
+
+// "이 모델을 내 손 비율로 저장": the model itself rebuilt to the user's hand (finger bone lengths
+// and knuckles from MediaPipe, as on screen), at rest, as a new rigged GLB. Its bones then match
+// MediaPipe's, so rotations alone put it on the hand (screen = game). user: fitCal lengths of the
+// seen side; seenSide: which hand they were measured on (a right hand's knuckles mirror for a
+// left model).
+export async function bakeFitted(custom, scene, seenSide, user) {
+  const { GLTFExporter } = await import('three/examples/jsm/exporters/GLTFExporter.js');
+  const own = custom.handedness();
+  const inst = custom.instance(scene, own); // the model's own side: no mirror
+  scene.remove(inst.outer);
+  inst.wide = true; // made once, on purpose: the user's proportions in full
+  const u = JSON.parse(JSON.stringify(user));
+  if (seenSide !== own && u.knuckles) for (const k of Object.keys(u.knuckles)) u.knuckles[k][2] = -u.knuckles[k][2];
+  const fit = custom.fitLengths(inst, u);
+  for (const [o, q] of inst.restLocal) o.quaternion.copy(q);
+  const model = inst.model;
+  inst.root.remove(model);
+  model.position.set(0, 0, 0); model.quaternion.identity(); model.scale.set(1, 1, 1);
+  const wrap = new THREE.Group(); wrap.name = 'HandMotionFitted'; wrap.add(model);
+  wrap.updateMatrixWorld(true);
+  // Bind every skin where its bones now rest (the exact inverse of the new rest pose).
+  model.traverse((o) => {
+    if (!o.isSkinnedMesh) return;
+    o.bindMatrix.copy(o.matrixWorld); o.bindMatrixInverse.copy(o.matrixWorld).invert();
+    o.skeleton.calculateInverses();
+  });
+  const buf = await new Promise((ok, no) => new GLTFExporter().parse(wrap, ok, no, { binary: true }));
+  return { buf, fit };
+}
+
+// First person: where the shoulder is (three.js camera space, m; x toward the hand's own side),
+// upper arm length, and how far the wrist bends from the forearm line at most.
+const SHOULDER = [0.18, -0.28, 0.05];
+const UPPER_ARM = 0.29;
+const WRIST_MAX = 65 * Math.PI / 180;
+function firstPersonElbow(wrist, handDir, fore, palmSign) {
+  const S = new THREE.Vector3(SHOULDER[0] * palmSign, SHOULDER[1], SHOULDER[2]);
+  const toS = S.clone().sub(wrist); const D = toS.length(); const n = toS.clone().normalize();
+  const a = D >= fore + UPPER_ARM ? fore : Math.max(-fore, Math.min(fore, (fore * fore - UPPER_ARM * UPPER_ARM + D * D) / (2 * D)));
+  const h = Math.sqrt(Math.max(fore * fore - a * a, 0));
+  const pole = new THREE.Vector3(0.5 * palmSign, -1, 0); pole.addScaledVector(n, -pole.dot(n)).normalize();
+  const E = wrist.clone().addScaledVector(n, a).addScaledVector(pole, h);
+  // Wrist range: the hand line (wrist -> middle root) within WRIST_MAX of the forearm line.
+  const out = wrist.clone().sub(E).normalize(); // elbow -> wrist
+  const hd = handDir.clone().normalize();
+  const ang = out.angleTo(hd);
+  if (ang > WRIST_MAX) {
+    const axis = new THREE.Vector3().crossVectors(out, hd);
+    if (axis.lengthSq() < 1e-10) axis.set(1, 0, 0);
+    out.applyAxisAngle(axis.normalize(), ang - WRIST_MAX);
+  }
+  return wrist.clone().addScaledVector(out, -fore);
 }
 
 export function frameOf(wrist, index, middle, pinky) {
