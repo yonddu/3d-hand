@@ -11,7 +11,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * The Quest-style hand (assets/hand.html, three.js + the MIT WebXR hand model)
+ * The user's hand model page (assets/hand.html, three.js; nothing drawn until a model is loaded)
  * in a see-through WebView over the camera preview. Fed on the UI thread.
  * ready turns true once the page answers "ok"; until then (or if it never
  * does) the caller keeps drawing the plain points.
@@ -57,7 +57,7 @@ class HandView(context: Context) : WebView(context) {
     }
 
     /**
-     * The user's own hand model (GLB / glTF / FBX bytes) instead of the Quest hand.
+     * The user's own hand model (GLB / glTF / FBX bytes), drawn over the MediaPipe points.
      * done gets "ok:<summary>" or "error:<reason>". UI thread.
      */
     fun loadModel(name: String, bytes: ByteArray, done: (String) -> Unit) {
@@ -85,6 +85,6 @@ class HandView(context: Context) : WebView(context) {
         evaluateJavascript("window.modelHand ? modelHand('$choice') : ''") { done(it.trim('"')) }
     }
 
-    /** Back to the built-in Quest hand. */
+    /** Drop the loaded model (only the MediaPipe points stay). */
     fun resetModel() { evaluateJavascript("window.modelReset && modelReset()", null) }
 }

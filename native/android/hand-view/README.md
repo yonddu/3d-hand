@@ -1,9 +1,9 @@
 # hand-view
 
-Source of `app/src/main/assets/hand.html`: the Quest-style hand drawn over the
-camera picture (three.js + the MIT WebXR generic hand, 2,314 triangles /
-1,360 vertices / 25 joints per hand). MainActivity -> HandView.show ->
-`setHands(json)`.
+Source of `app/src/main/assets/hand.html`: the user's own hand model drawn
+over the camera picture (three.js). With no model loaded the page draws
+nothing and the app shows the MediaPipe points and lines (the built-in Quest
+hand was removed in v0.16). MainActivity -> HandView.show -> `setHands(json)`.
 
 Rebuild after changing `main.js` (the built file is committed; CI does not build it):
 

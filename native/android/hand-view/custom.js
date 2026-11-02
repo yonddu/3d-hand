@@ -102,7 +102,12 @@ export class CustomHand {
     for (const side of ['left', 'right']) if (sides.has(side)) this.found[side] = findHand(bones, side) && side;
     if (!this.found.left && !this.found.right) {
       const any = findHand(bones, null);
-      if (!any) throw new Error('손가락 뼈를 찾지 못했습니다 (thumb/index/middle/ring/pinky 이름 필요)');
+      if (!any) {
+        let skinned = false; root.traverse((o) => { if (o.isSkinnedMesh) skinned = true; });
+        throw new Error(bones.length === 0 && !skinned
+          ? '이 파일에는 뼈대(리깅)가 없습니다. 메시만 있는 모델은 움직일 수 없어요. 손 뼈를 넣은(리깅한) GLB/FBX를 불러오세요'
+          : `손가락 뼈를 찾지 못했습니다 (뼈 ${bones.length}개, 이름에 thumb/index/middle/ring/pinky 필요)`);
+      }
       this.found.any = true;
     }
     let meshes = 0; let tris = 0;

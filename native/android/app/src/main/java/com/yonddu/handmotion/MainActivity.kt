@@ -123,7 +123,7 @@ class MainActivity : ComponentActivity() {
                             modelChoice = 0
                             sideButton.text = MODEL_HANDS[0].second
                             sideButton.visibility = android.view.View.VISIBLE
-                            modelButton.text = "Quest 손으로 되돌리기"
+                            modelButton.text = "손 모델 내리기 (점만 보기)"
                             modelInfo.text = "내 손 모델: " + result.removePrefix("ok:")
                         } else {
                             modelButton.text = "내 손 모델 불러오기 (GLB/FBX)"
@@ -211,7 +211,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         val title = TextView(this).apply {
-            text = "Hand Motion · 네이티브 v0.15\nQuest 손 / 내 손 모델 + MediaPipe Pose · GPU / CPU 비교"
+            text = "Hand Motion · 네이티브 v0.16\nMediaPipe 점 / 내 손 모델(GLB·FBX) + MediaPipe Pose · GPU / CPU 비교"
             textSize = 18f
         }
         root.addView(title)
@@ -333,7 +333,7 @@ class MainActivity : ComponentActivity() {
         root.addView(modelInfo)
         root.addView(buttons)
         val note = TextView(this).apply {
-            text = "측정 중지 → FBX 저장 (원본 손 관절, 팔 없음) · 기록 JSON에 몸 33점 포함\n화면 손: MediaPipe 점에 그대로 맞춘 Quest 손 모양 · 몸: MediaPipe Pose 선"
+            text = "측정 중지 → FBX 저장 (원본 손 관절, 팔 없음) · 기록 JSON에 몸 33점 포함\n화면 손: MediaPipe 리깅 점 그대로 · 손 모델을 불러오면 그 스킨이 점 위에 덮임 · 몸: MediaPipe Pose 선"
             textSize = 12f
         }
         root.addView(note)
@@ -499,7 +499,7 @@ class MainActivity : ComponentActivity() {
                             // Body points (x, y, visibility); empty when pose is off or sees nobody.
                             val body = pose?.landmarks()?.firstOrNull()?.map { Triple(it.x(), it.y(), it.visibility().orElse(0f)) } ?: emptyList()
                             val w = frameWidth; val h = frameHeight
-                            // The Quest-style hand: each hand's points in front of the camera (HandPlace).
+                            // The loaded hand model: each hand's points in front of the camera (HandPlace).
                             val aspect = w.toDouble() / h
                             val meshHands = try { result.landmarks().indices.mapNotNull { i ->
                                 val side = result.handedness()[i][0].categoryName().lowercase(Locale.ROOT)
@@ -525,7 +525,7 @@ class MainActivity : ComponentActivity() {
                                     if (!destroyed) {
                                         handView.show(w, h, meshHands)
                                         // Plain points until the hand model draws (or if it cannot).
-                                        overlay.update(if (handView.ready) emptyList() else points, body, w, h)
+                                        overlay.update(points, body, w, h)
                                         if (handView.lastError.isNotEmpty()) lastError = handView.lastError
                                         if (summary != null) status.text = summary
                                     }
