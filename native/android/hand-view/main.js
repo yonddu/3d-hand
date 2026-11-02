@@ -113,6 +113,27 @@ function liveFilter(key, x, nowMs) {
   return out;
 }
 
+// MediaPipe's left/right label often swaps for a few frames while a hand turns over (user's
+// take: the right hand read as 'left' right at its palm/back flips), and the hand was then posed
+// as the other hand (mirrored: fingers smashed). A lone hand where a hand of the other label was
+// just seen, with that label not seen this frame, keeps the old label.
+const SIDE_MS = 400; const SIDE_NEAR = 0.25; // picture distance (x/z, y/z)
+const sideTrack = { left: null, right: null };
+function keepSides(hands, nowMs) {
+  const pic = (h) => (h.cam && h.cam.length >= 3 && h.cam[2] > 0 ? [h.cam[0] / h.cam[2], h.cam[1] / h.cam[2]] : null);
+  const labels = new Set(hands.map((h) => (h.side === 'left' ? 'left' : 'right')));
+  for (const h of hands) {
+    const side = h.side === 'left' ? 'left' : 'right';
+    const other = side === 'left' ? 'right' : 'left';
+    const p = pic(h); const tr = sideTrack[other]; const own = sideTrack[side];
+    if (!p || !tr || labels.has(other) || hands.length > 1) continue;
+    const recent = nowMs - tr.t >= 0 && nowMs - tr.t < SIDE_MS;
+    const ownRecent = own && nowMs - own.t >= 0 && nowMs - own.t < SIDE_MS && Math.hypot(own.p[0] - p[0], own.p[1] - p[1]) < SIDE_NEAR;
+    if (recent && !ownRecent && Math.hypot(tr.p[0] - p[0], tr.p[1] - p[1]) < SIDE_NEAR) { h.side = other; h.sideKept = true; }
+  }
+  for (const h of hands) { const p = pic(h); if (p) sideTrack[h.side === 'left' ? 'left' : 'right'] = { p, t: nowMs }; }
+}
+
 // A hand not seen for a moment keeps its last pose (MediaPipe drops a hand for a frame or two).
 const HOLD_MS = 500;
 const lastSeen = { left: [], right: [] };
@@ -207,6 +228,7 @@ window.setHands = function setHands(data) {
   const now = d.t != null ? d.t * 1000 : performance.now();
   const used = { left: 0, right: 0 };
   const posed = new Set();
+  if (!window.HMS_NOSTICKY) keepSides(d.hands || [], now);
   for (const hand of d.hands || []) {
     const side = hand.side === 'left' ? 'left' : 'right';
     const n = used[side]++;
