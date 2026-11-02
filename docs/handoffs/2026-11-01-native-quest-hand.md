@@ -207,3 +207,13 @@ gauntlet_rigged_left.glb. Options without skin fit, CPU switch, model loading.
 - MainActivity.loadBuiltInModel (waits for window.modelBegin) at start; main.js fitOn default off
   (HMS_FIT turns it on). Options no longer show backend/model/side/bake/fit buttons (objects kept).
 - Swing capture: recommended phone gyro/accel recording (decision card open, not built).
+
+## v0.29–v0.30 (2026-11-02, native d6550e1, 70589ab)
+
+- v0.29 user: fingers must never go past the back of the hand. Knuckle (MCP) range 0..100°
+  (was −30..100; HMS_MCPBACK = old). MP read knuckles bent back >5° in 115/492 (flip take),
+  70/448 (nat1), 64/1460 (fbx1).
+- v0.30 user: right hand is the standard. assets/hand_model.glb = gauntlet+kukri mirrored with
+  tools/autorig/mirror_glb.py (main repo; S=diag(1,−1,1): positions/normals/tangents(w too),
+  winding, node matrices + inverse binds S·M·S, Left→Right names). Copy: project files
+  native/gauntlet_kukri_right.glb. Saved GLBs now carry RightHand* bones.
