@@ -25,6 +25,7 @@ const FINGERS = [
 ];
 const BACK_MAX = THREE.MathUtils.degToRad(35);
 const SIDE_RAD = THREE.MathUtils.degToRad(15); // most a middle / end finger joint bends sideways (was 20)
+const TOUCH_IN = 0.2; const TOUCH_OUT = 0.28; const TOUCH_EASE = 0.25; const TOUCH_ITERS = 12; const TOUCH_STEP = THREE.MathUtils.degToRad(40);
 const DIP_RATIO = 2 / 3; // end joint bend / middle joint bend (tendon coupling)
 const TIP = /tip|end|nub|null|_4$|\.004$|4$|_end/;
 
@@ -533,6 +534,7 @@ export class CustomHand {
         bone.updateWorldMatrix(false, true);
       });
     }
+    if (!window.HMS_NOTOUCH) this.touch(inst, Wd, palmW > 0.03 && palmW < 0.2 ? palmW : null, s, at, turnOf);
     if (window.HMS_DEBUG) {
       // Picture distance of each model joint to its MediaPipe point, % of the seen palm.
       const pr = (v) => new THREE.Vector2(v.x / -v.z, v.y / -v.z);
@@ -553,6 +555,57 @@ export class CustomHand {
       }));
     }
     outer.visible = true;
+  }
+
+  // Fingertip contact (user: a model hand of other proportions must still touch where the real
+  // hand touches). The joint turns are copied, so a model with a shorter thumb would miss the
+  // finger (or go through it). When MediaPipe's thumb tip is near another fingertip (enter
+  // TOUCH_IN, leave TOUCH_OUT palms: two thresholds so it does not flicker), the model's thumb
+  // (only the thumb, 3 bones, CCD) is turned so its tip sits where MediaPipe has it relative to
+  // that fingertip (offset scaled to the model palm). Eased in and out over a few frames.
+  touch(inst, Wd, palmW, s, at, turnOf) {
+    const th = inst.h.chains.thumb;
+    if (!palmW || !th.tip || th.bones.length < 2) { inst.touchW = 0; return; }
+    const tipOf = { index: 8, middle: 12, ring: 16, pinky: 20 };
+    let best = null; let bd = Infinity;
+    for (const [k, mi] of Object.entries(tipOf)) { const d = Wd[4].distanceTo(Wd[mi]) / palmW; if (d < bd && inst.h.chains[k].tip) { bd = d; best = k; } }
+    const was = inst.touchOn;
+    const on = best && (bd < TOUCH_IN || (was === best && bd < TOUCH_OUT));
+    if (on && was && was !== best && bd > TOUCH_IN) { /* keep the old finger while it still holds */ }
+    inst.touchOn = on ? best : (was && Wd[4].distanceTo(Wd[tipOf[was]]) / palmW < TOUCH_OUT ? was : null);
+    const w0 = inst.touchW || 0;
+    inst.touchW = inst.touchOn ? Math.min(1, w0 + TOUCH_EASE) : Math.max(0, w0 - TOUCH_EASE);
+    const key = inst.touchOn || inst.touchLast;
+    if (inst.touchOn) inst.touchLast = inst.touchOn;
+    if (!key || inst.touchW <= 0) return;
+    const mi = tipOf[key];
+    const k = (s * inst.restPalm) / palmW; // MediaPipe metres -> model (outer) units
+    const tip = new THREE.Vector3(); const fingerTip = at(inst.h.chains[key].tip, new THREE.Vector3());
+    const goal = fingerTip.clone().addScaledVector(Wd[4].clone().sub(Wd[mi]), k);
+    at(th.tip, tip);
+    const before = tip.distanceTo(goal); const gap0 = tip.distanceTo(fingerTip);
+    const target = tip.clone().lerp(goal, inst.touchW);
+    const p = new THREE.Vector3(); const pq = new THREE.Quaternion(); const q = new THREE.Quaternion();
+    for (let it = 0; it < TOUCH_ITERS; it++) {
+      for (let j = th.bones.length - 1; j >= 0; j--) {
+        const b = th.bones[j];
+        at(b, p); at(th.tip, tip);
+        const a = tip.clone().sub(p); const c = target.clone().sub(p);
+        if (a.lengthSq() < 1e-12 || c.lengthSq() < 1e-12) continue;
+        a.normalize(); c.normalize();
+        let ang = Math.acos(Math.min(1, Math.max(-1, a.dot(c))));
+        if (ang < 1e-4) continue;
+        ang = Math.min(ang, TOUCH_STEP);
+        const ax = new THREE.Vector3().crossVectors(a, c); if (ax.lengthSq() < 1e-12) continue;
+        const turn = new THREE.Quaternion().setFromAxisAngle(ax.normalize(), ang);
+        turnOf(b.parent, pq);
+        q.copy(pq).invert().multiply(turn).multiply(pq);
+        b.quaternion.premultiply(q);
+        b.updateWorldMatrix(false, true);
+      }
+    }
+    at(th.tip, tip);
+    if (window.HMS_TOUCHLOG) (window.touchLog = window.touchLog || []).push({ f: key, d: +bd.toFixed(3), w: inst.touchW, before: before / (s * inst.restPalm), gap0: gap0 / (s * inst.restPalm), mpPalmModel: palmW / (s * inst.restPalm), after: tip.distanceTo(goal) / (s * inst.restPalm) });
   }
 
   // This frame's pose for export: root (no scale) and every node's local turn.
