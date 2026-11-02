@@ -193,3 +193,17 @@ Harness: hv/bendcmp.py (take, shotm log).
 User then asked for the web way (record, analyse the whole take, view the corrected result).
 Proposed: record 30 fps video, offline re-detect every frame, whole-take corrections, play back
 the final motion; warned ~60 MB/min video, analysis 1–2× take length. Awaiting answer.
+
+## v0.28 (2026-11-02, native bb2e00c) — game build: fixed hand
+
+User goal: first-person sword (kukri) swing for their game; the arm is always
+gauntlet_rigged_left.glb. Options without skin fit, CPU switch, model loading.
+- assets/hand_model.glb = gauntlet v1 + kukri (user's tf2_hd_kukri_remade.glb, Sketchfab Standard,
+  TF2/Valve design: told user to check rights before release) as a static mesh child of LeftHand.
+  Built in scratchpad viewer/comb.js (handle centre source (0,-4.5,0.3), length 1.25 palm widths,
+  rotated 180° about y: blade out of the thumb side, edge (knife −z) forward = hand +z, at the
+  mean finger root, 0.3 palm toward the palm side), then the knife's 4 images swapped back to the
+  original bytes (exporter re-encode made 32 MB). Copy: project files native/gauntlet_kukri_left.glb.
+- MainActivity.loadBuiltInModel (waits for window.modelBegin) at start; main.js fitOn default off
+  (HMS_FIT turns it on). Options no longer show backend/model/side/bake/fit buttons (objects kept).
+- Swing capture: recommended phone gyro/accel recording (decision card open, not built).

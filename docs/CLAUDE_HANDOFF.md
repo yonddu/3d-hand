@@ -82,3 +82,4 @@ v0.7의 원본 추적 경로를 유지하고 FBX 저장 코드·UI·검사를 �
 - 2026-11-02 native v0.25 (ab3ae3f): ported early web solver steadiness (confidence slerp, thumb cone); why native is worse than web explained in docs/handoffs/2026-11-01-native-quest-hand.md#v025.
 - 2026-11-02 native v0.26 (5a34198): MediaPipe swaps left/right label at palm flips -> keepSides in hand-view main.js.
 - 2026-11-02 native v0.27 (5aa44c9): far-backward MP bends at flips = forward (BACK_MAX 35). Proposed web-style offline pass (30 fps video, re-detect, whole-take fix); awaiting user.
+- 2026-11-02 native v0.28 (bb2e00c): game build, built-in gauntlet+kukri hand, options trimmed.
