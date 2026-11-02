@@ -447,14 +447,14 @@ export class CustomHand {
         let target;
         if (k === 0) {
           // First bone: the seen direction in the palm frame (calibration turn applied), back
-          // in the seen palm; knuckles of the four fingers: 30 deg back .. 100 deg toward the palm.
+          // in the seen palm; knuckles of the four fingers: straight .. 100 deg toward the palm (never toward the back).
           const d = seen[off].clone().applyMatrix3(Fi);
           if (cal) d.applyQuaternion(cal.q0[f.key]);
           if (f.key !== 'thumb') {
             const n = ps * d.z; const r = Math.hypot(d.y, n);
             let a0 = Math.atan2(n, d.y);
             if (a0 < -BACK_MAX - 20 * D2R && !window.HMS_NOBACKFIX) a0 = -a0; // knuckle bent far back: read flipped
-            const ang = Math.min(100 * D2R, Math.max(-30 * D2R, a0));
+            const ang = Math.min(100 * D2R, Math.max((window.HMS_MCPBACK ? -30 : 0) * D2R, a0)); // never past the back of the hand
             d.y = r * Math.cos(ang); d.z = ps * r * Math.sin(ang);
           }
           target = d.applyMatrix3(F3);
