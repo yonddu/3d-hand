@@ -382,6 +382,7 @@ window.setHands = function setHands(data) {
     let w = d.body.world;
     if (!d.record && !window.HMS_NOFILTER) w = liveFilter('bodyw', w, now);
     const W = Array.from({ length: 33 }, (_, j) => toThree(w, j));
+    bodySlot.clock = d.t != null ? d.t : now / 1000;
     bodyModel.pose(bodySlot, W, d.body.lm, d.fw, d.fh);
     bodySeen = now;
     if (rec && d.record) rec.body.push({ ...CustomHand.prototype.snapshot(bodySlot, d.t || 0), fi: d.fi });

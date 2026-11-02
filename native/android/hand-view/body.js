@@ -189,11 +189,11 @@ export class CustomBody {
     const seenOK = { lupperArm: [MP.lSh, MP.lEl], llowerArm: [MP.lEl, MP.lWr], lhand: [MP.lWr, MP.lIx], rupperArm: [MP.rSh, MP.rEl], rlowerArm: [MP.rEl, MP.rWr], rhand: [MP.rWr, MP.rIx],
       lupperLeg: [MP.lHip, MP.lKn], llowerLeg: [MP.lKn, MP.lAn], lfoot: [MP.lAn, MP.lFt], rupperLeg: [MP.rHip, MP.rKn], rlowerLeg: [MP.rKn, MP.rAn], rfoot: [MP.rAn, MP.rFt] };
     const qW = new THREE.Quaternion(); const qP = new THREE.Quaternion(); const turn = new THREE.Quaternion();
-    for (const a of aims) {
+    const applyAim = (a) => {
       const need = seenOK[a.key];
-      if (need && need.some((i) => !(vis(i) >= 0.5))) continue; // not seen: the bone stays as modelled
+      if (need && need.some((i) => !(vis(i) >= 0.5))) return; // not seen: the bone stays as modelled
       const want = seenDir[a.key];
-      if (!want || !Number.isFinite(want.x)) continue;
+      if (!want || !Number.isFinite(want.x)) return;
       a.bone.updateWorldMatrix(true, false);
       a.bone.getWorldQuaternion(qW);
       const cur = a.local.clone().applyQuaternion(qW);
@@ -202,7 +202,8 @@ export class CustomBody {
       a.bone.parent.getWorldQuaternion(qP);
       a.bone.quaternion.copy(qP.invert().multiply(newW));
       a.bone.updateWorldMatrix(false, true);
-    }
+    };
+    for (const a of aims) applyAim(a);
     // Head: turned like the ears line and the nose (from the trunk's turn).
     if (H.head && vis(MP.lEar) >= 0.5 && vis(MP.rEar) >= 0.5) {
       const up = sh.clone().sub(hip).normalize();
@@ -213,7 +214,128 @@ export class CustomBody {
       H.head.parent.getWorldQuaternion(qP);
       H.head.quaternion.copy(qP.invert().multiply(outerQ.multiply(want)));
     }
+    const doDebug = () => { if (window.HMS_DEBUG) window.lastBody = { lfoot: H.l.foot && worldPos(H.l.foot).toArray(), rfoot: H.r.foot && worldPos(H.r.foot).toArray(), lhand: H.l.hand && worldPos(H.l.hand).toArray(), rhand: H.r.hand && worldPos(H.r.hand).toArray(), modelTorso: s * inst.torso }; };
+    if (!window.HMS_NOCONTACT) contacts(inst, W, lm, s, torsoSeen, vis, (key) => { const a = aims.find((x) => x.key === key); if (a) applyAim(a); });
+    doDebug();
     inst.outer.visible = true;
+  }
+}
+
+// ---- contacts (user: a body of other proportions must still touch where the person touches) ----
+// Turns are copied, so a model with other leg / arm lengths slides its feet and misses claps and
+// hand-on-body touches. Two fixes after the aims, both two-bone reaches (IK):
+//  - a planted foot (its picture point still: < FOOT_STILL torso lengths per second, leaves above
+//    FOOT_MOVE) is held where the model's foot was when it planted;
+//  - a wrist near the other wrist, the head or its own hip (< HAND_IN torsos, leaves HAND_OUT)
+//    puts the model's hand where the person's is relative to that point (scaled to the model).
+// Both eased in / out (EASE per frame).
+const FOOT_STILL = 0.35; const FOOT_MOVE = 0.7; const HAND_IN = 0.16; const HAND_OUT = 0.24; const EASE = 0.25;
+
+function reach(A, B, C, target, w) {
+  // Two bones A (upper) -> B (lower) -> C (end): turn A and B so C goes to target (weight w),
+  // keeping the bend plane (pole = where B is now).
+  if (!A || !B || !C || w <= 0) return;
+  const pa = worldPos(A); const pb = worldPos(B); const pc = worldPos(C);
+  const t = pc.clone().lerp(target, w);
+  const a = pb.distanceTo(pa); const b = pc.distanceTo(pb);
+  const dv = t.clone().sub(pa); let d = dv.length();
+  if (d < 1e-6 || a < 1e-6 || b < 1e-6) return;
+  d = Math.min(Math.max(d, Math.abs(a - b) + 1e-4), a + b - 1e-4);
+  const dir = dv.normalize();
+  // pole: B's offset from the A-C line now
+  const pole = pb.clone().sub(pa); pole.addScaledVector(dir, -pole.dot(dir));
+  if (pole.lengthSq() < 1e-10) pole.set(0, 0, 1).addScaledVector(dir, -dir.z);
+  pole.normalize();
+  const x = (a * a - b * b + d * d) / (2 * d); const h = Math.sqrt(Math.max(0, a * a - x * x));
+  const bWant = pa.clone().addScaledVector(dir, x).addScaledVector(pole, h);
+  const turnTo = (bone, from, to) => {
+    const qW = new THREE.Quaternion(); bone.getWorldQuaternion(qW);
+    const q = new THREE.Quaternion().setFromUnitVectors(from.normalize(), to.normalize());
+    const qP = new THREE.Quaternion(); bone.parent.getWorldQuaternion(qP);
+    bone.quaternion.copy(qP.invert().multiply(q.multiply(qW)));
+    bone.updateWorldMatrix(false, true);
+  };
+  turnTo(A, pb.clone().sub(pa), bWant.clone().sub(pa));
+  const pb2 = worldPos(B); const pc2 = worldPos(C);
+  turnTo(B, pc2.clone().sub(pb2), pa.clone().addScaledVector(dir, d).sub(pb2));
+}
+
+function contacts(inst, W, lm, s, torsoSeen, vis, reAim) {
+  const { H } = inst;
+  const now = performance.now ? performance.now() : Date.now();
+  const st = inst.contact || (inst.contact = { t: now, feet: { l: { w: 0 }, r: { w: 0 } }, hands: { l: { w: 0 }, r: { w: 0 } }, prev: null });
+  const clock = inst.clock != null ? inst.clock : now / 1000;
+  const raw = st.clock != null ? clock - st.clock : 1;
+  if (raw <= 0 || raw > 1) { st.feet = { l: { w: 0 }, r: { w: 0 } }; st.hands = { l: { w: 0 }, r: { w: 0 } }; } // new take / jump in time
+  const dt = Math.max(1e-3, Math.min(0.5, raw));
+  st.clock = clock;
+  const pic = (i) => [lm[i * 4], lm[i * 4 + 1]];
+  const torsoPic = Math.hypot((lm[MP.lSh * 4] + lm[MP.rSh * 4] - lm[MP.lHip * 4] - lm[MP.rHip * 4]) / 2, (lm[MP.lSh * 4 + 1] + lm[MP.rSh * 4 + 1] - lm[MP.lHip * 4 + 1] - lm[MP.rHip * 4 + 1]) / 2) || 1;
+  inst.root.updateMatrixWorld(true);
+  const log = window.HMS_CONTACTLOG ? (window.contactLog = window.contactLog || []) : null;
+  // Feet.
+  for (const side of ['l', 'r']) {
+    const B = H[side]; const f = st.feet[side];
+    const an = side === 'l' ? MP.lAn : MP.rAn; const kn = side === 'l' ? MP.lKn : MP.rKn;
+    if (!B.upperLeg || !B.lowerLeg || !B.foot) continue;
+    const p = pic(an);
+    const seen = vis(an) >= 0.5 && lm[an * 4 + 1] > lm[kn * 4 + 1];
+    let speed = Infinity;
+    if (f.last && seen) speed = Math.hypot(p[0] - f.last[0], p[1] - f.last[1]) / torsoPic / dt;
+    f.last = seen ? p : null;
+    const still = seen && (f.on ? speed < FOOT_MOVE : speed < FOOT_STILL);
+    if (still && !f.on) { f.on = true; f.at = worldPos(B.foot); }
+    if (!still && f.on) { f.on = false; }
+    f.w = f.on ? Math.min(1, f.w + EASE) : Math.max(0, f.w - EASE);
+    if (f.w > 0 && f.at) {
+      const before = worldPos(B.foot).distanceTo(f.at);
+      reach(B.upperLeg, B.lowerLeg, B.foot, f.at, f.w);
+      reAim(`${side}foot`);
+      if (log) log.push({ k: `${side}foot`, on: f.on, w: f.w, before, after: worldPos(B.foot).distanceTo(f.at), torso: s * inst.torso });
+    }
+    if (!f.on && f.w <= 0) f.at = null;
+  }
+  // Hands: other wrist, head, own hip.
+  const k = (s * inst.torso) / Math.max(torsoSeen || 0, 1e-3); // seen metres -> model scene units
+  const modelPt = { head: H.head, lhip: H.l.upperLeg, rhip: H.r.upperLeg, lhand: H.l.hand, rhand: H.r.hand };
+  const goals = {};
+  for (const side of ['l', 'r']) {
+    const B = H[side]; const hst = st.hands[side];
+    if (!B.upperArm || !B.lowerArm || !B.hand) continue;
+    const wr = side === 'l' ? MP.lWr : MP.rWr;
+    if (!(vis(wr) >= 0.5)) { hst.on = null; hst.w = Math.max(0, hst.w - EASE); continue; }
+    const other = side === 'l' ? 'r' : 'l';
+    const cands = [
+      { key: `${other}hand`, mp: side === 'l' ? MP.rWr : MP.lWr },
+      { key: 'head', mp: MP.nose },
+      { key: `${side}hip`, mp: side === 'l' ? MP.lHip : MP.rHip },
+    ].filter((c) => modelPt[c.key] && vis(c.mp) >= 0.5);
+    let best = null; let bd = Infinity;
+    for (const c of cands) { const d = W[wr].distanceTo(W[c.mp]) / Math.max(torsoSeen, 1e-3); if (d < bd) { bd = d; best = c; } }
+    const keep = hst.on && cands.find((c) => c.key === hst.on.key);
+    const keepD = keep ? W[wr].distanceTo(W[keep.mp]) / Math.max(torsoSeen, 1e-3) : Infinity;
+    if (keep && keepD < HAND_OUT) hst.on = keep; else hst.on = best && bd < HAND_IN ? best : null;
+    hst.w = hst.on ? Math.min(1, hst.w + EASE) : Math.max(0, hst.w - EASE);
+    if (hst.on) hst.last = hst.on;
+    const c = hst.on || hst.last;
+    if (!c || hst.w <= 0) continue;
+    const off = W[wr].clone().sub(W[c.mp]).multiplyScalar(k);
+    goals[side] = { c, off, w: hst.w };
+  }
+  // Clap: both hands meet halfway (each goes to the middle +- half the seen offset).
+  if (goals.l && goals.r && goals.l.c.key === 'rhand' && goals.r.c.key === 'lhand') {
+    const mid = worldPos(H.l.hand).add(worldPos(H.r.hand)).multiplyScalar(0.5);
+    const half = W[MP.lWr].clone().sub(W[MP.rWr]).multiplyScalar(0.5 * k);
+    goals.l.target = mid.clone().add(half); goals.r.target = mid.clone().sub(half);
+  }
+  for (const side of ['l', 'r']) {
+    const g = goals[side]; if (!g) continue;
+    const B = H[side];
+    const target = g.target || worldPos(modelPt[g.c.key]).add(g.off);
+    const before = worldPos(B.hand).distanceTo(target);
+    reach(B.upperArm, B.lowerArm, B.hand, target, g.w);
+    reAim(`${side}hand`);
+    if (log) log.push({ k: `${side}hand-${g.c.key}`, w: g.w, before, after: worldPos(B.hand).distanceTo(target), torso: s * inst.torso });
   }
 }
 
