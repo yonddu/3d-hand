@@ -24,7 +24,7 @@ const FINGERS = [
   { key: 'pinky', mp: [17, 18, 19, 20], re: /pinky|little|small|(^|[^a-z])pnk\d/ },
 ];
 const BACK_MAX = THREE.MathUtils.degToRad(35);
-const SIDE_RAD = THREE.MathUtils.degToRad(20); // most a middle / end finger joint bends sideways
+const SIDE_RAD = THREE.MathUtils.degToRad(15); // most a middle / end finger joint bends sideways (was 20)
 const DIP_RATIO = 2 / 3; // end joint bend / middle joint bend (tendon coupling)
 const TIP = /tip|end|nub|null|_4$|\.004$|4$|_end/;
 

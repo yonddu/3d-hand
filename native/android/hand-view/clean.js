@@ -18,6 +18,23 @@ const SPIKE_HALF = 4; // samples each side
 const SPIKE_K = 3; // MADs
 const SPIKE_MIN_W = 0.012; const SPIKE_MIN_C = 0.025; // m: never touch smaller moves
 const GAP_S = 0.3;
+// Depth is MediaPipe's weakest reading: the world points' z (toward / away from the camera)
+// gets an extra two-way Gaussian over the whole track (x, y are left as read).
+const Z_SIGMA = 0; // s. OFF: measured 2026-11-02 on 3 takes, 0.08 s = finger jumps 73/14/73 -> 75/14/74 (export smoothing already covers it); HMS_ZSIGMA to try
+
+function smoothZ(series) {
+  const n = series.length; if (n < 3) return;
+  const sig = (typeof window !== 'undefined' && window.HMS_ZSIGMA != null) ? window.HMS_ZSIGMA : Z_SIGMA;
+  if (!(sig > 0)) return;
+  const out = series.map((s) => s.world.slice());
+  for (let i = 0; i < n; i++) {
+    let wsum = 0; const acc = new Array(21).fill(0);
+    for (let k = i; k >= 0 && series[i].t - series[k].t <= 3 * sig; k--) { const w = Math.exp(-0.5 * ((series[i].t - series[k].t) / sig) ** 2); wsum += w; for (let j = 0; j < 21; j++) acc[j] += w * series[k].world[j * 3 + 2]; }
+    for (let k = i + 1; k < n && series[k].t - series[i].t <= 3 * sig; k++) { const w = Math.exp(-0.5 * ((series[k].t - series[i].t) / sig) ** 2); wsum += w; for (let j = 0; j < 21; j++) acc[j] += w * series[k].world[j * 3 + 2]; }
+    for (let j = 0; j < 21; j++) out[i][j * 3 + 2] = acc[j] / wsum;
+  }
+  series.forEach((s, i) => { s.world = out[i]; });
+}
 
 const pic = (h) => {
   const c = h.cam; const z1 = c[2]; const z2 = c[9 * 3 + 2];
@@ -109,6 +126,7 @@ export function cleanTake(frames) {
     const withWorld = series.filter((s) => s.world);
     stats.spikes += Math.max(despike(withWorld, 'world', SPIKE_MIN_W), 0);
     stats.spikes += despike(series, 'cam', SPIKE_MIN_C);
+    smoothZ(withWorld);
     for (const s of series) out[s.fi].hands.push({ ...s.h, cam: s.cam, world: s.world || s.h.world });
     for (let i = 1; i < series.length; i++) {
       const a = series[i - 1]; const b = series[i];

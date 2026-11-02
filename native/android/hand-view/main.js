@@ -99,7 +99,9 @@ const toVecs = (a) => Array.from({ length: 21 }, (_, j) => toThree(a, j));
 // takes: palm turn per frame -25..35 %, ~6 mm average offset.
 const OE_MIN = 1.0; const OE_BETA = 5; const OE_D = 1.0; const OE_RESET_MS = 300;
 const oeState = {};
-function liveFilter(key, x, nowMs) {
+// zk < 1: the z channel (depth, MediaPipe's weakest reading) gets a lower cutoff = steadier.
+const OE_ZK = 0.5;
+function liveFilter(key, x, nowMs, zk = 1) {
   const s = oeState[key];
   if (!s || nowMs - s.t > OE_RESET_MS || nowMs <= s.t || s.y.length !== x.length) { oeState[key] = { t: nowMs, y: Array.from(x), dx: new Array(x.length).fill(0) }; return x; }
   const dt = (nowMs - s.t) / 1000; s.t = nowMs;
@@ -109,8 +111,9 @@ function liveFilter(key, x, nowMs) {
   for (let j = 0; j < x.length; j += 3) {
     let sp = 0;
     for (let c = 0; c < 3; c++) { const v = (x[j + c] - s.y[j + c]) / dt; s.dx[j + c] = ad * v + (1 - ad) * s.dx[j + c]; sp += s.dx[j + c] ** 2; }
-    const a = alpha(OE_MIN + OE_BETA * Math.sqrt(sp));
-    for (let c = 0; c < 3; c++) { s.y[j + c] = a * x[j + c] + (1 - a) * s.y[j + c]; out[j + c] = s.y[j + c]; }
+    const cut = OE_MIN + OE_BETA * Math.sqrt(sp);
+    const a = alpha(cut); const az = zk === 1 ? a : alpha(cut * zk);
+    for (let c = 0; c < 3; c++) { const k = c === 2 ? az : a; s.y[j + c] = k * x[j + c] + (1 - k) * s.y[j + c]; out[j + c] = s.y[j + c]; }
   }
   return out;
 }
@@ -300,7 +303,7 @@ window.setHands = function setHands(data) {
     if (!hand.cam || hand.cam.length < 63) continue;
     if (!d.record && !window.HMS_NOFILTER) { // live: One Euro filter on the points (saved frames stay raw)
       hand.cam = liveFilter(`${side}${n}c`, hand.cam, now);
-      if (hand.world && hand.world.length >= 63) hand.world = liveFilter(`${side}${n}w`, hand.world, now);
+      if (hand.world && hand.world.length >= 63) hand.world = liveFilter(`${side}${n}w`, hand.world, now, window.HMS_OEZ != null ? +window.HMS_OEZ : OE_ZK);
     }
     const P = toVecs(hand.cam);
     const Wd = hand.world && hand.world.length >= 63 ? toVecs(hand.world) : null;
