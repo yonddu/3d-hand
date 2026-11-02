@@ -251,3 +251,17 @@ Cleaner alone on old live takes: export jumps nat1 74→75, fbx1 11→15, u4 75�
 turns 17°/frame on nat1 at 12 fps (flips are real but squeezed into 1–2 frames), so the gain
 must come from the 30 fps re-read. Analysis time ≈ video length × (decode + detect); video
 ~5 Mbit/s temp. HMS_NOCLEAN skips clean.js. Not phone-verified.
+
+## v0.34 (2026-11-02, native c41fc8f) — my hand by default, skins optional, hand/body switch
+
+User: remove the kukri and the built-in gauntlet; default = the user's own hand (MediaPipe
+points/lines); a skin (rigged GLB/FBX) is optional ('스킨 추가' in Options + model-hand side
+button). assets/hand_model.glb deleted (APK −20 MB; copies stay in project files
+native/gauntlet_kukri_right.glb). '몸 추적' is now a SWITCH: hand tracking OR body tracking
+(startModel creates only one landmarker; analyzer handles a null hand result; VideoPass
+`body` param re-reads the video with Pose). During the video re-read a centred notice
+(BUSY_TEXT: 화면 보정 중입니다 … 완료되면 훨씬 깔끔) shows frame progress. Without a skin,
+'보정 재생' plays the re-read take as points (playPoints, overlay). Not phone-verified.
+Concept discussion same day: user wants a monetizable phone app; plan doc (Quest 3 as teacher,
+phone filmed together, correction model) https://claude.ai/artifact/5WnGYCBcrR5pKN4EkLwpNn —
+not started. Retarget onto other skins is NOT proven visually (only equal bend numbers).
