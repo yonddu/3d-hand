@@ -132,6 +132,7 @@ class MainActivity : ComponentActivity() {
                             sideButton.text = MODEL_HANDS[0].second
                             sideButton.visibility = android.view.View.VISIBLE
                             modelPanel.visibility = android.view.View.VISIBLE
+                            calButton.visibility = android.view.View.VISIBLE
                             updateModelButtons()
                             modelButton.text = "손 모델 내리기 (점만 보기)"
                             modelInfo.text = "내 손 모델: " + result.removePrefix("ok:")
@@ -231,10 +232,14 @@ class MainActivity : ComponentActivity() {
             }
         }
         val title = TextView(this).apply {
-            text = "Hand Motion · 네이티브 v0.20\nMediaPipe 점 / 내 손 모델(GLB·FBX) + MediaPipe Pose · GPU / CPU 비교"
-            textSize = 18f
+            text = "Hand Motion · 네이티브 v0.21"
+            textSize = 14f
         }
         root.addView(title)
+        // Options live on their own screen ("옵션"), so the camera view keeps the room.
+        val opts = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val optsScroll = android.widget.ScrollView(this).apply { addView(opts); visibility = android.view.View.GONE }
+        val mainCol = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val stage = FrameLayout(this)
         preview = PreviewView(this).apply {
             scaleType = PreviewView.ScaleType.FIT_CENTER
@@ -245,9 +250,9 @@ class MainActivity : ComponentActivity() {
         stage.addView(preview, FrameLayout.LayoutParams(-1, -1))
         stage.addView(handView, FrameLayout.LayoutParams(-1, -1))
         stage.addView(overlay, FrameLayout.LayoutParams(-1, -1))
-        root.addView(stage, LinearLayout.LayoutParams(-1, 0, 1f))
-        status = TextView(this).apply { text = "손 검출 모델 준비 중…"; textSize = 14f }
-        root.addView(status)
+        mainCol.addView(stage, LinearLayout.LayoutParams(-1, 0, 1f))
+        status = TextView(this).apply { text = "손 검출 모델 준비 중…"; textSize = 11f }
+        mainCol.addView(status)
         val buttons = LinearLayout(this).apply { gravity = Gravity.CENTER }
         recordButton = Button(this).apply {
             text = "측정 시작"; isEnabled = false
@@ -306,7 +311,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         buttons.addView(recordButton); buttons.addView(saveButton); buttons.addView(fbxButton)
-        root.addView(backendButton)
+        opts.addView(backendButton)
         handsButton = Button(this).apply {
             text = "현재 두 손 · 한 손 비교로 전환"; isEnabled = false
             setOnClickListener {
@@ -318,7 +323,7 @@ class MainActivity : ComponentActivity() {
                 startModel()
             }
         }
-        root.addView(handsButton)
+        opts.addView(handsButton)
         poseButton = Button(this).apply {
             text = "몸 추적(MediaPipe Pose) 켜기"; isEnabled = false
             setOnClickListener {
@@ -330,7 +335,7 @@ class MainActivity : ComponentActivity() {
                 startModel()
             }
         }
-        root.addView(poseButton)
+        opts.addView(poseButton)
         modelButton = Button(this).apply {
             text = "내 손 모델 불러오기 (GLB/FBX)"
             setOnClickListener {
@@ -338,12 +343,13 @@ class MainActivity : ComponentActivity() {
                     handView.resetModel(); customModel = false
                     sideButton.visibility = android.view.View.GONE
                     modelPanel.visibility = android.view.View.GONE
+                    calButton.visibility = android.view.View.GONE
                     handView.frozen = false
                     text = "내 손 모델 불러오기 (GLB/FBX)"; modelInfo.text = ""
                 } else openModel.launch(arrayOf("*/*"))
             }
         }
-        root.addView(modelButton)
+        opts.addView(modelButton)
         sideButton = Button(this).apply {
             visibility = android.view.View.GONE
             setOnClickListener {
@@ -353,14 +359,17 @@ class MainActivity : ComponentActivity() {
                 handView.modelHand(choice) { note -> if (note.isNotEmpty()) modelInfo.text = modelInfo.text.lines().first() + "\n" + note }
             }
         }
-        root.addView(sideButton)
+        opts.addView(sideButton)
         modelInfo = TextView(this).apply { textSize = 12f }
-        root.addView(modelInfo)
+        opts.addView(modelInfo)
         modelPanel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = android.view.View.GONE }
         calButton = Button(this).apply {
-            text = "편 손 캘리브레이션 (손을 쫙 펴고 누르기)"
+            text = "편 손 보정"; visibility = android.view.View.GONE
             setOnClickListener {
-                handView.calibrate { modelInfo.text = modelInfo.text.lines().first() + "\n편 손 캘리브레이션: 다음 프레임의 손을 모델 기본 자세로 저장" }
+                handView.calibrate {
+                    modelInfo.text = modelInfo.text.lines().first() + "\n편 손 보정: 다음 프레임의 손을 모델 기본 자세로 저장"
+                    Toast.makeText(this@MainActivity, "편 손 보정 저장 (손을 쫙 편 상태)", Toast.LENGTH_SHORT).show()
+                }
             }
         }
         glbButton = Button(this).apply {
@@ -384,16 +393,30 @@ class MainActivity : ComponentActivity() {
             setOnClickListener { handView.frozen = false; isEnabled = false }
         }
         val stillRow = LinearLayout(this).apply { gravity = Gravity.CENTER; addView(stillButton); addView(liveButton) }
-        modelPanel.addView(calButton); modelPanel.addView(glbButton)
-        modelPanel.addView(TextView(this).apply { text = "정적 포즈: 아래 막대로 기록 프레임 고르기 (화면이 그 프레임으로 멈춤)"; textSize = 12f })
+        // Options screen: the GLB save with the other saves. Camera screen: what needs the view
+        // (calibration with the hand in view, choosing a still frame).
+        modelPanel.addView(TextView(this).apply { text = "정적 포즈: 막대로 기록 프레임 고르기 (화면이 그 프레임으로 멈춤)"; textSize = 11f })
         modelPanel.addView(stillSeek); modelPanel.addView(stillRow)
-        root.addView(modelPanel)
-        root.addView(buttons)
+        mainCol.addView(modelPanel)
+        val saves = LinearLayout(this).apply { gravity = Gravity.CENTER }
+        buttons.removeView(saveButton); buttons.removeView(fbxButton)
+        saves.addView(saveButton); saves.addView(fbxButton)
+        opts.addView(TextView(this).apply { text = "저장 (측정 중지 후)"; textSize = 12f })
+        opts.addView(glbButton); opts.addView(saves)
+        val optsButton = Button(this).apply { text = "옵션" }
+        buttons.addView(calButton); buttons.addView(optsButton)
+        mainCol.addView(buttons)
+        val back = Button(this).apply { text = "← 카메라 화면으로" }
+        opts.addView(back, 0)
+        optsButton.setOnClickListener { mainCol.visibility = android.view.View.GONE; optsScroll.visibility = android.view.View.VISIBLE; updateModelButtons() }
+        back.setOnClickListener { optsScroll.visibility = android.view.View.GONE; mainCol.visibility = android.view.View.VISIBLE }
         val note = TextView(this).apply {
             text = "측정 중지 → FBX 저장 (원본 손 관절, 팔 없음) · 기록 JSON에 몸 33점 포함\n화면 손: MediaPipe 리깅 점 그대로 · 손 모델을 불러오면 그 스킨이 덮임: 뼈 길이는 모델 그대로, MediaPipe 3D 방향으로 뼈만 회전 · 몸: MediaPipe Pose 선"
             textSize = 12f
         }
-        root.addView(note)
+        opts.addView(note)
+        root.addView(mainCol, LinearLayout.LayoutParams(-1, 0, 1f))
+        root.addView(optsScroll, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
         startModel()
     }
@@ -634,6 +657,7 @@ class MainActivity : ComponentActivity() {
         val has = customModel && !recording && frames.length() > 0
         glbButton.isEnabled = has && !glbBusy
         stillSeek.isEnabled = has
+        modelPanel.visibility = if (has) android.view.View.VISIBLE else android.view.View.GONE
         stillSeek.max = maxOf(0, frames.length() - 1)
         stillButton.isEnabled = has && !glbBusy
     }
