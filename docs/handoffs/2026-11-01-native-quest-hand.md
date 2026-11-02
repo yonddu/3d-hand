@@ -38,3 +38,10 @@
 - 확인(헤드리스): 우리 웹 GLB(Mixamo 이름, 삼각형 18,066), three.js 예제 Samba Dancing.fbx(Mixamo, 삼각형 55,320, 양손) — 주먹·편 손이 점을 따라감. 이미지 `/mnt/project-files/hand-motion-studio/native/v0.14-own-hand-test.png`. 
 - [CI run 41367192766](https://github.com/yonddu/3d-hand/actions/runs/41367192766) PASS. [APK ZIP](https://github.com/yonddu/3d-hand/actions/runs/41367192766/artifacts/13107414131) 22,570,284 bytes, 2026-11-16 만료. versionCode 15, `0.14-native-own-hand`. 폰 확인 전.
 - 한계: 뼈 이름에 손가락 이름이 없으면 못 찾음(평평한 계층 WebXR식도 미지원). 손목 비틀림·손바닥 접힘(손허리뼈)은 따라가지 않음. 큰 모델(수십 MB)은 WebView 전달·표시가 느릴 수 있음.
+
+## v0.14.1 + v0.15 (2026-11-02, 코드 caca28a, fde145f)
+- 사용자: "손모델을 거울반전 시킬지 말지 기능도 있어야" → 모델 불러오면 "모델 손" 버튼: 자동(뼈 이름, 모르면 오른손) / 오른손 / 왼손 / 반전 안 함. 양손 파일은 자동에서 반전 안 함. (이전엔 방향 모르는 모델을 양손에 반전 없이 썼음.)
+- 사용자: 어깨까지 있는 모델 → "팔꿈치까진 따라 움직이면 좋겠다". Pose로 손가락은 안 잡힘(Pose 손 점은 4개뿐) → 손가락은 Hand, 팔꿈치는 Pose.
+- v0.15: 몸 추적 켜짐 + 모델에 아래팔 뼈(forearm/lowerarm/elbow 이름, twist/roll 제외)가 있으면: 화면에서 손목이 가장 가까운 Pose 팔(손목 15/16, 가시도 ≥0.3, 거리 <0.12)의 팔꿈치(13/14, 가시도 ≥0.5)를 사용. 팔꿈치 = 그 화면 광선 위, MediaPipe 손목에서 모델 아래팔 길이만큼(가깝/먼 쪽은 Pose world z, 카메라 뒤·너무 가까우면 먼 쪽). 모델을 팔꿈치 기준으로 돌려 아래팔이 손목에 닿게 하고 손 뼈는 화면 손바닥 방향으로 되돌림. 위팔은 모델 그대로(어깨 미추적).
+- 확인: 헤드리스, Mixamo 이름 GLB + 가상 팔꿈치 → `/mnt/project-files/hand-motion-studio/native/v0.15-elbow-test.png`(왼쪽 팔꿈치 없음, 가운데·오른쪽 노란 점 = 팔꿈치).
+- [CI run 41368983780](https://github.com/yonddu/3d-hand/actions/runs/41368983780) PASS. [APK ZIP](https://github.com/yonddu/3d-hand/actions/runs/41368983780/artifacts/13108651763) 22,573,694 bytes, 2026-11-16 만료. versionCode 17, `0.15-native-own-arm-elbow`. 폰 확인 전.
