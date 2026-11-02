@@ -1,5 +1,8 @@
 # Claude 인계 — 현재 상태
 
+
+## Latest: native v0.16 (2026-11-02, 907dac9)
+Quest hand removed; MediaPipe points always drawn; loaded GLB/FBX skin drawn over. Meshy gauntlet had no bones -> auto-rigged with tools/autorig (see docs/handoffs/2026-11-01-native-quest-hand.md v0.16). Not phone-verified.
 ## 최신 (2026-11-01, Claude): 네이티브 v0.12 Quest 손 모양, 팔 제거
 v0.15(fde145f): 모델 좌우 선택 버튼 + 몸 추적 켜면 모델 아래팔이 Pose 팔꿈치를 따라감. v0.14(8e77b1c): 내 손 모델(GLB/FBX) 불러와 MediaPipe로 움직이기. v0.13(2de822f): 몸 추적(MediaPipe Pose) 별도 버튼 추가. v0.12: 팔 뼈대 전부 제거, MediaPipe 점에 그대로 맞춘 Quest 손(MIT WebXR 손, 한 손 삼각형 2,314)을 투명 WebView로 카메라 위에 그림. FBX는 21관절 손만. 코드 5646367, CI PASS, 폰 확인 전. 자세히: [2026-11-01 기록](handoffs/2026-11-01-native-quest-hand.md).
 

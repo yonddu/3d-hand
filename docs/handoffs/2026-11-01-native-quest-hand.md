@@ -45,3 +45,20 @@
 - v0.15: 몸 추적 켜짐 + 모델에 아래팔 뼈(forearm/lowerarm/elbow 이름, twist/roll 제외)가 있으면: 화면에서 손목이 가장 가까운 Pose 팔(손목 15/16, 가시도 ≥0.3, 거리 <0.12)의 팔꿈치(13/14, 가시도 ≥0.5)를 사용. 팔꿈치 = 그 화면 광선 위, MediaPipe 손목에서 모델 아래팔 길이만큼(가깝/먼 쪽은 Pose world z, 카메라 뒤·너무 가까우면 먼 쪽). 모델을 팔꿈치 기준으로 돌려 아래팔이 손목에 닿게 하고 손 뼈는 화면 손바닥 방향으로 되돌림. 위팔은 모델 그대로(어깨 미추적).
 - 확인: 헤드리스, Mixamo 이름 GLB + 가상 팔꿈치 → `/mnt/project-files/hand-motion-studio/native/v0.15-elbow-test.png`(왼쪽 팔꿈치 없음, 가운데·오른쪽 노란 점 = 팔꿈치).
 - [CI run 41368983780](https://github.com/yonddu/3d-hand/actions/runs/41368983780) PASS. [APK ZIP](https://github.com/yonddu/3d-hand/actions/runs/41368983780/artifacts/13108651763) 22,573,694 bytes, 2026-11-16 만료. versionCode 17, `0.15-native-own-arm-elbow`. 폰 확인 전.
+
+## v0.16 (2026-11-02, native 907dac9): Quest hand removed, points always shown
+
+- User: "퀘스트손은 없어도 되는데 리깅포인트 그대로 보이게" + "glb 파일 로딩하면 그 스킨이 덮여야지".
+  hand.html now draws only a loaded GLB/FBX (886 KB -> 631 KB), vendor-hand/ deleted,
+  LandmarkOverlay always draws the MediaPipe points/lines (model skin drawn over the camera, points on top).
+- User's Meshy AI "Shadow Gauntlet" GLB had NO skeleton (1 mesh, 21,008 verts, 31,210 tris, whole arm to
+  shoulder, made by trimesh). custom.js now says so instead of "finger bones not found".
+- Auto-rig: tools/autorig/ (load.py, joints.py, build.py; numpy only). joints.py finds finger centerlines
+  from hand-tuned base/tip guesses (this mesh only: hand along +z, fingers spread in y, back of hand +x),
+  MCP = 0.18 finger length inside the web, PIP/DIP at 0.33/0.66. build.py: Mixamo names
+  (LeftArm/LeftForeArm/LeftHand/LeftHandIndex1..4), identity rest turns, weights 1/(d+4mm)^4 over the
+  nearest bone + its parent/children only (no bleed between fingers). Output
+  /mnt/project-files/hand-motion-studio/native/gauntlet_rigged_left.glb. Treated as LEFT (cuff emblem = back
+  of hand); if the palm faces wrong, user picks 오른손 on the side button.
+- Headless replay of user record hand-native-1793581459272.json (121 frames, 1 right hand, ~12 fps live)
+  with the rigged gauntlet: follows the points incl. fist (v0.16-gauntlet-test.png). Not phone-verified.
