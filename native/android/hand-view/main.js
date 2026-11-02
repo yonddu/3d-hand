@@ -92,6 +92,26 @@ window.calibrateClear = () => {
 window.calStatus = () => JSON.stringify({ fitN: { left: fitCal.left.samples.length, right: fitCal.right.samples.length }, fit: Object.fromEntries(['left', 'right'].map((s) => [s, customSlots[s].map((i) => i.fitted)])), left: !!calRaw.left, right: !!calRaw.right, err: Object.fromEntries(['left', 'right'].map((s) => [s, customSlots[s].map((i) => i.err)])), bends: Object.fromEntries(['left', 'right'].map((s) => [s, customSlots[s].map((i) => i.bends)])) });
 const toVecs = (a) => Array.from({ length: 21 }, (_, j) => toThree(a, j));
 
+// Live smoothing (One Euro: steady when still, little lag when moving). Measured on the user's
+// takes: palm turn per frame -25..35 %, ~6 mm average offset.
+const OE_MIN = 1.0; const OE_BETA = 5; const OE_D = 1.0; const OE_RESET_MS = 300;
+const oeState = {};
+function liveFilter(key, x, nowMs) {
+  const s = oeState[key];
+  if (!s || nowMs - s.t > OE_RESET_MS || nowMs <= s.t || s.y.length !== x.length) { oeState[key] = { t: nowMs, y: Array.from(x), dx: new Array(x.length).fill(0) }; return x; }
+  const dt = (nowMs - s.t) / 1000; s.t = nowMs;
+  const alpha = (c) => 1 / (1 + 1 / (2 * Math.PI * c * dt));
+  const ad = alpha(OE_D);
+  const out = new Array(x.length);
+  for (let j = 0; j < x.length; j += 3) {
+    let sp = 0;
+    for (let c = 0; c < 3; c++) { const v = (x[j + c] - s.y[j + c]) / dt; s.dx[j + c] = ad * v + (1 - ad) * s.dx[j + c]; sp += s.dx[j + c] ** 2; }
+    const a = alpha(OE_MIN + OE_BETA * Math.sqrt(sp));
+    for (let c = 0; c < 3; c++) { s.y[j + c] = a * x[j + c] + (1 - a) * s.y[j + c]; out[j + c] = s.y[j + c]; }
+  }
+  return out;
+}
+
 // A hand not seen for a moment keeps its last pose (MediaPipe drops a hand for a frame or two).
 const HOLD_MS = 500;
 const lastSeen = { left: [], right: [] };
@@ -190,6 +210,10 @@ window.setHands = function setHands(data) {
     const side = hand.side === 'left' ? 'left' : 'right';
     const n = used[side]++;
     if (!hand.cam || hand.cam.length < 63) continue;
+    if (!d.record && !window.HMS_NOFILTER) { // live: One Euro filter on the points (saved frames stay raw)
+      hand.cam = liveFilter(`${side}${n}c`, hand.cam, now);
+      if (hand.world && hand.world.length >= 63) hand.world = liveFilter(`${side}${n}w`, hand.world, now);
+    }
     const P = toVecs(hand.cam);
     const Wd = hand.world && hand.world.length >= 63 ? toVecs(hand.world) : null;
     const refit = !d.record && calibrateFit(side, hand.world) && fitOn; // measured also with the fit off (for the bake)

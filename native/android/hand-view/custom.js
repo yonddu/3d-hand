@@ -546,7 +546,8 @@ function seenBend(a, b, lat, palmSign) {
 }
 
 const POSE_WINDOW = 0.5; // s, still pose: median over this much either side
-const SMOOTH_SIGMA = 0.06; // s, animation: Gaussian, forward and back (no lag)
+const SMOOTH_SIGMA = 0.12; // s, animation: Gaussian, forward and back (no lag)
+const SPIKE_FRAMES = 2; // animation: per joint median over +-2 frames first (one-off MediaPipe misreads)
 
 // Turns as [x,y,z,w]; all put on the same side as ref (q and -q are one turn).
 function aligned(list, ref) { return list.map((q) => (q[0] * ref[0] + q[1] * ref[1] + q[2] * ref[2] + q[3] * ref[3] < 0 ? q.map((v) => -v) : q)); }
@@ -556,6 +557,20 @@ function medianQuat(list, ref) {
   return norm4([0, 1, 2, 3].map((c) => { const v = a.map((q) => q[c]).sort((x, y) => x - y); return v[v.length >> 1]; }));
 }
 // Every joint's turn and the root place smoothed over time, looking both ways (no lag).
+function medianFrames(frames, r) {
+  if (frames.length < 2 * r + 1) return frames;
+  const med = (list) => { const s = [...list].sort((a, b) => a - b); return s[s.length >> 1]; };
+  return frames.map((f, i) => {
+    const near = frames.slice(Math.max(0, i - r), i + r + 1);
+    const m = (get, ref) => {
+      const vs = near.map((g) => { const v = get(g); return ref.length === 4 && v[0] * ref[0] + v[1] * ref[1] + v[2] * ref[2] + v[3] * ref[3] < 0 ? v.map((x) => -x) : v; });
+      const out = ref.map((_, c) => med(vs.map((v) => v[c])));
+      return ref.length === 4 ? norm4(out) : out;
+    };
+    return { ...f, p: m((g) => g.p, f.p), q: m((g) => g.q, f.q), nodes: f.nodes.map((q, k) => m((g) => g.nodes[k], q)) };
+  });
+}
+
 function smoothFrames(frames, sigma) {
   if (frames.length < 3) return frames;
   let lo = 0; let hi = 0;
@@ -598,7 +613,7 @@ export async function exportGlb(template, inst, frames, mode, index) { // eslint
     for (const [i, n] of pairs) n.quaternion.fromArray(medianQuat(win.map((f) => f.nodes[i]), mid.nodes[i]));
     model.name = `${model.name || 'model'}_pose`;
   } else {
-    frames = smoothFrames(frames, SMOOTH_SIGMA);
+    frames = smoothFrames(medianFrames(frames, SPIKE_FRAMES), SMOOTH_SIGMA);
     const times = frames.map((f) => f.t - frames[0].t);
     const tracks = [
       new THREE.VectorKeyframeTrack(`${wrap.uuid}.position`, times, frames.flatMap((f) => f.p)),
