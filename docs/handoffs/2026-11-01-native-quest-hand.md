@@ -155,3 +155,18 @@ noise + low fps, not the retarget.
   ~6 mm average offset. `HMS_NOFILTER` flag.
 - Smoothed copy of the user's GLB: project files native/hand-anim-1793605873742-smoothed.glb.
 - Open: low capture fps (12–18) on the phone; check what slows it (CPU MediaPipe? pose on?).
+
+## v0.25 (2026-11-02, native ab3ae3f) — early web solver's steadiness
+
+User: the early web Quest hand (0f1084d, before the arm) and later the web arm with wrist
+looked much better. Why native is worse: native restarted from raw MediaPipe → retarget
+(user's 10-28 "pure MP is better"), none of the web pipeline (One Euro, confidence slerp,
+limits on every joint, wrist pivot/arm rules, correctives, purpose-made Quest mesh with wrist
+fade) was ported, and the AI gauntlet mesh has no knuckle loops.
+- Ported: per-bone live slerp 0.35 + 0.65·confidence (bone-length change vs running ref,
+  web solver.js boneConfidence), only when the last pose is < 300 ms old; thumb cone (MCP 75°,
+  IP 90° from the bone before). Flags HMS_NOCONF / HMS_NOTHUMBLIM. main.js window.debugSnap.
+- Live jumps >15°/frame (scratchpad hv/live.cjs + livem.py): nat1 392 → 287 (filter) → 222;
+  fbx1 442 → 242 → 152, max 107 → 83.
+- Next candidate: port the web's final wrist/arm rules (wrist bends at carpal pivot, forearm
+  holds while wrist bends, roll limit ±110° from thumb-up).

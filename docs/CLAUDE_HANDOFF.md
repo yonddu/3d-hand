@@ -79,3 +79,4 @@ v0.7의 원본 추적 경로를 유지하고 FBX 저장 코드·UI·검사를 �
 
 - 2026-11-02 native v0.23 (d35b4c9): Options 'make this model my hand's proportions' bakes the loaded model to the user's MediaPipe bone lengths/knuckles (new GLB; reload it so screen = game); forearm follows a first-person shoulder instead of turning with the palm. Details docs/handoffs/2026-11-01-native-quest-hand.md#v023. Not phone-verified.
 - 2026-11-02 native v0.24 (3ac4d5a): live One Euro filter + export spike median/0.12 s smoothing (user GLB jumps 336->57). Low phone fps 12-18 still open.
+- 2026-11-02 native v0.25 (ab3ae3f): ported early web solver steadiness (confidence slerp, thumb cone); why native is worse than web explained in docs/handoffs/2026-11-01-native-quest-hand.md#v025.
