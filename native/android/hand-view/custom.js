@@ -23,6 +23,7 @@ const FINGERS = [
   { key: 'ring', mp: [13, 14, 15, 16], re: /ring|(^|[^a-z])rng\d/ },
   { key: 'pinky', mp: [17, 18, 19, 20], re: /pinky|little|small|(^|[^a-z])pnk\d/ },
 ];
+const BACK_MAX = THREE.MathUtils.degToRad(35);
 const SIDE_RAD = THREE.MathUtils.degToRad(20); // most a middle / end finger joint bends sideways
 const DIP_RATIO = 2 / 3; // end joint bend / middle joint bend (tendon coupling)
 const TIP = /tip|end|nub|null|_4$|\.004$|4$|_end/;
@@ -451,7 +452,9 @@ export class CustomHand {
           if (cal) d.applyQuaternion(cal.q0[f.key]);
           if (f.key !== 'thumb') {
             const n = ps * d.z; const r = Math.hypot(d.y, n);
-            const ang = Math.min(100 * D2R, Math.max(-30 * D2R, Math.atan2(n, d.y)));
+            let a0 = Math.atan2(n, d.y);
+            if (a0 < -BACK_MAX - 20 * D2R && !window.HMS_NOBACKFIX) a0 = -a0; // knuckle bent far back: read flipped
+            const ang = Math.min(100 * D2R, Math.max(-30 * D2R, a0));
             d.y = r * Math.cos(ang); d.z = ps * r * Math.sin(ang);
           }
           target = d.applyMatrix3(F3);
@@ -569,6 +572,9 @@ function seenBend(a, b, lat, palmSign) {
   const raw = bendOf(a, b, lat, palmSign);
   const total = Math.acos(Math.max(-1, Math.min(1, a.dot(b))));
   const side = Math.max(-SIDE_RAD, Math.min(SIDE_RAD, raw.side));
+  // A real finger bends back 10..30 deg at most. Far past that it is MediaPipe's palm/back mix-up
+  // (the knuckle line read flipped while the hand turns over): a strong forward bend.
+  if (raw.flex < -BACK_MAX && !window.HMS_NOBACKFIX) return { flex: Math.sqrt(Math.max(0, total * total - side * side)), side };
   if (raw.flex < -10 * Math.PI / 180) return { flex: raw.flex, side };
   return { flex: Math.sqrt(Math.max(0, total * total - side * side)), side };
 }
