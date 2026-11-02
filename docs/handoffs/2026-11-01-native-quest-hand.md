@@ -217,3 +217,11 @@ gauntlet_rigged_left.glb. Options without skin fit, CPU switch, model loading.
   tools/autorig/mirror_glb.py (main repo; S=diag(1,−1,1): positions/normals/tangents(w too),
   winding, node matrices + inverse binds S·M·S, Left→Right names). Copy: project files
   native/gauntlet_kukri_right.glb. Saved GLBs now carry RightHand* bones.
+
+## v0.31 (2026-11-02, native b57b810) — weapon toggle
+
+User concept: a tool for the ARM ACTIONS of a first-person action game (kukri swings now,
+punches later). Options "무기: 쿠크리 / 맨손" → main.js `setProp` hides meshes named Kukri* on
+the template and instances; `exportGlb` drops hidden meshes (pairs built first). Next ideas:
+punch = elbow extension toward the screen (hand size → distance, shoulder IK), fast actions need
+offline 30 fps or phone-sensor capture (both on hold until the user says go).
