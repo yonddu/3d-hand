@@ -62,3 +62,15 @@
   of hand); if the palm faces wrong, user picks 오른손 on the side button.
 - Headless replay of user record hand-native-1793581459272.json (121 frames, 1 right hand, ~12 fps live)
   with the rigged gauntlet: follows the points incl. fist (v0.16-gauntlet-test.png). Not phone-verified.
+
+## v0.17 (2026-11-02, native a7f8991): model finger lengths fitted to the user
+
+- User: loaded gauntlet looks crushed because model and MediaPipe finger lengths differ.
+  Measured on hand-native-1793581459272.json: at equal palm (wrist->middle MCP) the gauntlet's finger
+  bones were 1.4-2.2x MediaPipe's (thumb 1.0-1.1x); MediaPipe per-frame finger length CV 27%.
+- main.js calibrate(): per side, median MP world bone length / palm over the first 60 frames
+  (refit at 5, 10, 20 .. 60 samples, then fixed). custom.js fitLengths(): each finger bone scaled evenly
+  about its joint, clamp 0.5-1.6, child scale = q/q_parent. Record: index .58/.66/.64, middle .68/.64/.67,
+  ring .51/.61/.64, pinky .50/.66/.62. Fingertips now end at the points (v0.17-length-fit.png);
+  fingers thinner by the same factor. MeshHand carries world[63]. Not phone-verified.
+- Open: knuckle spread (index MCP -> pinky MCP) model 0.87 palms vs MP 0.64 is NOT fitted.
