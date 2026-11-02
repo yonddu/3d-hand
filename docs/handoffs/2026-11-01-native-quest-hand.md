@@ -180,3 +180,16 @@ hand loop, so live + GLB export replay): a lone hand whose label's track is not 
 where the other label was seen < 400 ms ago within 0.25 picture units (x/z, y/z), takes the
 old label. `HMS_NOSTICKY` = off. Picture: project files native/v0.26-flip-side-fix.png.
 Not handled: two hands both swapping; RawFbx (position FBX) still uses raw labels.
+
+## v0.27 (2026-11-02, native 5aa44c9) — fingers at palm/back flips
+
+User take hand-native-1793609342413.json (123 frames, 16.6 fps, NO label swap; converted copy
+project files native/take-flip-1793609342413.json): at flips (frames 12, 68, 98) MediaPipe world
+reads curled fingers with a flipped knuckle line (PIP/DIP 150–170°), seenBend called them
+"backward" and the clamp made them straight. Now `BACK_MAX` 35°: a middle/end joint bent back
+more than that (knuckle: more than 55°) is taken as the forward bend. `HMS_NOBACKFIX`.
+PIP |model − MP| user take 21.2 → 1.5°, curled-but-straight 103 → 0 / 492; nat1 37 → 0; fbx1 2 → 0.
+Harness: hv/bendcmp.py (take, shotm log).
+User then asked for the web way (record, analyse the whole take, view the corrected result).
+Proposed: record 30 fps video, offline re-detect every frame, whole-take corrections, play back
+the final motion; warned ~60 MB/min video, analysis 1–2× take length. Awaiting answer.
