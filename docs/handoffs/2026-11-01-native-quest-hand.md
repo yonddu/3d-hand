@@ -110,3 +110,14 @@
 - User: too many options, camera view squeezed. Camera screen: view, status (11sp), still-pose slider (model + recording),
   측정 / 편 손 보정 / 옵션. Options screen (ScrollView): back button, GPU/CPU, hands, pose, model load/side, info,
   GLB anim / JSON / FBX saves, notes. CI 41382928418 artifact 13114765015. Not phone-verified.
+
+## v0.22 (2026-11-02, native a713c81): skin on my hand (screen) + rotation-only GLB
+- User (frustrated, v0.20 static pose GLB + old raw FBX "다 엉망"): "그냥 내 손에 스킨 씌운다는 개념으로".
+  Resolution: SCREEN = model skeleton fitted to the user (v0.19 fitLengths: lengths + knuckles from first 60
+  frames, roots on points each frame, skin re-bound); TURNS = v0.20 rotation retarget; GLB = untouched
+  template + turns (fit never touches export). Options toggle main.js fitHand(on) rebuilds instances.
+- Also: DIP = 2/3 PIP (DIP_RATIO, side 0; HMS_NOCOUPLE to compare), still pose = per-joint quaternion
+  median over +-0.5 s (POSE_WINDOW), anim Gaussian sigma 0.06 s both ways (smoothFrames, window 4 sigma).
+- User's FBX (old position-only raw export, 365 frames 19.7 s) reconstructed to MP world (local deltas, y/z
+  negated back) as test take scratch hv/fbx1.json. Picture distance: no fit 24.6%, fit 5.1% of palm; DIP>PIP
+  38% -> 0%. Files native/v0.22-*.png/.glb. Old FBX export is still position-only (causes crushed rigs).
