@@ -461,8 +461,7 @@ class MainActivity : ComponentActivity() {
         optsButton.setOnClickListener { mainCol.visibility = android.view.View.GONE; optsScroll.visibility = android.view.View.VISIBLE; updateModelButtons() }
         back.setOnClickListener { optsScroll.visibility = android.view.View.GONE; mainCol.visibility = android.view.View.VISIBLE }
         val note = TextView(this).apply {
-            text = "기본 화면 = 내 손 (MediaPipe 점과 선) · 스킨 추가: 뼈가 있는 손 모델(GLB/FBX)을 불러오면 내 손 동작으로 뼈만 돌려 씌움 (텍스처 그대로)
-추적: 손 또는 몸 (몸 = MediaPipe Pose 33점) · 측정을 멈추면 녹화 영상을 처음부터 다시 분석해 보정한 동작을 보여줌"
+            text = "기본 화면 = 내 손 (MediaPipe 점과 선) · 스킨 추가: 뼈가 있는 손 모델(GLB/FBX)을 불러오면 내 손 동작으로 뼈만 돌려 씌움 (텍스처 그대로)\n추적: 손 또는 몸 (몸 = MediaPipe Pose 33점) · 측정을 멈추면 녹화 영상을 처음부터 다시 분석해 보정한 동작을 보여줌"
             textSize = 12f
         }
         opts.addView(note)
