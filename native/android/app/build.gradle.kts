@@ -6,8 +6,8 @@ android {
         applicationId = "com.yonddu.handmotion.benchmark"
         minSdk = 31
         targetSdk = 35
-        versionCode = 34
-        versionName = "0.32-real-hand-side"
+        versionCode = 35
+        versionName = "0.33-record-correct"
         ndk { abiFilters += "arm64-v8a" }
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
@@ -27,6 +27,7 @@ dependencies {
     implementation("androidx.camera:camera-camera2:1.4.2")
     implementation("androidx.camera:camera-lifecycle:1.4.2")
     implementation("androidx.camera:camera-view:1.4.2")
+    implementation("androidx.camera:camera-video:1.4.2")
     implementation("com.google.mediapipe:tasks-vision:0.10.21")
     testImplementation("junit:junit:4.13.2")
 }

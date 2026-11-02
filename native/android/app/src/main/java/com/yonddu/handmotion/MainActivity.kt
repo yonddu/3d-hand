@@ -23,6 +23,14 @@ import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.core.UseCaseGroup
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.video.FallbackStrategy
+import androidx.camera.video.FileOutputOptions
+import androidx.camera.video.Quality
+import androidx.camera.video.QualitySelector
+import androidx.camera.video.Recorder
+import androidx.camera.video.Recording
+import androidx.camera.video.VideoCapture
+import androidx.camera.video.VideoRecordEvent
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import com.google.mediapipe.framework.image.BitmapImageBuilder
@@ -94,6 +102,14 @@ class MainActivity : ComponentActivity() {
     private var frameWidth = 1
     private var frameHeight = 1
     private var pendingExport: String? = null
+    // Record -> analyse -> correct: the take's video (30 fps), read again after the stop.
+    private var videoCapture: VideoCapture<Recorder>? = null
+    private var videoRec: Recording? = null
+    private var analyseVideo = false
+    @Volatile private var analysing = false
+    private var takePrepared = false // the page holds this take cleaned + posed
+    private lateinit var reviewButton: Button
+    private var takeNote = ""
 
     private val permission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) startCamera() else status.text = "카메라 권한이 필요합니다."
@@ -267,6 +283,7 @@ class MainActivity : ComponentActivity() {
                         saveButton.isEnabled = frames.length() > 0
                         fbxButton.isEnabled = frames.length() > 0 && !fbxBusy
                         updateModelButtons()
+                        if (!stopVideo(true)) prepareTake(true) // no video: correct the live frames
                     } }
                 } else worker.execute {
                     frames = JSONArray(); timing.clear(); startedAt = 0
@@ -275,6 +292,9 @@ class MainActivity : ComponentActivity() {
                     recordedBackend = "mediapipe-" + backend.name.lowercase(Locale.ROOT)
                     recording = true
                     runOnUiThread {
+                        takePrepared = false; takeNote = ""
+                        handView.reviewStop(); reviewButton.isEnabled = false
+                        startVideo()
                         recordButton.text = "측정 중지"; recordButton.isEnabled = true
                         saveButton.isEnabled = false
                         fbxButton.isEnabled = false
@@ -304,6 +324,7 @@ class MainActivity : ComponentActivity() {
             text = "CPU로 전환"; isEnabled = false
             setOnClickListener {
                 recording = false
+                stopVideo(false)
                 recordButton.text = "새 측정"
                 saveButton.isEnabled = frames.length() > 0
                 fbxButton.isEnabled = frames.length() > 0 && !fbxBusy
@@ -311,12 +332,17 @@ class MainActivity : ComponentActivity() {
                 startModel()
             }
         }
+        reviewButton = Button(this).apply {
+            text = "보정 재생"; isEnabled = false
+            setOnClickListener { handView.frozen = true; handView.reviewPlay { r -> liveButton.isEnabled = true; if (!r.startsWith("ok")) { handView.frozen = false; status.text = r.removePrefix("error:") } } }
+        }
         buttons.addView(recordButton); buttons.addView(saveButton); buttons.addView(fbxButton)
         // Game build: one fixed hand (built-in model), backend chosen automatically.
         handsButton = Button(this).apply {
             text = "현재 두 손 · 한 손 비교로 전환"; isEnabled = false
             setOnClickListener {
                 recording = false
+                stopVideo(false)
                 recordButton.text = "새 측정"
                 saveButton.isEnabled = frames.length() > 0
                 fbxButton.isEnabled = frames.length() > 0 && !fbxBusy
@@ -329,6 +355,7 @@ class MainActivity : ComponentActivity() {
             text = "몸 추적(MediaPipe Pose) 켜기"; isEnabled = false
             setOnClickListener {
                 recording = false
+                stopVideo(false)
                 recordButton.text = "새 측정"
                 saveButton.isEnabled = frames.length() > 0
                 fbxButton.isEnabled = frames.length() > 0 && !fbxBusy
@@ -403,7 +430,7 @@ class MainActivity : ComponentActivity() {
         }
         liveButton = Button(this).apply {
             text = "실시간 보기"; isEnabled = false
-            setOnClickListener { handView.frozen = false; isEnabled = false }
+            setOnClickListener { handView.reviewStop(); handView.frozen = false; isEnabled = false }
         }
         val stillRow = LinearLayout(this).apply { gravity = Gravity.CENTER; addView(stillButton); addView(liveButton) }
         // Options screen: the GLB save with the other saves. Camera screen: what needs the view
@@ -426,7 +453,7 @@ class MainActivity : ComponentActivity() {
         opts.addView(TextView(this).apply { text = "저장 (측정 중지 후) · GLB = 건틀렛+쿠크리 손 뼈 회전 애니메이션 (화면과 같음)"; textSize = 12f })
         opts.addView(glbButton); opts.addView(saves)
         val optsButton = Button(this).apply { text = "옵션" }
-        buttons.addView(calButton); buttons.addView(optsButton)
+        buttons.addView(reviewButton); buttons.addView(calButton); buttons.addView(optsButton)
         mainCol.addView(buttons)
         val back = Button(this).apply { text = "← 카메라 화면으로" }
         opts.addView(back, 0)
@@ -563,6 +590,7 @@ class MainActivity : ComponentActivity() {
                         .setTargetAspectRatio(androidx.camera.core.AspectRatio.RATIO_16_9)
                         .build()
                     analysis.setAnalyzer(worker) { image ->
+                        if (analysing) { image.close(); return@setAnalyzer }
                         val entered = SystemClock.elapsedRealtimeNanos()
                         var source: Bitmap? = null
                         var cropped: Bitmap? = null
@@ -631,6 +659,7 @@ class MainActivity : ComponentActivity() {
                                 if (frames.length() >= 9000) {
                                     recording = false
                                     runOnUiThread {
+                                        if (!stopVideo(true)) prepareTake(true)
                                         recordButton.text = "새 측정"; saveButton.isEnabled = true; fbxButton.isEnabled = !fbxBusy
                                         Toast.makeText(this, "9000프레임에 도달해 측정을 중지했습니다. 기록을 저장하세요.", Toast.LENGTH_LONG).show()
                                     }
@@ -666,7 +695,7 @@ class MainActivity : ComponentActivity() {
                                     if (!destroyed) {
                                         handView.show(w, h, meshHands)
                                         // Plain points until the hand model draws (or if it cannot).
-                                        overlay.update(points, body, w, h)
+                                        if (handView.frozen) overlay.update(emptyList(), emptyList(), w, h) else overlay.update(points, body, w, h)
                                         if (handView.lastError.isNotEmpty()) lastError = handView.lastError
                                         if (summary != null) status.text = summary
                                     }
@@ -683,10 +712,22 @@ class MainActivity : ComponentActivity() {
                             image.close()
                         }
                     }
-                    val group = UseCaseGroup.Builder().addUseCase(previewUseCase).addUseCase(analysis)
-                    preview.viewPort?.let { group.setViewPort(it) }
-                    camera.unbindAll()
-                    camera.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, group.build())
+                    fun bind(video: VideoCapture<Recorder>?) {
+                        val group = UseCaseGroup.Builder().addUseCase(previewUseCase).addUseCase(analysis)
+                        if (video != null) group.addUseCase(video)
+                        preview.viewPort?.let { group.setViewPort(it) }
+                        camera.unbindAll()
+                        camera.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, group.build())
+                    }
+                    val video = try {
+                        VideoCapture.withOutput(Recorder.Builder()
+                            .setQualitySelector(QualitySelector.from(Quality.HD, FallbackStrategy.lowerQualityOrHigherThan(Quality.SD)))
+                            .build())
+                    } catch (e: Exception) { null }
+                    videoCapture = try { bind(video); video } catch (e: Exception) {
+                        lastError = "영상 녹화 불가 (실시간 기록만 보정): ${e.message}"
+                        bind(null); null
+                    }
                 } catch (e: Exception) { showError("카메라 시작 실패: ${e.message}") }
             }, ContextCompat.getMainExecutor(this))
         }
@@ -759,6 +800,7 @@ class MainActivity : ComponentActivity() {
 
     private fun showStill(index: Int) {
         if (index >= frames.length()) return
+        handView.reviewStop()
         handView.frozen = true; liveButton.isEnabled = true
         val (w, h, hands) = recordedHands(frames.getJSONObject(index))
         handView.showRecorded(w, h, hands, frames.getJSONObject(index).optDouble("t", 0.0), index, false) {}
@@ -786,25 +828,119 @@ class MainActivity : ComponentActivity() {
         val total = frames.length()
         modelInfo.text = modelInfo.text.lines().first() + "\nGLB 만드는 중… 기록 $total 프레임 재생"
         fun finish(note: String) { glbBusy = false; updateModelButtons(); modelInfo.text = modelInfo.text.lines().first() + "\n" + note }
-        fun feed(i: Int) {
-            if (destroyed) return
-            if (i == total) {
+        fun save() {
                 handView.exportGlb(mode, index) { st, bytes ->
                     if (bytes == null) finish("GLB 실패: " + st.removePrefix("error:")) else {
                     val p = st.split(":")
                     pendingGlb = bytes
                     finish("GLB 준비: ${if (p.getOrNull(1) == "left") "왼손" else "오른손"} · 프레임 ${p.getOrNull(2)} · ${bytes.size / 1024} KB")
-                    if (mode == "anim") handView.frozen = false else liveButton.isEnabled = true
+                    liveButton.isEnabled = true
                     saveGlbDocument.launch("hand-${if (mode == "pose") "pose" else "anim"}-${System.currentTimeMillis()}.glb")
                     }
                 }
-                return
-            }
-            val f = frames.getJSONObject(i)
-            val (w, h, hands) = recordedHands(f)
-            handView.showRecorded(w, h, hands, f.optDouble("t", 0.0), i, true) { feed(i + 1) }
         }
         handView.frozen = true
+        if (takePrepared) save() else prepareTake(false) { save() }
+    }
+
+    /** Video recording next to the live analysis (none if the camera could not add it). */
+    @SuppressLint("MissingPermission")
+    private fun startVideo() {
+        val vc = videoCapture ?: return
+        val file = File(cacheDir, "take.mp4").also { it.delete() }
+        analyseVideo = false
+        videoRec = try {
+            vc.output.prepareRecording(this, FileOutputOptions.Builder(file).build()).start(ContextCompat.getMainExecutor(this)) { event ->
+                if (event is VideoRecordEvent.Finalize) {
+                    videoRec = null
+                    val ok = !event.hasError() || event.error == VideoRecordEvent.Finalize.ERROR_SOURCE_INACTIVE
+                    if (analyseVideo && ok && file.length() > 0 && !destroyed) analyseTake(file)
+                    else { file.delete(); if (analyseVideo && !destroyed) { takeNote = "영상 녹화 실패 (${event.error}) · 실시간 기록으로 보정"; prepareTake(true) } }
+                }
+            }
+        } catch (e: Exception) { lastError = "영상 녹화 시작 실패: ${e.message}"; null }
+    }
+
+    /** Ends the video; analyse = read it again and correct. false when no video was recording. */
+    private fun stopVideo(analyse: Boolean): Boolean {
+        val r = videoRec ?: return false
+        analyseVideo = analyse
+        r.stop()
+        return analyse
+    }
+
+    /** Every frame of the take's video through MediaPipe again (camera paused), then corrected and played. */
+    private fun analyseTake(file: File) {
+        analysing = true
+        recordButton.isEnabled = false; saveButton.isEnabled = false; fbxButton.isEnabled = false
+        val live = frames
+        val portrait = frameHeight >= frameWidth
+        val delegate = backend; val hands = recordedMaxHands
+        status.text = "녹화 영상 다시 분석 준비…"
+        provider?.unbindAll()
+        worker.execute {
+            var note: String
+            try {
+                val started = SystemClock.elapsedRealtime()
+                val off = VideoPass.run(this, file, hands, delegate, portrait, ::realSide,
+                    { i, n -> if (i % 32 == 0 || i == n) showError("녹화 영상 다시 분석 중… $i / $n 프레임") }, { destroyed })
+                fun seen(a: JSONArray) = (0 until a.length()).count { (a.getJSONObject(it).optJSONArray("hands")?.length() ?: 0) > 0 }
+                val offSeen = seen(off); val liveSeen = seen(live)
+                val secs = (SystemClock.elapsedRealtime() - started) / 1000.0
+                note = if (offSeen > 0 && offSeen * 2 >= liveSeen) {
+                    frames = off
+                    String.format(Locale.KOREA, "영상 다시 분석: %d프레임 (손 %d) · 실시간은 %d (손 %d) · %.0f초 걸림", off.length(), offSeen, live.length(), liveSeen, secs)
+                } else String.format(Locale.KOREA, "영상 분석에서 손이 적어 실시간 기록 사용 (영상 손 %d, 실시간 %d)", offSeen, liveSeen)
+            } catch (e: Throwable) {
+                note = "영상 분석 실패, 실시간 기록 사용: ${e.javaClass.simpleName} ${e.message}"
+            } finally { file.delete() }
+            runOnUiThread {
+                analysing = false
+                if (destroyed) return@runOnUiThread
+                takeNote = note
+                recordButton.isEnabled = true
+                saveButton.isEnabled = frames.length() > 0
+                fbxButton.isEnabled = frames.length() > 0 && !fbxBusy
+                updateModelButtons()
+                startCamera()
+                prepareTake(true)
+            }
+        }
+    }
+
+    /**
+     * The whole take to the page (kept, not posed), cleaned there (clean.js: one side per hand,
+     * ghost hands out, misread frames replaced, short gaps filled), posed for export; then
+     * played (play) and/or done().
+     */
+    private fun prepareTake(play: Boolean, done: (() -> Unit)? = null) {
+        if (!customModel || frames.length() == 0) { done?.invoke(); return }
+        val take = frames
+        val total = take.length()
+        handView.frozen = true
+        modelInfo.text = modelInfo.text.lines().first() + "\n보정 중… $total 프레임"
+        fun feed(i: Int) {
+            if (destroyed || take !== frames) return
+            if (i == total) {
+                handView.recFinish { stats ->
+                    takePrepared = true
+                    val st = try { JSONObject(stats) } catch (e: Exception) { JSONObject() }
+                    val fix = "보정: 좌우 고침 ${st.optInt("relabelled")} · 튄 프레임 ${st.optInt("spikes")} · 빈틈 채움 ${st.optInt("filled")} · 버린 짧은 손 ${st.optInt("dropped")}"
+                    modelInfo.text = modelInfo.text.lines().first() + "\n" + listOf(takeNote, fix).filter { it.isNotEmpty() }.joinToString("\n")
+                    if (play) handView.reviewPlay { r ->
+                        reviewButton.isEnabled = r.startsWith("ok")
+                        liveButton.isEnabled = true
+                        if (r.startsWith("ok")) status.text = "보정된 동작 재생 중 (저장되는 GLB와 같음) · '실시간 보기'로 카메라로" 
+                        else { handView.frozen = false; status.text = r.removePrefix("error:") }
+                    } else handView.frozen = done != null
+                    done?.invoke()
+                }
+                return
+            }
+            val f = take.getJSONObject(i)
+            val (w, h, hands) = recordedHands(f)
+            handView.showRecorded(w, h, hands, f.optDouble("t", 0.0), i, false, { feed(i + 1) }, collect = true)
+        }
         handView.recBegin { feed(0) }
     }
 
@@ -830,6 +966,7 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         destroyed = true
         recording = false
+        videoRec?.stop(); videoRec = null
         provider?.unbindAll()
         worker.execute { landmarker?.close(); landmarker = null; poseLandmarker?.close(); poseLandmarker = null }
         worker.shutdown()

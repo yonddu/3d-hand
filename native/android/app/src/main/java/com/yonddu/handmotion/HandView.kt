@@ -67,8 +67,9 @@ class HandView(context: Context) : WebView(context) {
     }
 
     /** One recorded frame, drawn (frozen view) or only posed and kept for export (record). UI thread. */
-    fun showRecorded(width: Int, height: Int, hands: List<MeshHand>, t: Double, index: Int, record: Boolean, done: () -> Unit) {
-        val extra = JSONObject().put("t", t).put("fi", index).put("record", record).put("noRender", record)
+    fun showRecorded(width: Int, height: Int, hands: List<MeshHand>, t: Double, index: Int, record: Boolean, done: () -> Unit, collect: Boolean = false) {
+        val extra = JSONObject().put("t", t).put("fi", index).put("record", record).put("noRender", record || collect)
+        if (collect) extra.put("collect", true)
         evaluateJavascript("window.setHands ? setHands(${handsJson(width, height, hands, extra)}) : 'missing'") { done() }
     }
 
@@ -80,6 +81,11 @@ class HandView(context: Context) : WebView(context) {
     fun fitHand(on: Boolean) { evaluateJavascript("window.fitHand && fitHand($on)", null) }
     fun clearCalibration() { evaluateJavascript("window.calibrateClear && calibrateClear()", null) }
     fun recBegin(done: () -> Unit) { evaluateJavascript("window.recBegin ? recBegin() : ''") { done() } }
+    /** After every frame was fed with collect: the whole take cleaned (clean.js) and posed. done gets the counts (JSON). */
+    fun recFinish(done: (String) -> Unit) { evaluateJavascript("window.recFinish ? recFinish() : 'error:old page'") { done(it.trim('"').replace("\\\"", "\"")) } }
+    /** The corrected, smoothed take played in a loop (what the GLB saves). done gets "ok:<frames>:<s>" or "error:..". */
+    fun reviewPlay(done: (String) -> Unit) { evaluateJavascript("window.reviewPlay ? reviewPlay() : 'error:old page'") { done(it.trim('"')) } }
+    fun reviewStop() { evaluateJavascript("window.reviewStop && reviewStop()", null) }
 
     /**
      * The model as GLB: mode "anim" (bone turns over the recorded frames) or "pose" (the

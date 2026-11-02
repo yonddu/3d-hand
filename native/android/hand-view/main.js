@@ -8,7 +8,8 @@
 //   cam: the hand's 21 points in camera space (m; x right, y down, z forward),
 //   already on their picture rays (MainActivity), so the model lies over the seen hand.
 import * as THREE from 'three';
-import { parseModel, exportGlb, bakeFitted } from './custom.js';
+import { parseModel, exportGlb, bakeFitted, smoothTake } from './custom.js';
+import { cleanTake } from './clean.js';
 
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, premultipliedAlpha: false });
@@ -140,8 +141,41 @@ const lastSeen = { left: [], right: [] };
 
 // Recording for export: snapshots per side (MainActivity replays the saved frames through
 // setHands with record: true, then asks for a GLB).
-let rec = null;
-window.recBegin = () => { rec = { left: [], right: [] }; return 'ok'; };
+// Record -> correct: MainActivity first feeds every saved frame with collect: true (kept, not
+// posed); recFinish() cleans the whole take (clean.js), poses every cleaned frame for export
+// and returns the clean-up counts. reviewPlay() then shows the corrected, smoothed animation.
+let rec = null; let recIn = null; let review = null;
+window.recBegin = () => { rec = { left: [], right: [] }; recIn = []; reviewStop(); return 'ok'; };
+window.recFinish = () => {
+  if (!recIn) return 'error:no take';
+  const { frames, stats } = window.HMS_NOCLEAN ? { frames: recIn, stats: {} } : cleanTake(recIn);
+  for (const f of frames) window.setHands({ ...f, collect: false, record: true, noRender: true, cleaned: true });
+  recIn = null;
+  return JSON.stringify(stats);
+};
+function reviewStop() { if (review) { cancelAnimationFrame(review.raf); review = null; } }
+window.reviewStop = () => { reviewStop(); return 'ok'; };
+window.reviewPlay = () => {
+  reviewStop();
+  if (!custom || !rec) return 'error:기록이 없습니다';
+  const side = rec.left.length > rec.right.length ? 'left' : 'right';
+  const inst = customSlots[side][0];
+  if (!inst || rec[side].length < 2) return 'error:손이 잡힌 프레임이 없습니다';
+  for (const s of ['left', 'right']) customSlots[s].forEach((i) => { i.outer.visible = i === inst; });
+  const frames = smoothTake(rec[side]);
+  const t0 = frames[0].t; const len = frames[frames.length - 1].t - t0;
+  const start = performance.now(); let k = 0;
+  const step = () => {
+    const tt = ((performance.now() - start) / 1000) % (len + 0.5);
+    if (tt < (k ? frames[k - 1].t - t0 : 0)) k = 0;
+    while (k < frames.length - 1 && frames[k + 1].t - t0 <= tt) k++;
+    custom.applySnapshot(inst, frames[k]);
+    renderer.render(scene, camera);
+    review.raf = requestAnimationFrame(step);
+  };
+  review = { raf: requestAnimationFrame(step) };
+  return `ok:${frames.length}:${len.toFixed(1)}`;
+};
 let exportOut = null; window.exportStatus = '';
 window.exportBegin = (mode, frameIndex) => {
   if (!custom) return 'error:손 모델이 없습니다';
@@ -229,6 +263,8 @@ window.modelHand = (choice) => {
 window.setHands = function setHands(data) {
   if (!ready) return 'loading';
   const d = typeof data === 'string' ? JSON.parse(data) : data;
+  if (d.collect) { if (recIn) recIn.push(d); return 'ok'; }
+  if (review && !d.record) return 'ok'; // the corrected take is playing
   const key = `${d.w}x${d.h}x${window.innerWidth}x${window.innerHeight}`;
   if (key !== last) { layout(d.w, d.h); last = key; }
   camera.aspect = d.w / d.h;
@@ -237,7 +273,7 @@ window.setHands = function setHands(data) {
   const now = d.t != null ? d.t * 1000 : performance.now();
   const used = { left: 0, right: 0 };
   const posed = new Set();
-  if (!window.HMS_NOSTICKY) keepSides(d.hands || [], now);
+  if (!window.HMS_NOSTICKY && !d.cleaned) keepSides(d.hands || [], now);
   for (const hand of d.hands || []) {
     const side = hand.side === 'left' ? 'left' : 'right';
     const n = used[side]++;

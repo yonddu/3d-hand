@@ -551,6 +551,19 @@ export class CustomHand {
     const rootPos = handNow.clone().sub(new THREE.Vector3().setFromMatrixPosition(inst.handM).applyQuaternion(quat));
     return { t, p: rootPos.toArray(), q: quat.toArray(), nodes: inst.animNodes.map((o) => o.quaternion.toArray()) };
   }
+
+  // Back onto the instance (review playback of the corrected take): the inverse of snapshot,
+  // keeping the instance's current scale.
+  applySnapshot(inst, f) {
+    const pos = new THREE.Vector3(); const quat = new THREE.Quaternion(); const scl = new THREE.Vector3();
+    inst.root.matrix.decompose(pos, quat, scl);
+    const q = new THREE.Quaternion().fromArray(f.q);
+    const hr = new THREE.Vector3().setFromMatrixPosition(inst.handM).applyQuaternion(q);
+    const p = new THREE.Vector3().fromArray(f.p).add(hr.clone().multiplyScalar(1 - scl.x));
+    inst.root.matrix.compose(p, q, scl);
+    inst.animNodes.forEach((o, i) => { if (f.nodes[i]) o.quaternion.fromArray(f.nodes[i]); });
+    inst.outer.visible = true;
+  }
 }
 
 // Bend at a joint between bone directions a (before) and b (after): flex about the knuckle
@@ -630,6 +643,9 @@ function smoothFrames(frames, sigma) {
 // GLB of the model: 'anim' = the recorded turns as an animation (bone turns only; the root
 // moves and turns; lengths and scale as modelled), 'pose' = one recorded frame as a still
 // pose at the origin. frames: snapshots of one instance.
+// The animation's own frames: one-off misreads out, then smoothed (what 'anim' saves).
+export function smoothTake(frames) { return smoothFrames(medianFrames(frames, SPIKE_FRAMES), SMOOTH_SIGMA); }
+
 export async function exportGlb(template, inst, frames, mode, index) { // eslint-disable-line no-param-reassign
   const { GLTFExporter } = await import('three/examples/jsm/exporters/GLTFExporter.js');
   const model = SkeletonUtils.clone(template);
@@ -649,7 +665,7 @@ export async function exportGlb(template, inst, frames, mode, index) { // eslint
     for (const [i, n] of pairs) n.quaternion.fromArray(medianQuat(win.map((f) => f.nodes[i]), mid.nodes[i]));
     model.name = `${model.name || 'model'}_pose`;
   } else {
-    frames = smoothFrames(medianFrames(frames, SPIKE_FRAMES), SMOOTH_SIGMA);
+    frames = smoothTake(frames);
     const times = frames.map((f) => f.t - frames[0].t);
     const tracks = [
       new THREE.VectorKeyframeTrack(`${wrap.uuid}.position`, times, frames.flatMap((f) => f.p)),
