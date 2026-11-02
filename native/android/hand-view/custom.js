@@ -431,6 +431,7 @@ export class CustomHand {
     }
     const ps = inst.palmSign;
     const cal = inst.cal;
+    if (!inst.prevQ) { inst.prevQ = new Map(); inst.refLen = {}; }
     const D2R = Math.PI / 180;
     for (const f of FINGERS) {
       const ch = h.chains[f.key];
@@ -478,7 +479,18 @@ export class CustomHand {
           target = pd.clone().applyAxisAngle(axis.clone().multiplyScalar(ps), flex);
           target.multiplyScalar(Math.cos(side)).addScaledVector(axis, Math.sin(side));
         } else {
-          target = seen[k + off].clone(); // thumb: as seen
+          // Thumb: as seen, but within a cone of the bone before (MCP 75, IP 90 deg; the early
+          // web solver's limits): MediaPipe sometimes folds the thumb back on itself.
+          target = seen[k + off].clone();
+          if (!window.HMS_NOTHUMBLIM) {
+            const pd = pos.clone().sub(at(list[k - 1], par)).normalize();
+            const lim = (k + off === 1 ? 75 : 90) * D2R;
+            const ang = pd.angleTo(target);
+            if (ang > lim) {
+              const ax = new THREE.Vector3().crossVectors(pd, target);
+              if (ax.lengthSq() > 1e-12) target = pd.clone().applyAxisAngle(ax.normalize(), lim);
+            }
+          }
         }
         if (was.lengthSq() < 1e-12 || target.lengthSq() < 1e-12) return;
         const turn = new THREE.Quaternion().setFromUnitVectors(was.normalize(), target.normalize());
@@ -486,6 +498,22 @@ export class CustomHand {
         turnOf(bone.parent, pq);
         q.copy(pq).invert().multiply(turn).multiply(pq);
         bone.quaternion.premultiply(q);
+        // Live: a bone whose seen length suddenly changes is likely misread (hidden, foreshortened)
+        // and moves slower (early web solver: 0.35 + 0.65 * confidence per frame).
+        if (inst.live && !window.HMS_NOCONF) {
+          const key = `${f.key}${k}`;
+          const len = Wd[f.mp[k + off + 1]].distanceTo(Wd[f.mp[k + off]]);
+          const ref = inst.refLen[key];
+          let c = 1;
+          if (ref === undefined) inst.refLen[key] = len;
+          else {
+            c = Math.min(1, Math.max(0.15, 1 - Math.abs(len / Math.max(ref, 1e-4) - 1) * 2));
+            if (c > 0.6) inst.refLen[key] = ref * 0.97 + len * 0.03;
+          }
+          const prev = inst.prevQ.get(bone);
+          if (prev && inst.fresh) bone.quaternion.copy(prev.slerp(bone.quaternion, 0.35 + 0.65 * c));
+          inst.prevQ.set(bone, bone.quaternion.clone());
+        }
         bone.updateWorldMatrix(false, true);
       });
     }

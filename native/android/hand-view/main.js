@@ -89,6 +89,7 @@ window.calibrateClear = () => {
   for (const side of ['left', 'right']) customSlots[side].forEach((i) => { i.cal = null; });
   return 'ok';
 };
+window.debugSnap = (side) => { const i = customSlots[side || 'right'][0]; return i ? custom.snapshot(i, 0) : null; };
 window.calStatus = () => JSON.stringify({ fitN: { left: fitCal.left.samples.length, right: fitCal.right.samples.length }, fit: Object.fromEntries(['left', 'right'].map((s) => [s, customSlots[s].map((i) => i.fitted)])), left: !!calRaw.left, right: !!calRaw.right, err: Object.fromEntries(['left', 'right'].map((s) => [s, customSlots[s].map((i) => i.err)])), bends: Object.fromEntries(['left', 'right'].map((s) => [s, customSlots[s].map((i) => i.bends)])) });
 const toVecs = (a) => Array.from({ length: 21 }, (_, j) => toThree(a, j));
 
@@ -235,6 +236,8 @@ window.setHands = function setHands(data) {
         elbow = { ray: new THREE.Vector3((u - 0.5) / d.fw, -(v - 0.5) / d.fh, -1).normalize(), farther: farther > 0 };
       }
       const inst = customSlots[side][n];
+      inst.live = !d.record;
+      inst.fresh = now - (lastSeen[side][n] || -1e9) < 300; // last pose recent: smooth from it
       custom.pose(inst, P, elbow, Wd);
       posed.add(inst);
       lastSeen[side][n] = now;
