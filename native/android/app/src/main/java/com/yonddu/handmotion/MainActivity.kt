@@ -939,7 +939,7 @@ class MainActivity : ComponentActivity() {
             }
             val f = take.getJSONObject(i)
             val (w, h, hands) = recordedHands(f)
-            handView.showRecorded(w, h, hands, f.optDouble("t", 0.0), i, false, { feed(i + 1) }, collect = true)
+            handView.showRecorded(w, h, hands, f.optDouble("t", 0.0), i, false, true) { feed(i + 1) }
         }
         handView.recBegin { feed(0) }
     }

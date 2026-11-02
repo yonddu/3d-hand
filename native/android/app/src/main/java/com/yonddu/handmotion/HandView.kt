@@ -67,7 +67,7 @@ class HandView(context: Context) : WebView(context) {
     }
 
     /** One recorded frame, drawn (frozen view) or only posed and kept for export (record). UI thread. */
-    fun showRecorded(width: Int, height: Int, hands: List<MeshHand>, t: Double, index: Int, record: Boolean, done: () -> Unit, collect: Boolean = false) {
+    fun showRecorded(width: Int, height: Int, hands: List<MeshHand>, t: Double, index: Int, record: Boolean, collect: Boolean = false, done: () -> Unit) {
         val extra = JSONObject().put("t", t).put("fi", index).put("record", record).put("noRender", record || collect)
         if (collect) extra.put("collect", true)
         evaluateJavascript("window.setHands ? setHands(${handsJson(width, height, hands, extra)}) : 'missing'") { done() }
