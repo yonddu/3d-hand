@@ -225,3 +225,12 @@ punches later). Options "무기: 쿠크리 / 맨손" → main.js `setProp` hides
 the template and instances; `exportGlb` drops hidden meshes (pairs built first). Next ideas:
 punch = elbow extension toward the screen (hand size → distance, shoulder IK), fast actions need
 offline 30 fps or phone-sensor capture (both on hold until the user says go).
+
+## v0.32 (2026-11-02, native 2c82781) — real left/right with the back camera
+
+User screenshot: a right hand was drawn as a left hand. MediaPipe handedness assumes a mirrored
+selfie picture; the app films with the BACK camera, so MP "Left" = the user's right hand.
+MainActivity `realSide()` swaps the label for live sides and saved takes (take JSON
+`"labels": "real"`). Takes saved before v0.32 carry MP's raw (inverted) labels. This also puts
+the first-person shoulder on the right side. Title now shows the installed versionName
+(was hardcoded v0.22). Not phone-verified.
