@@ -76,3 +76,5 @@ v0.7의 원본 추적 경로를 유지하고 FBX 저장 코드·UI·검사를 �
 5. 다음 작업 종료 전 이 문서와 날짜별 이력을 반드시 갱신합니다.
 
 상세 변경·롤백 이력: [2026-10-29 네이티브 인계](handoffs/2026-10-29-native-rollback.md).
+
+- 2026-11-02 native v0.23 (d35b4c9): Options 'make this model my hand's proportions' bakes the loaded model to the user's MediaPipe bone lengths/knuckles (new GLB; reload it so screen = game); forearm follows a first-person shoulder instead of turning with the palm. Details docs/handoffs/2026-11-01-native-quest-hand.md#v023. Not phone-verified.

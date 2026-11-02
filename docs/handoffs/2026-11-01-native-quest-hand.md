@@ -121,3 +121,23 @@
 - User's FBX (old position-only raw export, 365 frames 19.7 s) reconstructed to MP world (local deltas, y/z
   negated back) as test take scratch hv/fbx1.json. Picture distance: no fit 24.6%, fit 5.1% of palm; DIP>PIP
   38% -> 0%. Files native/v0.22-*.png/.glb. Old FBX export is still position-only (causes crushed rigs).
+
+## v0.23 (2026-11-02, native d35b4c9) — model baked to the user's hand + first-person forearm
+
+User: screen and game look different; "how do I build a character that fits MediaPipe"; then gave
+gauntlet_rigged_left.glb: "make it like that". Also: "awkward, can't use it (wrist)".
+
+- **Bake** (custom.js `bakeFitted`, main.js `window.bakeBegin`, Options button "이 모델을 내 손 비율로
+  고쳐 저장 (GLB)"): a fresh non-mirrored instance of the loaded model gets `fitLengths` with the
+  user's measured lengths/knuckles (`fitCal`, first 60 live frames; now measured even with the
+  screen fit off), wide clamp (`inst.wide`: ratio 0.25..3, knuckle move <= 1 palm; right-hand
+  knuckle z negated for a left model), rest turns, skins re-bound (`skeleton.calculateInverses`),
+  exported with GLTFExporter. Re-loading that GLB = bones like MediaPipe's, so screen (fit off) =
+  exported GLB. Result for gauntlet v1 + user's FBX take: project files
+  native/gauntlet_myhand_left.glb (finger ratios index .55/.60/.82, pinky .47/.69/.65 of model).
+- **Forearm without body pose** (`firstPersonElbow`): two-bone reach from the wrist to a shoulder at
+  (±0.18, -0.28, 0.05) m camera space (upper arm 0.29, forearm = model forearm × scale, elbow pole
+  down/out), wrist hand line clamped within 65° of the forearm. Before, the whole model turned with
+  the palm (arm swung with every wrist turn). User FBX take: forearm turn/frame mean 3.10 → 1.57°,
+  p95 11.8 → 6.1. `HMS_NOARM` flag = old behaviour. Not phone-verified.
+- Harness: scratchpad hv/bake.cjs (take, model, out), shotf.cjs (prints window.lastFore with HMS_DEBUG).
