@@ -170,3 +170,13 @@ fade) was ported, and the AI gauntlet mesh has no knuckle loops.
   fbx1 442 → 242 → 152, max 107 → 83.
 - Next candidate: port the web's final wrist/arm rules (wrist bends at carpal pivot, forearm
   holds while wrist bends, roll limit ±110° from thumb-up).
+
+## v0.26 (2026-11-02, native 5a34198) — side kept through palm/back flips
+
+User: "fingers get smashed every time I turn the palm over". nat1: MediaPipe labels the right
+hand 'left' exactly at the flips (frames 10, 26–28 of 108); native posed it as the other,
+mirrored instance (a second arm pops in, fingers inside out). main.js `keepSides` (before the
+hand loop, so live + GLB export replay): a lone hand whose label's track is not near/recent,
+where the other label was seen < 400 ms ago within 0.25 picture units (x/z, y/z), takes the
+old label. `HMS_NOSTICKY` = off. Picture: project files native/v0.26-flip-side-fix.png.
+Not handled: two hands both swapping; RawFbx (position FBX) still uses raw labels.
