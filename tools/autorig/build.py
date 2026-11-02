@@ -1,12 +1,12 @@
 import sys; sys.path.insert(0,'.')
 from load import load
 import numpy as np, json, struct
-SRC='/mnt/user-data/uploads/hearth/0626626e-e15e-49af-8a6f-7892f59e5c15/0626626e-e15e-49af-8a6f-7892f59e5c15.glb'
+SRC=sys.argv[3]
 SIDE=sys.argv[1] if len(sys.argv)>1 else 'Left'
 OUT=sys.argv[2] if len(sys.argv)>2 else 'gauntlet_rigged.glb'
 j,b,V,F=load(SRC); V=V.astype(float)
 l=struct.unpack('<I',b[12:16])[0]; binlen=struct.unpack('<I',b[20+l:24+l])[0]; bin_=bytearray(b[20+l+8:20+l+8+binlen])
-J=np.load('J.npy',allow_pickle=True).item()
+J=np.load(sys.argv[4] if len(sys.argv)>4 else 'J.npy',allow_pickle=True).item()
 order=['Arm','ForeArm','Hand']+[f'Thumb{i}' for i in range(1,5)]+[f'{f}{i}' for f in ['Index','Middle','Ring','Pinky'] for i in range(1,5)]
 parent={'Arm':None,'ForeArm':'Arm','Hand':'ForeArm'}
 for f in ['Thumb','Index','Middle','Ring','Pinky']:
