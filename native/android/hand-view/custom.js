@@ -34,6 +34,19 @@ function sideOf(name) {
   return null;
 }
 
+// The skeleton: real bones when the file has them (an FBX can also carry plain
+// nodes of the same names), else named plain nodes.
+function boneList(root) {
+  const bones = []; const named = [];
+  root.traverse((o) => {
+    // A bone with its parent's name (some FBX files nest a zero-length copy) is not a joint of its own.
+    if (o.parent && o.parent.name === o.name) return;
+    if (o.isBone) bones.push(o);
+    else if (o.type === 'Object3D' && /hand|thumb|index|middle|ring|pinky|finger/i.test(o.name)) named.push(o);
+  });
+  return bones.length ? bones : named;
+}
+
 function depth(o) { let d = 0; while (o.parent) { d++; o = o.parent; } return d; }
 function ancestors(o) { const a = []; while (o) { a.push(o); o = o.parent; } return a; }
 function commonAncestor(list) {
@@ -72,8 +85,7 @@ export class CustomHand {
   constructor(root, name) {
     this.name = name;
     this.template = root;
-    const bones = [];
-    root.traverse((o) => { if (o.isBone || (o.type === 'Object3D' && /hand|thumb|index|middle|ring|pinky|finger/i.test(o.name))) bones.push(o); });
+    const bones = boneList(root);
     const sides = new Set(bones.map((b) => sideOf(b.name)).filter(Boolean));
     this.found = {};
     for (const side of ['left', 'right']) if (sides.has(side)) this.found[side] = findHand(bones, side) && side;
@@ -105,9 +117,7 @@ export class CustomHand {
     const root = new THREE.Group();
     outer.add(root); root.add(model);
     root.updateMatrixWorld(true);
-    const bones = [];
-    model.traverse((o) => { if (o.isBone || (o.type === 'Object3D' && /hand|thumb|index|middle|ring|pinky|finger/i.test(o.name))) bones.push(o); });
-    const h = findHand(bones, modelSide);
+    const h = findHand(boneList(model), modelSide);
     // Rest (as loaded): local turns, and world points for the palm frame.
     const restLocal = new Map();
     model.traverse((o) => restLocal.set(o, o.quaternion.clone()));
