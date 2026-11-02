@@ -312,7 +312,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         buttons.addView(recordButton); buttons.addView(saveButton); buttons.addView(fbxButton)
-        opts.addView(backendButton)
+        // Game build: one fixed hand (built-in model), backend chosen automatically.
         handsButton = Button(this).apply {
             text = "현재 두 손 · 한 손 비교로 전환"; isEnabled = false
             setOnClickListener {
@@ -350,7 +350,6 @@ class MainActivity : ComponentActivity() {
                 } else openModel.launch(arrayOf("*/*"))
             }
         }
-        opts.addView(modelButton)
         sideButton = Button(this).apply {
             visibility = android.view.View.GONE
             setOnClickListener {
@@ -360,15 +359,12 @@ class MainActivity : ComponentActivity() {
                 handView.modelHand(choice) { note -> if (note.isNotEmpty()) modelInfo.text = modelInfo.text.lines().first() + "\n" + note }
             }
         }
-        opts.addView(sideButton)
         modelInfo = TextView(this).apply { textSize = 12f }
         opts.addView(modelInfo)
         bakeButton = Button(this).apply {
             text = "이 모델을 내 손 비율로 고쳐 저장 (GLB)"; visibility = android.view.View.GONE
             setOnClickListener { bakeModel() }
         }
-        opts.addView(bakeButton)
-        opts.addView(TextView(this).apply { text = "↑ 손을 카메라에 몇 초 보여준 뒤 누르기. 모델 뼈 길이·손가락 뿌리를 내 손(MediaPipe)으로 바꾼 새 모델 → 이걸 다시 불러오고 게임에도 쓰면 화면 = 게임"; textSize = 11f })
         modelPanel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = android.view.View.GONE }
         calButton = Button(this).apply {
             text = "편 손 보정"; visibility = android.view.View.GONE
@@ -417,8 +413,7 @@ class MainActivity : ComponentActivity() {
                 text = if (fitOn) "화면: 내 손에 스킨 씌우기 (모델 뼈를 내 손에 맞춤)" else "화면: 모델 비율 그대로 (회전만)"
             }
         }
-        opts.addView(fitButton)
-        opts.addView(TextView(this).apply { text = "저장 (측정 중지 후) · GLB는 불러온 모델 뼈 길이 + 회전만 (내 손 비율 모델을 불러왔으면 화면과 같음)"; textSize = 12f })
+        opts.addView(TextView(this).apply { text = "저장 (측정 중지 후) · GLB = 건틀렛+쿠크리 손 뼈 회전 애니메이션 (화면과 같음)"; textSize = 12f })
         opts.addView(glbButton); opts.addView(saves)
         val optsButton = Button(this).apply { text = "옵션" }
         buttons.addView(calButton); buttons.addView(optsButton)
@@ -428,7 +423,7 @@ class MainActivity : ComponentActivity() {
         optsButton.setOnClickListener { mainCol.visibility = android.view.View.GONE; optsScroll.visibility = android.view.View.VISIBLE; updateModelButtons() }
         back.setOnClickListener { optsScroll.visibility = android.view.View.GONE; mainCol.visibility = android.view.View.VISIBLE }
         val note = TextView(this).apply {
-            text = "측정 중지 → FBX 저장 (원본 손 관절, 팔 없음) · 기록 JSON에 몸 33점 포함\n화면 손: MediaPipe 리깅 점 그대로 · 손 모델을 불러오면 그 스킨이 덮임: 뼈 길이는 모델 그대로, MediaPipe 3D 방향으로 뼈만 회전 · 몸: MediaPipe Pose 선"
+            text = "측정 중지 → FBX 저장 (원본 손 관절, 팔 없음) · 기록 JSON에 몸 33점 포함\n손 모델: 앱에 들어있는 건틀렛 왼팔 + 쿠크리 (오른손은 좌우 반전) · 뼈 길이는 모델 그대로, MediaPipe 3D 방향으로 뼈만 회전 · 몸: MediaPipe Pose 선"
             textSize = 12f
         }
         opts.addView(note)
@@ -436,6 +431,37 @@ class MainActivity : ComponentActivity() {
         root.addView(optsScroll, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
         startModel()
+        loadBuiltInModel()
+    }
+
+    /** The game's fixed hand (gauntlet left arm + kukri), shipped in assets, loaded at start. */
+    private fun loadBuiltInModel(tries: Int = 0) {
+        handView.evaluateJavascript("window.modelBegin ? 'ready' : ''") { st ->
+            if (destroyed) return@evaluateJavascript
+            if (!st.contains("ready")) {
+                if (tries < 100) handView.postDelayed({ loadBuiltInModel(tries + 1) }, 200)
+                return@evaluateJavascript
+            }
+            modelInfo.text = "손 모델 준비 중…"
+            exportWorker.execute {
+                try {
+                    val bytes = assets.open("hand_model.glb").use { it.readBytes() }
+                    runOnUiThread {
+                        if (destroyed) return@runOnUiThread
+                        handView.loadModel("gauntlet_kukri_left.glb", bytes) { result ->
+                            if (result.startsWith("ok:")) {
+                                customModel = true
+                                handView.fitHand(false)
+                                modelPanel.visibility = android.view.View.VISIBLE
+                                calButton.visibility = android.view.View.VISIBLE
+                                updateModelButtons()
+                                modelInfo.text = "손 모델: " + result.removePrefix("ok:")
+                            } else modelInfo.text = "손 모델 열기 실패: " + result.removePrefix("error:")
+                        }
+                    }
+                } catch (e: Exception) { runOnUiThread { modelInfo.text = "손 모델 열기 실패: ${e.message}" } }
+            }
+        }
     }
 
     private fun startModel() {
@@ -677,7 +703,6 @@ class MainActivity : ComponentActivity() {
         modelPanel.visibility = if (has) android.view.View.VISIBLE else android.view.View.GONE
         stillSeek.max = maxOf(0, frames.length() - 1)
         stillButton.isEnabled = has && !glbBusy
-        bakeButton.visibility = if (customModel) android.view.View.VISIBLE else android.view.View.GONE
         bakeButton.isEnabled = customModel && !glbBusy && !recording
     }
 

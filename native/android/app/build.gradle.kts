@@ -6,8 +6,8 @@ android {
         applicationId = "com.yonddu.handmotion.benchmark"
         minSdk = 31
         targetSdk = 35
-        versionCode = 29
-        versionName = "0.27-native-flip-fingers"
+        versionCode = 30
+        versionName = "0.28-native-game-hand"
         ndk { abiFilters += "arm64-v8a" }
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }

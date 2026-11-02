@@ -74,7 +74,7 @@ function calibrateFit(side, w) {
 const calRaw = { left: null, right: null };
 try { for (const side of ['left', 'right']) { const v = localStorage.getItem(`hms.openHand.${side}`); if (v) calRaw[side] = JSON.parse(v); } } catch (e) { /* none kept */ }
 let calWanted = false;
-let fitOn = !window.HMS_NOFIT;
+let fitOn = !!window.HMS_FIT; // game build: the model as modelled (screen = saved GLB)
 window.fitHand = (on) => {
   fitOn = !!on;
   // Rebuild the shown models (a fitted one keeps its stretched skin).
