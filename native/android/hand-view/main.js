@@ -431,4 +431,9 @@ window.setHands = function setHands(data) {
   return 'ok';
 };
 
-window.addEventListener('resize', () => { last = null; });
+// 16:9 check (game screen): the largest 16:9 box in the window; the camera keeps the recorded
+// vertical view (the whole recorded height shows, the sides show more).
+let wide = false;
+const wideLayout = () => { layout(16, 9); camera.aspect = 16 / 9; camera.updateProjectionMatrix(); renderer.setClearColor(0x3a3f47, 1); };
+window.wideView = (on) => { wide = !!on; if (wide) wideLayout(); else { last = null; renderer.setClearColor(0x000000, 0); } return 'ok'; };
+window.addEventListener('resize', () => { last = null; if (wide) wideLayout(); });

@@ -79,6 +79,12 @@ class MainActivity : ComponentActivity() {
     private lateinit var guideMain: Button
     private lateinit var guideAlt: Button
     private var guideRig: () -> Unit = {}
+    // 16:9 landscape check (user: the final skinned view must be checked as the game's 16:9 screen)
+    private lateinit var rootCol: LinearLayout
+    private lateinit var mainColV: LinearLayout
+    private lateinit var stageV: FrameLayout
+    private var wideExit: Button? = null
+    private var wideHidden: List<Pair<android.view.View, Int>> = emptyList()
     private lateinit var sideButton: Button
     private lateinit var modelPanel: LinearLayout
     private lateinit var calButton: Button
@@ -279,10 +285,11 @@ class MainActivity : ComponentActivity() {
         }
         stage.addView(busyLabel, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
         mainCol.addView(stage, LinearLayout.LayoutParams(-1, 0, 1f))
+        rootCol = root; mainColV = mainCol; stageV = stage
         status = TextView(this).apply { text = "손 검출 모델 준비 중…"; textSize = 11f }
         mainCol.addView(status)
         stepBar = LinearLayout(this).apply { gravity = Gravity.CENTER }
-        listOf("스킨", "리깅", "편 손", "측정", "저장").forEachIndexed { i, name ->
+        listOf("스킨", "리깅", "편 손", "측정", "재생", "가로", "저장").forEachIndexed { i, name ->
             stepBar.addView(TextView(this).apply {
                 text = "${i + 1} $name"; textSize = 13f; gravity = Gravity.CENTER; setPadding(8, 14, 8, 14)
                 setOnClickListener { goStep(i + 1) }
@@ -565,7 +572,7 @@ class MainActivity : ComponentActivity() {
     private fun showStep() {
         for (i in 0 until stepBar.childCount) {
             val v = stepBar.getChildAt(i) as TextView; val n = i + 1
-            v.text = (if (n in doneSteps) "✓ " else "${n} ") + listOf("스킨", "리깅", "편 손", "측정", "저장")[i]
+            v.text = (if (n in doneSteps) "✓ " else "${n} ") + listOf("스킨", "리깅", "편 손", "측정", "재생", "가로", "저장")[i]
             v.setTextColor(if (n == step) android.graphics.Color.WHITE else if (n in doneSteps) android.graphics.Color.rgb(120, 200, 140) else android.graphics.Color.GRAY)
             v.setBackgroundColor(if (n == step) android.graphics.Color.rgb(40, 90, 170) else android.graphics.Color.TRANSPARENT)
         }
@@ -577,7 +584,9 @@ class MainActivity : ComponentActivity() {
                  else Triple("2단계: 먼저 1단계에서 모델을 불러오세요.", "1단계로", "건너뛰기")
             3 -> if (!customModel) Triple("3단계: 모델이 없으면 필요 없어요.", "다음 단계", "건너뛰기") else Triple("3단계: 손을 쫙 펴서 카메라에 보여준 채로 누르세요. 모델의 기본 자세가 내 편 손에 맞춰져요.", "편 손 보정", "건너뛰기")
             4 -> Triple(if (recording) "4단계: 측정 중이에요. 동작이 끝나면 중지를 누르세요." else "4단계: 손이 화면에 다 들어오게 하고 측정을 시작하세요.", if (recording) "측정 중지" else "측정 시작", "옵션")
-            else -> Triple("5단계: 보정된 동작을 재생해 확인하고 저장하세요. FBX = 내 손 21관절 · 모델 애니메이션(GLB)·기록은 옵션에서 저장. 다시 찍으려면 4 측정을 누르세요.", "보정 재생", "FBX 저장")
+            5 -> Triple("5단계: 보정된 동작을 재생해 확인하세요. 다시 찍으려면 4 측정을 누르세요.", "보정 재생", "다음 단계")
+            6 -> Triple("6단계: 휴대폰을 가로로 돌려 게임 화면(16:9)에서 스킨이 어떻게 보이는지 확인하세요.", "가로 16:9로 보기", "다음 단계")
+            else -> Triple("7단계: 저장하세요. FBX = 내 손 21관절 · 모델 애니메이션(GLB)·기록은 옵션에서 저장.", "FBX 저장", "옵션")
         }
         guideText.text = text; guideMain.text = main; guideAlt.text = alt
     }
@@ -600,10 +609,45 @@ class MainActivity : ComponentActivity() {
             }
             3 -> if (main && customModel) press(calButton) else goStep(4)
             4 -> if (main) press(recordButton) else optsOpen()
-            else -> if (main) press(reviewButton) else press(fbxButton)
+            5 -> if (main) { press(reviewButton); if (reviewButton.isEnabled) doneSteps.add(5); showStep() } else goStep(6, 5)
+            6 -> if (main) wideView(true) else goStep(7, 6)
+            else -> if (main) press(fbxButton) else optsOpen()
         }
     }
     private var optsOpen: () -> Unit = {}
+
+    /** Landscape 16:9 check: only the skin view (letterboxed to exactly 16:9), the corrected take playing. */
+    private fun wideView(on: Boolean) {
+        if (on) {
+            if (recording || analysing) { Toast.makeText(this, "측정·분석이 끝난 뒤 볼 수 있어요", Toast.LENGTH_SHORT).show(); return }
+            if (!customModel) { Toast.makeText(this, "스킨(모델)이 있어야 볼 수 있어요", Toast.LENGTH_SHORT).show(); return }
+            if (frames.length() == 0) { Toast.makeText(this, "먼저 측정하세요", Toast.LENGTH_SHORT).show(); return }
+            val keep = setOf<android.view.View>(mainColV, stageV, handView)
+            val all = mutableListOf<android.view.View>()
+            for (g in listOf(rootCol, mainColV, stageV)) for (i in 0 until g.childCount) all.add(g.getChildAt(i))
+            wideHidden = all.filter { it !in keep }.map { it to it.visibility }
+            wideHidden.forEach { it.first.visibility = android.view.View.GONE }
+            rootCol.setPadding(0, 0, 0, 0)
+            val exit = Button(this).apply { text = "세로로 돌아가기"; alpha = 0.85f; setOnClickListener { wideView(false) } }
+            stageV.addView(exit, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END))
+            wideExit = exit
+            requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            stopPoints(); handView.frozen = true; this.overlay.update(emptyList(), emptyList(), 1, 1)
+            handView.postDelayed({
+                handView.wideView(true)
+                handView.reviewPlay { r -> if (!r.startsWith("ok")) Toast.makeText(this, r.removePrefix("error:"), Toast.LENGTH_LONG).show() }
+            }, 600)
+            doneSteps.add(6)
+        } else {
+            handView.wideView(false); handView.reviewStop()
+            wideExit?.let { stageV.removeView(it) }; wideExit = null
+            wideHidden.forEach { (v, vis) -> v.visibility = vis }; wideHidden = emptyList()
+            rootCol.requestApplyInsets()
+            requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            handView.frozen = false; liveButton.isEnabled = false
+            goStep(7, 6)
+        }
+    }
 
     /**
      * The hand's real side. MediaPipe Tasks' label here already matches the hand on the back

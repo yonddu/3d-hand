@@ -89,6 +89,8 @@ class HandView(context: Context) : WebView(context) {
     /** The corrected, smoothed take played in a loop (what the GLB saves). done gets "ok:<frames>:<s>" or "error:..". */
     fun reviewPlay(done: (String) -> Unit) { evaluateJavascript("window.reviewPlay ? reviewPlay() : 'error:old page'") { done(it.trim('"')) } }
     fun reviewStop() { evaluateJavascript("window.reviewStop && reviewStop()", null) }
+    /** On: the view letterboxed to 16:9 (game screen), same camera height; off: back to the camera picture shape. */
+    fun wideView(on: Boolean) { evaluateJavascript("window.wideView && wideView($on)", null) }
 
     /**
      * The model as GLB: mode "anim" (bone turns over the recorded frames) or "pose" (the
