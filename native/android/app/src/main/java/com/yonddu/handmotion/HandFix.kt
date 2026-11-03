@@ -67,4 +67,46 @@ object HandFix {
         for (j in 1..2) fixJoint(p, THUMB, j, thumbAxis)
         return p
     }
+
+    /**
+     * Whole take (user: fix the flicker using the frames before and after). Per hand, over each run
+     * of frames it is seen in (gaps > 0.3 s split runs): the per-frame fix, then per point a median
+     * over +-2 frames (one-off misreads) and a Gaussian over +-SIGMA s, then the fix again so the
+     * smoothing cannot leave a joint bent back. hv/hf4.py on 4 takes: points moving > 1.5 cm in one
+     * frame 170/833/474/288 (raw) -> 29/77/184/278, back-bent joints 0.
+     */
+    private const val SIGMA = 0.12
+    fun cleanTake(frames: List<RawHandFrame>): List<RawHandFrame> {
+        val out = frames.map { it.hands.toMutableMap() }
+        for (side in listOf("left", "right")) {
+            var i = 0
+            while (i < frames.size) {
+                if (frames[i].hands[side] == null) { i++; continue }
+                var j = i
+                while (j + 1 < frames.size && frames[j + 1].hands[side] != null && frames[j + 1].t - frames[j].t < 0.3) j++
+                val idx = (i..j).toList()
+                val fixed = idx.map { noBackBend(frames[it].hands.getValue(side), side) }
+                val n = fixed.size
+                val med = Array(n) { a -> DoubleArray(63) { c ->
+                    val win = (maxOf(0, a - 2)..minOf(n - 1, a + 2)).map { fixed[it][c] }.sorted()
+                    win[win.size / 2]
+                } }
+                for (a in 0 until n) {
+                    val ta = frames[idx[a]].t
+                    val acc = DoubleArray(63); var wsum = 0.0
+                    for (b in 0 until n) {
+                        val dt = frames[idx[b]].t - ta
+                        if (kotlin.math.abs(dt) > 3 * SIGMA) continue
+                        val w = kotlin.math.exp(-0.5 * (dt / SIGMA) * (dt / SIGMA))
+                        for (c in 0 until 63) acc[c] += w * med[b][c]
+                        wsum += w
+                    }
+                    for (c in 0 until 63) acc[c] /= wsum
+                    out[idx[a]][side] = noBackBend(acc, side)
+                }
+                i = j + 1
+            }
+        }
+        return frames.indices.map { RawHandFrame(frames[it].t, out[it]) }
+    }
 }
