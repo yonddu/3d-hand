@@ -419,3 +419,6 @@ not started. Retarget onto other skins is NOT proven visually (only equal bend n
 
 ## v0.62 (df5295b) — 16:9 game-screen check
 - Guide steps now 1 스킨 2 리깅 3 편 손 4 측정 5 재생 6 가로 7 저장. Step 6: SENSOR_LANDSCAPE (manifest configChanges keeps the activity), only the skin view letterboxed to 16:9 (main.js wideView), corrected take looping. Game camera (main.js gameCam): engine presets Unreal 90 h / Unity 60 v / Blender 39.6 h (50 mm on 36 mm), FOV +-5, hand distance +-0.05 m; mean wrist of the take placed at (0.2 right, 0.17 down, 0.45 ahead). Prefs gameEngine/gameFov/gameZ. Headless renders hv/widetest.cjs. Not phone-verified.
+
+## 2026-11-03 quest.html (Quest teacher step 1)
+- Web repo root quest.html (Pages yonddu.github.io/3d-hand/quest.html): Quest Browser WebXR (immersive-ar passthrough, else vr), hand-tracking required, local-floor. Records <=60 fps: 25 joints [px,py,pz,qx,qy,qz,qw,radius] per hand + head pose + wall clock; pinch marks (thumb-index tip <1.5 cm close, >3 cm open) for phone sync; JSON download on session end (Meta button), format hms-quest-hands-1. Recording list doc https://claude.ai/artifact/X9vEFmKnj3Rur4MtaGiPhr. Not tried on a Quest yet (container cannot reach Pages).
