@@ -205,7 +205,7 @@ class MainActivity : ComponentActivity() {
                         val score = hand.optDouble("score", 0.0)
                         val p = hand.getJSONArray("world")
                         if (side in listOf("left", "right") && p.length() == 63 && score >= (scores[side] ?: -1.0)) {
-                            points[side] = DoubleArray(63) { p.getDouble(it) }; scores[side] = score
+                            points[side] = HandFix.noBackBend(DoubleArray(63) { p.getDouble(it) }, side); scores[side] = score
                         }
                     }
                     RawHandFrame(frame.getDouble("t"), points)
