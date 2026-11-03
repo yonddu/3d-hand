@@ -459,7 +459,35 @@ export class CustomHand {
         const child = list[k + 1] || ch.tip;
         const was = child ? at(child, nextPos).sub(pos) : pos.clone().sub(at(bone.parent, par));
         let target;
-        if (window.HMS_PURE && (window.HMS_PURE === 3 || (window.HMS_PURE === 1) === (k === 0))) target = seen[k + off].clone(); // test: MediaPipe own bone direction (1 = knuckle bone only, 2 = other bones only, 3 = all)
+        if (window.HMS_PURE && (window.HMS_PURE === 3 || (window.HMS_PURE === 1) === (k === 0))) {
+          // 'MediaPipe as is': the bone aimed at MediaPipe's own direction (1 = knuckle bone only,
+          // 2 = other bones only, 3 = all). User rule: fingers never bend toward the back of the hand:
+          // a backward bend is taken as forward (MediaPipe's depth read flipped, PUREBACK 1, default)
+          // or held straight (PUREBACK 2); 0 = no limit.
+          target = seen[k + off].clone();
+          const mode = window.HMS_PUREBACK == null ? 2 : window.HMS_PUREBACK;
+          // user: never quite straight either - a slight bend (MIN_FLEX) keeps which way is front fixed
+          const minF = (window.HMS_MINFLEX == null ? MIN_FLEX_DEG : window.HMS_MINFLEX) * D2R;
+          if (f.key !== 'thumb' && mode) {
+            if (k === 0) {
+              const d = target.clone().applyMatrix3(Fi);
+              const n = ps * d.z; const r = Math.hypot(d.y, n); const a0 = Math.atan2(n, d.y);
+              if (a0 < minF) { const ang = mode === 1 && a0 < 0 ? Math.min(-a0, 100 * D2R) : minF; d.y = r * Math.cos(ang); d.z = ps * r * Math.sin(ang); target = d.applyMatrix3(F3); }
+            } else {
+              const pBone = list[k - 1];
+              const pd = pos.clone().sub(at(pBone, par)).normalize();
+              turnOf(pBone, pq);
+              const axis = inst.restLat.clone().applyQuaternion(inst.restBone.get(pBone).q.clone().invert()).applyQuaternion(pq);
+              axis.addScaledVector(pd, -axis.dot(pd)).normalize();
+              const bnd = bendOf(pd, target.clone().normalize(), axis, ps);
+              if (bnd.flex < minF) {
+                const flex = mode === 1 && bnd.flex < 0 ? Math.min(-bnd.flex, 115 * D2R) : minF;
+                target = pd.clone().applyAxisAngle(axis.clone().multiplyScalar(ps), flex);
+                target.multiplyScalar(Math.cos(bnd.side)).addScaledVector(axis, Math.sin(bnd.side));
+              }
+            }
+          }
+        }
         else if (k === 0) {
           // First bone: the seen direction in the palm frame (calibration turn applied), back
           // in the seen palm; knuckles of the four fingers: straight .. 100 deg toward the palm (never toward the back).
@@ -649,6 +677,7 @@ function bendOf(a, b, lat, palmSign) {
 // The same for MediaPipe's bones, whose knuckle line is often read twisted (depth): a real
 // middle / end joint bends sideways only a little, so all of the bend beyond SIDE_RAD is taken
 // as flex (the bend's size is kept); only a clearly backward bend (past 10 deg) counts as back.
+const MIN_FLEX_DEG = 5; // 'MediaPipe as is' fingers: each joint bent at least this much toward the palm
 function seenBend(a, b, lat, palmSign) {
   const raw = bendOf(a, b, lat, palmSign);
   const total = Math.acos(Math.max(-1, Math.min(1, a.dot(b))));

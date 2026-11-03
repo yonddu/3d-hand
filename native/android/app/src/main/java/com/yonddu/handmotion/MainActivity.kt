@@ -450,7 +450,7 @@ class MainActivity : ComponentActivity() {
         }
         val purePrefs = getSharedPreferences("hms", MODE_PRIVATE)
         var pureOn = purePrefs.getBoolean("pure", false)
-        val pureLabel = { on: Boolean -> if (on) "손가락: MediaPipe 그대로 (방향만 따라감, 가끔 뒤집힘)" else "손가락: 앱 보정 규칙 (덜 튐, 실제 손과 조금 어긋남)" }
+        val pureLabel = { on: Boolean -> if (on) "손가락: MediaPipe 그대로 (손등 쪽 금지, 최소 5° 굽힘)" else "손가락: 앱 보정 규칙 (덜 튐, 실제 손과 조금 어긋남)" }
         val pureButton = Button(this).apply {
             text = pureLabel(pureOn)
             setOnClickListener { pureOn = !pureOn; purePrefs.edit().putBoolean("pure", pureOn).apply(); handView.setPure(pureOn); text = pureLabel(pureOn) }
