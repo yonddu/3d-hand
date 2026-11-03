@@ -567,6 +567,30 @@ export class CustomHand {
       });
     }
     if (!window.HMS_NOTOUCH) this.touch(inst, Wd, palmW > 0.03 && palmW < 0.2 ? palmW : null, s, at, turnOf);
+    // Edge-on hold (user: fingers twist when the hand turns over slowly). Seen edge-on (index and
+    // pinky roots nearly in line with the wrist on the picture) MediaPipe cannot tell palm from
+    // back, and these frames held 25-62 % of all jumps (5-24 % of frames). There the hand keeps its
+    // last turn (palm and every finger joint) and moves only EDGE_K of the way to the new reading.
+    {
+      const pr = (v) => new THREE.Vector2(v.x / -v.z, v.y / -v.z);
+      const a = pr(P[5]).sub(pr(P[0])); const b = pr(P[17]).sub(pr(P[0]));
+      const edge = Math.abs(a.x * b.y - a.y * b.x) / (a.length() * b.length() + 1e-9);
+      const lim = window.HMS_EDGE != null ? +window.HMS_EDGE : EDGE_ON;
+      const pos0 = new THREE.Vector3(); const q0 = new THREE.Quaternion(); const s0 = new THREE.Vector3();
+      if (inst.held && inst.fresh && edge < lim) {
+        const k = window.HMS_EDGEK != null ? +window.HMS_EDGEK : EDGE_K;
+        root.matrix.decompose(pos0, q0, s0);
+        const hp = handRestPos.clone().applyMatrix4(root.matrix); // keep the wrist where it is seen
+        const qn = inst.held.root.clone().slerp(q0, k);
+        root.matrix.compose(new THREE.Vector3(), qn, s0);
+        const moved = handRestPos.clone().applyMatrix4(root.matrix);
+        root.matrix.premultiply(new THREE.Matrix4().makeTranslation(hp.x - moved.x, hp.y - moved.y, hp.z - moved.z));
+        inst.animNodes.forEach((o, i) => { const pq0 = inst.held.nodes[i]; if (pq0) o.quaternion.copy(pq0.clone().slerp(o.quaternion, k)); });
+        outer.updateMatrixWorld(true);
+      }
+      root.matrix.decompose(pos0, q0, s0);
+      inst.held = { root: q0.clone(), nodes: inst.animNodes.map((o) => o.quaternion.clone()) };
+    }
     if (window.HMS_DEBUG) {
       // Picture distance of each model joint to its MediaPipe point, % of the seen palm.
       const pr = (v) => new THREE.Vector2(v.x / -v.z, v.y / -v.z);
@@ -679,7 +703,9 @@ function bendOf(a, b, lat, palmSign) {
 // The same for MediaPipe's bones, whose knuckle line is often read twisted (depth): a real
 // middle / end joint bends sideways only a little, so all of the bend beyond SIDE_RAD is taken
 // as flex (the bend's size is kept); only a clearly backward bend (past 10 deg) counts as back.
-const MIN_FLEX_DEG = 5; // 'MediaPipe as is' fingers: each joint bent at least this much toward the palm
+const MIN_FLEX_DEG = 5;
+const EDGE_ON = 0.25; // picture: |sin| of the angle wrist->index root / wrist->pinky root below this = edge-on
+const EDGE_K = 0.3; // edge-on: share of the way to the new reading per frame // 'MediaPipe as is' fingers: each joint bent at least this much toward the palm
 function seenBend(a, b, lat, palmSign) {
   const raw = bendOf(a, b, lat, palmSign);
   const total = Math.acos(Math.max(-1, Math.min(1, a.dot(b))));
