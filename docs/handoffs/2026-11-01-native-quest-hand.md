@@ -383,3 +383,9 @@ not started. Retarget onto other skins is NOT proven visually (only equal bend n
 ## v0.53 (a54a6aa) — prism removed, edge-on thumb check
 - User removed the palm prism (v0.52 reverted). User idea: right hand thumb is always on one side (joint structure) -> facing is decided. Measured on 67 edge-on frames (4 takes): 2D side of thumb tip vs wrist->middle-root line agrees with MP palm facing 63/67; the 4 disagreements are the frames where the palm turned ~91 deg in one frame (MP flip); fingertip side 58/67. custom.js edge block: disagreement -> EDGE_K 0 for that frame (HMS_NOTHUMBCUE off). Jumps rules 43/152/129/148 -> 43/152/128/148, as-is 99/227/205/220 -> 99/227/200/213. Small because v0.51 hold already damped them.
 - Not done: thumb never bent back + min flex (user asked; thumb flex axis differs from fingers, offered).
+
+## v0.54 (f4c2fd8) — no back bend anywhere, >= 5 deg toward the palm
+- User: thumb never bends back and stays slightly bent; other fingers the same, then test and build.
+- Thumb MCP/IP (both modes): flex about (bone before) x (joint -> middle of model palm: hand, index root, pinky root); palm-normal axis read the fist thumb mostly as 0/-30 (wrong axis), the across-palm axis reads it forward. flex < 5 -> 5; < -BACK_MAX -> mirrored forward (cap 90). Pre-clamp histogram via window.HMS_TFLEX (hv/tflex.cjs).
+- Rules mode: MCP/PIP/DIP min 0 -> MIN_FLEX_DEG 5 (coupled DIP too). As-is mode already had it.
+- Jumps rules 43/152/128/148 -> 39/145/128/145 (err +0..0.7 % palm); as-is 99/227/200/213 -> 98/225/202/212. Options label updated.
