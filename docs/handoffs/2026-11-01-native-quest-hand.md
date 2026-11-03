@@ -389,3 +389,7 @@ not started. Retarget onto other skins is NOT proven visually (only equal bend n
 - Thumb MCP/IP (both modes): flex about (bone before) x (joint -> middle of model palm: hand, index root, pinky root); palm-normal axis read the fist thumb mostly as 0/-30 (wrong axis), the across-palm axis reads it forward. flex < 5 -> 5; < -BACK_MAX -> mirrored forward (cap 90). Pre-clamp histogram via window.HMS_TFLEX (hv/tflex.cjs).
 - Rules mode: MCP/PIP/DIP min 0 -> MIN_FLEX_DEG 5 (coupled DIP too). As-is mode already had it.
 - Jumps rules 43/152/128/148 -> 39/145/128/145 (err +0..0.7 % palm); as-is 99/227/200/213 -> 98/225/202/212. Options label updated.
+
+## v0.55 (19ac74b) — skin proportion option visible again
+- User: hand shape odd, skin vs MediaPipe size. Rotations are copied, so overall size is not the problem; proportions (finger lengths, knuckle/root positions) are. The fitHand button existed but was never added to the layout (and its label claimed on while main.js fitOn defaults off), so fit was always off.
+- Options button '스킨 비율: 내 손에 맞춤 / 모델 그대로' (prefs fit, default off). Fit on (hv/errtest3.cjs FIT=1): err n49_sw/fbx1/nat1/u4 24.2/18.9/32.2/42.9 -> 14.6/5.5/19.2/27.2 % palm; live jumps 39/145/128/145 -> 49/139/143/182. Saved GLB keeps model proportions (screen != GLB with fit on); bakeFitted exists for a fitted model.
