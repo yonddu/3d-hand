@@ -448,6 +448,15 @@ class MainActivity : ComponentActivity() {
                 text = if (fitOn) "화면: 내 손에 스킨 씌우기 (모델 뼈를 내 손에 맞춤)" else "화면: 모델 비율 그대로 (회전만)"
             }
         }
+        val purePrefs = getSharedPreferences("hms", MODE_PRIVATE)
+        var pureOn = purePrefs.getBoolean("pure", false)
+        val pureLabel = { on: Boolean -> if (on) "손가락: MediaPipe 그대로 (방향만 따라감, 가끔 뒤집힘)" else "손가락: 앱 보정 규칙 (덜 튐, 실제 손과 조금 어긋남)" }
+        val pureButton = Button(this).apply {
+            text = pureLabel(pureOn)
+            setOnClickListener { pureOn = !pureOn; purePrefs.edit().putBoolean("pure", pureOn).apply(); handView.setPure(pureOn); text = pureLabel(pureOn) }
+        }
+        handView.postDelayed({ handView.setPure(pureOn) }, 1500)
+        opts.addView(pureButton)
         opts.addView(TextView(this).apply { text = "저장 (측정 중지 후) · GLB = 추가한 스킨의 뼈 회전 애니메이션 (보정 재생과 같음, 스킨이 있을 때만) · FBX = 내 손 21관절"; textSize = 12f })
         opts.addView(glbButton); opts.addView(saves)
         val optsButton = Button(this).apply { text = "옵션" }

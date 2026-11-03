@@ -79,6 +79,7 @@ class HandView(context: Context) : WebView(context) {
     /** On screen: the model's skeleton fitted to the user's hand (skin on the hand) or as modelled. */
     fun setProp(on: Boolean) { evaluateJavascript("window.setProp && setProp($on)", null) }
 
+    fun setPure(on: Boolean) { evaluateJavascript("window.setPure && setPure($on)", null) }
     fun fitHand(on: Boolean) { evaluateJavascript("window.fitHand && fitHand($on)", null) }
     fun clearCalibration() { evaluateJavascript("window.calibrateClear && calibrateClear()", null) }
     fun recBegin(done: () -> Unit) { evaluateJavascript("window.recBegin ? recBegin() : ''") { done() } }

@@ -221,6 +221,10 @@ window.bakeBegin = () => {
   }).catch((e) => { window.exportStatus = `error:${e && e.message ? e.message : e}`; });
   return 'working';
 };
+// Fingers 'MediaPipe as is': every finger bone aimed straight at MediaPipe's own bone direction (no app rules:
+// knuckle range, end joint following the middle one, side limit, thumb cone). Closer to the picture, more flips.
+window.setPure = (on) => { window.HMS_PURE = on ? 3 : 0; try { localStorage.setItem('hms.pure', on ? '1' : '0'); } catch (e) { /* ignore */ } return 'ok'; };
+try { if (localStorage.getItem('hms.pure') === '1') window.HMS_PURE = 3; } catch (e) { /* ignore */ }
 // Weapon / prop (game build: 'Kukri' under the hand bone): shown or not, on screen and in saved GLBs.
 window.propOn = true;
 window.setProp = (on) => {

@@ -459,7 +459,8 @@ export class CustomHand {
         const child = list[k + 1] || ch.tip;
         const was = child ? at(child, nextPos).sub(pos) : pos.clone().sub(at(bone.parent, par));
         let target;
-        if (k === 0) {
+        if (window.HMS_PURE && (window.HMS_PURE === 3 || (window.HMS_PURE === 1) === (k === 0))) target = seen[k + off].clone(); // test: MediaPipe own bone direction (1 = knuckle bone only, 2 = other bones only, 3 = all)
+        else if (k === 0) {
           // First bone: the seen direction in the palm frame (calibration turn applied), back
           // in the seen palm; knuckles of the four fingers: straight .. 100 deg toward the palm (never toward the back).
           const d = seen[off].clone().applyMatrix3(Fi);
@@ -480,7 +481,8 @@ export class CustomHand {
           let flex = a.flex + (o ? o.flex : 0);
           let side = a.side + (o ? o.side : 0);
           flex = Math.min(115 * D2R, Math.max(0, flex));
-          side = Math.min(SIDE_RAD, Math.max(-SIDE_RAD, side));
+          const sideLim = window.HMS_SIDE != null ? window.HMS_SIDE * D2R : SIDE_RAD;
+          side = Math.min(sideLim, Math.max(-sideLim, side));
           // End joint moves with the middle one (one tendon drives both): about 2/3 of its bend,
           // straight in line; MediaPipe's own end-joint reading is mostly depth noise.
           if (k === 2 && off === 0 && !window.HMS_NOCOUPLE) {
