@@ -314,3 +314,9 @@ not started. Retarget onto other skins is NOT proven visually (only equal bend n
   the person's offset (claps meet halfway). HMS_NOCONTACT. Clock = frame t (reset on time jump).
 - Synthetic (hv/body3.cjs): foot drift Vanguard 5.3 -> 0 %, VRM 10.0 -> 0 % torso; clap gap error
   0.159 -> 0 / 0.026 -> 0. No real body take yet.
+
+## v0.40 (54378a9) — rig screen guide
+- User asked: tell people to put rig points on JOINTS (fold lines), not mid-segment; name + position per point; MediaPipe colour/name example beside the model.
+- rig.js: POINTS now [ko, en, where]; header says "관절(접히는 곳), 손가락 두께 한가운데"; colour legend per finger (wrist white, thumb red, index orange, middle green, ring blue, pinky purple — same as the 3D markers).
+- Guide panel (top right, under header): 2D MediaPipe palm-view hand with all 21 numbered dots (filled = placed, ring = current; mirrored for "모델: 오른손") + names of the current finger's 4 points. Bottom label shows "위치: ..." text.
+- hand.html 752,526 bytes (+~5 KB). Screenshot native/v0.40-rig-guide.png. Not phone-verified.
