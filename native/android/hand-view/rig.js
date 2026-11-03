@@ -56,13 +56,14 @@ function guideSvg(cur, side, placed) {
     const [x, y] = P(i); const on = i === cur;
     const c = hex(colorOf(i));
     g += `<circle cx="${x}" cy="${y}" r="${on ? 7 : 4.5}" fill="${placed[i] ? c : '#222'}" stroke="${on ? '#fff' : c}" stroke-width="${on ? 2.5 : 1.5}"/>`;
-    g += `<text x="${x + 6}" y="${y - 5}" fill="${on ? '#fff' : '#bbb'}" font-size="${on ? 12 : 9}">${i}</text>`;
+    g += `<circle data-i="${i}" cx="${x}" cy="${y}" r="11" fill="transparent"/>`;
+    g += `<text pointer-events="none" x="${x + 6}" y="${y - 5}" fill="${on ? '#fff' : '#bbb'}" font-size="${on ? 12 : 9}">${i}</text>`;
   }
   g += `<text x="4" y="${H - 4}" fill="#aaa" font-size="8">MediaPipe 예시 (손바닥) · 채움=놓음</text></svg>`;
   // names of the current finger's points (wrist + its 4), same colours as the dots
   const f = cur === 0 ? -1 : Math.floor((cur - 1) / 4);
   const ids = f < 0 ? [0, 1, 5, 9, 13, 17] : [1, 2, 3, 4].map((k) => f * 4 + k);
-  const names = ids.map((i) => `<div style="color:${hex(colorOf(i))};${i === cur ? 'font-weight:bold;font-size:13px' : 'opacity:.85'}">● ${i} ${POINTS[i][0]} <span style="opacity:.6">${POINTS[i][1]}</span></div>`).join('');
+  const names = ids.map((i) => `<div data-i="${i}" style="padding:2px 0;"color:${hex(colorOf(i))};${i === cur ? 'font-weight:bold;font-size:13px' : 'opacity:.85'}">● ${i} ${POINTS[i][0]} <span style="opacity:.6">${POINTS[i][1]}</span></div>`).join('');
   return `<div style="background:rgba(0,0,0,.55);border-radius:8px;padding:4px;font:11px sans-serif;color:#fff">${g}${names}</div>`;
 }
 
@@ -220,11 +221,13 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
   const ui = document.createElement('div');
   Object.assign(ui.style, { position: 'absolute', left: '0', right: '0', bottom: '0', padding: '8px', background: 'rgba(0,0,0,.6)', color: '#fff', font: '15px sans-serif', zIndex: 5 });
   const head = document.createElement('div'); Object.assign(head.style, { position: 'absolute', left: '0', right: '0', top: '0', padding: '8px', background: 'rgba(0,0,0,.6)', color: '#fff', font: '13px sans-serif', zIndex: 5 });
-  head.innerHTML = '<b>점은 마디 중간이 아니라 관절(접히는 곳)에, 겉면이 아니라 손가락 두께 한가운데에 놓으세요.</b><br>' + '모델을 탭해서 점 놓기 · 화살표를 꾹 눌러 끌면 그 축으로 이동 · 빈 곳을 끌면 회전 · 두 손가락 벌리기=확대, 같이 밀기=화면 이동 · 화살표는 손가락보다 천천히(0.3배) 움직여요 · 놓은 점을 탭하면 그 점 고치기' + '<br>색: ' + FINGER_KO.map((n, k) => `<span style="color:${hex(COLORS[k])}">●</span>${n}`).join(' ');
+  head.innerHTML = '<b>점은 마디 중간이 아니라 관절(접히는 곳)에, 겉면이 아니라 손가락 두께 한가운데에 놓으세요.</b><br>' + '모델을 탭해서 점 놓기 · 화살표를 꾹 눌러 끌면 그 축으로 이동 · 빈 곳을 끌면 회전 · 두 손가락 벌리기=확대, 같이 밀기=화면 이동 · 화살표는 손가락보다 천천히(0.3배) 움직여요 · 놓은 점을 탭하면 그 점 고치기 · <b>오른쪽 예시에서 점을 눌러 찍을 점 고르기(순서 상관없음)</b>' + '<br>색: ' + FINGER_KO.map((n, k) => `<span style="color:${hex(COLORS[k])}">●</span>${n}`).join(' ');
   const label = document.createElement('div'); label.style.marginBottom = '6px';
   const row = document.createElement('div'); Object.assign(row.style, { display: 'flex', flexWrap: 'wrap', gap: '6px' });
   const btn = (t, f) => { const b = document.createElement('button'); b.textContent = t; Object.assign(b.style, { font: '15px sans-serif', padding: '8px 10px' }); b.onclick = f; row.appendChild(b); return b; };
-  const guide = document.createElement('div'); Object.assign(guide.style, { position: 'absolute', right: '6px', top: '96px', zIndex: 5, pointerEvents: 'none' });
+  const guide = document.createElement('div'); Object.assign(guide.style, { position: 'absolute', right: '6px', top: '96px', zIndex: 5 });
+  // tap a dot (or a name) in the example to choose which point to place/fix next: any order
+  guide.addEventListener('pointerdown', (e) => { e.stopPropagation(); const t = e.target.closest('[data-i]'); if (t) select(+t.dataset.i); });
   ui.appendChild(label); ui.appendChild(row);
   document.body.appendChild(guide);
   document.body.appendChild(ui); document.body.appendChild(head);
@@ -259,7 +262,7 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
     cur = i; frameHand(); redraw();
     const [ko, en, where] = POINTS[i];
     guide.innerHTML = guideSvg(i, side0, pts); guide.style.top = (head.offsetHeight + 6) + 'px';
-    label.innerHTML = `<div><span style="color:${hex(colorOf(i))};font-size:20px">●</span> <b>점 ${i}: ${ko}</b> <span style="opacity:.7">${en}</span>${pts[i] ? ' · 놓임 (화살표로 조정)' : ' · 모델을 탭하세요'}<br><span style="font-size:13px;opacity:.9">위치: ${where}</span></div>`;
+    label.innerHTML = `<div><span style="color:${hex(colorOf(i))};font-size:20px">●</span> <b>점 ${i}: ${ko}</b> <span style="opacity:.7">${en}</span>${pts[i] ? ' · 놓임 (화살표로 조정, 다시 탭하면 옮김)' : ' · 모델을 탭하세요'}<br><span style="font-size:13px;opacity:.9">위치: ${where}</span></div>`;
     if (pts[i] && dots[i]) tc.attach(dots[i]); else tc.detach();
   }
   // Arrow drags move the point at FINE x the finger (the plain gizmo felt far too fast on a zoomed-in hand),
@@ -326,9 +329,7 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
     for (const h of hits.slice(1)) if (h.distance - hits[0].distance > size * 0.002) { b = h.point; break; }
     const w = b ? a.clone().add(b).multiplyScalar(0.5) : a.clone().addScaledVector(ray.ray.direction, size * 0.01);
     pts[cur] = model.worldToLocal(w.clone());
-    const next = pts.findIndex((p, i) => !p && i > cur);
-    const anyEmpty = pts.findIndex((p) => !p);
-    select(next >= 0 ? next : anyEmpty >= 0 ? anyEmpty : cur);
+    select(cur);
   }
 
   let raf = 0;
