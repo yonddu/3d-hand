@@ -325,3 +325,6 @@ not started. Retarget onto other skins is NOT proven visually (only equal bend n
 - User: XYZ arrows too fast; fixed model centre makes it hard; asked for two-finger move = move view.
 - Cause of speed: the camera chased the dragged point every frame, so drags ran away (60 px finger -> point moved 0.313 model units, ~3.7x the finger).
 - Now: arrow drag = 0.3x finger (FINE in rig.js; 60 px -> 0.025, 17.7 px on screen), camera target frozen while tc.dragging; two fingers moving together pan 1:1 in screen plane (pinch still zooms); '화면 가운데로' button resets pan. Test: scratchpad hv/dragtest.cjs (mouse drag; synthetic touch events break TransformControls pointer capture).
+
+## v0.42 — rig screen: pick points in any order
+- User: choose which point to place, not 0..20 in order. Tapping a dot or a name in the MediaPipe example panel selects that point; placing no longer auto-advances (the point stays selected; tapping the model again moves it). Test: scratchpad hv/picktest.cjs (12/4/17 picked, stays on 17 after placing).
