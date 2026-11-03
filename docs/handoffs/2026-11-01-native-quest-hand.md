@@ -401,3 +401,8 @@ not started. Retarget onto other skins is NOT proven visually (only equal bend n
 ## v0.57 (2740739) — FBX whole-take clean
 - User asked for the before/after-frames fix. Median of joint flex over time did NOT lower point jumps (hv/handfix2.py, R 1-3); smoothing positions relative to the wrist was worse (MP world origin is the hand centre, wrist jitters).
 - HandFix.cleanTake: per hand run (gap > 0.3 s splits): per-frame noBackBend -> per-point median +-2 frames -> Gaussian sigma 0.12 s (absolute world points) -> noBackBend again. hv/hf4.py: moves > 1.5 cm/frame raw 170/833/474/288 -> 29/77/184/278, back 0, mean shift 0.5-1.0 cm. Applied in startModel before RawFbx.encode.
+
+## v0.58 (592a51f) — rig point check + first-use step guide
+- User GLB (gauntlet2 mesh) had collapsed rig points (finger segments 0.01-0.27 palm, 85 % verts on the wrist bone). Tap placement already used the mid-thickness (ray entry/exit midpoint), so bad points come from arrow drags / one-view picks.
+- rig.js: 완료 first runs checkHand (segment < 0.12 palm, pairs < 0.06 palm, point outside the mesh by 6-ray parity unless a surface is within 0.1 palm); shows a red list, button becomes "그래도 완료" (second press finishes); moving a point resets. window.lastRigCheck for tests. Test hv/rigcheck.cjs: good g1 points 0 warnings; collapsed points 14 (13 short + 1 outside), second press closes.
+- MainActivity: step bar (1 스킨, 2 리깅, 3 편 손, 4 측정, 5 저장) + guide text + main/alt button under the status; steps advance on model load (ok -> 3, no bones -> 2), rig done, calibration, record stop; any step tappable. Old buttons and options unchanged. Not phone-verified.
