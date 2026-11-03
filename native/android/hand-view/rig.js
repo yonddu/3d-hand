@@ -77,8 +77,65 @@ function bonesOf(root) {
   return b;
 }
 
+// Points (root space) -> bone map using the bone TREE: the hand bone is a branching bone near the
+// wrist point, each finger takes one branch under it, and its 3 points match 3 bones in a row on
+// that branch (best fit over all finger-to-branch choices). Plain nearest-bone matching put the
+// wrist on the thumb root and swapped fingers once the points were ~20 % of a bone off (v0.45).
+function mapByTree(root, pts, side) {
+  root.updateMatrixWorld(true);
+  const nodes = nodesOf(root); const idx = new Map(nodes.map((o, i) => [o, i]));
+  const rootInv = root.matrixWorld.clone().invert();
+  const at = (b) => b.getWorldPosition(new THREE.Vector3()).applyMatrix4(rootInv);
+  const isB = (o) => o.isBone && !(o.parent && o.parent.name === o.name);
+  const kidsOf = (o) => o.children.filter(isB);
+  const size = (o) => { let n = 0; o.traverse((c) => { if (isB(c)) n++; }); return n; };
+  // a branch = the path down from a child bone, always into its biggest sub-tree
+  const chainFrom = (o) => { const c = [o]; let k = kidsOf(o); while (k.length) { k.sort((a, b) => size(b) - size(a)); c.push(k[0]); k = kidsOf(k[0]); } return c; };
+  const palm = pts[0].distanceTo(pts[9]) || 1;
+  const bones = bonesOf(root);
+  // hand candidates: bones with >= 5 bone branches within 2 levels (metacarpal bones in between are fine)
+  const branchesOf = (h) => { const out = []; for (const k of kidsOf(h)) { const kk = kidsOf(k); if (kk.length >= 2 && size(k) >= 6) kk.forEach((x) => out.push(x)); else out.push(k); } return out; };
+  let best = null;
+  for (const h of bones) {
+    const br = branchesOf(h).filter((b) => size(b) >= 2);
+    if (br.length < 5 || br.length > 9) continue;
+    const dh = at(h).distanceTo(pts[0]); if (dh > 1.2 * palm) continue;
+    const chains = br.map(chainFrom).map((c) => ({ c, p: c.map(at) }));
+    // cost of finger f on branch j: best 3 bones in a row against its 3 points
+    const fit = FINGER_KEYS.map((key) => chains.map((ch) => {
+      const m = MP[key]; let bc = Infinity; let bo = 0;
+      for (let o = 0; o + 3 <= ch.c.length; o++) { let c = 0.15 * palm * o; for (let k = 0; k < 3; k++) c += ch.p[o + k].distanceTo(pts[m[k]]); if (c < bc) { bc = c; bo = o; } } // a slight pull to the branch's first bone: points half a bone off pick the start, a real metacarpal is a whole bone off
+      return { c: bc, o: bo };
+    }));
+    // all ways to give the 5 fingers different branches
+    let bestPerm = null; let bestCost = Infinity;
+    const used = new Array(chains.length).fill(false); const perm = [];
+    const go = (f, cost) => {
+      if (cost >= bestCost) return;
+      if (f === 5) { bestCost = cost; bestPerm = perm.slice(); return; }
+      for (let j = 0; j < chains.length; j++) if (!used[j] && fit[f][j].c < Infinity) { used[j] = true; perm.push(j); go(f + 1, cost + fit[f][j].c); perm.pop(); used[j] = false; }
+    };
+    go(0, 0);
+    if (!bestPerm) continue;
+    const total = bestCost + dh;
+    if (!best || total < best.total) best = { total, h, chains, fit, perm: bestPerm };
+  }
+  if (!best) return null;
+  const chains = {}; const far = [];
+  FINGER_KEYS.forEach((key, f) => {
+    const j = best.perm[f]; const { c, p } = best.chains[j]; const o = best.fit[f][j].o; const m = MP[key];
+    const tip = c[o + 3] && p[o + 3].distanceTo(pts[m[3]]) < 0.25 * palm ? idx.get(c[o + 3]) : null;
+    chains[key] = { bones: [0, 1, 2].map((k) => idx.get(c[o + k])), tip };
+    [0, 1, 2].forEach((k) => { if (p[o + k].distanceTo(pts[m[k]]) > 0.3 * palm) far.push(POINTS[m[k]][0]); });
+  });
+  if (at(best.h).distanceTo(pts[0]) > 0.3 * palm) far.unshift(POINTS[0][0]);
+  return { side, hand: idx.get(best.h), chains, far, by: 'tree' };
+}
+
 // Points (root space) -> bone map for a model with bones: { side, hand, chains: {key: {bones, tip}} } as node indices.
 function mapToBones(root, pts, side) {
+  const tree = mapByTree(root, pts, side);
+  if (tree) return tree;
   root.updateMatrixWorld(true);
   const nodes = nodesOf(root); const idx = new Map(nodes.map((o, i) => [o, i]));
   const bones = bonesOf(root);
@@ -347,6 +404,7 @@ export function applyRig(root, rig) {
   const hasBones = bonesOf(root).length >= 16;
   if (hasBones) {
     const map = mapToBones(root, pts, rig.side);
+    if (typeof window !== 'undefined') { const nd = nodesOf(root); window.lastHandRig = { hand: nd[map.hand].name, ...Object.fromEntries(Object.entries(map.chains).map(([k, c]) => [k, c.bones.map((i) => nd[i].name).concat(c.tip != null ? ['tip:' + nd[c.tip].name] : [])])) }; }
     return { map, note: `리깅: 점 21개 → 기존 뼈에 연결${map.far.length ? ` (멀리 떨어진 점: ${map.far.join(', ')})` : ''}` };
   }
   const b = buildSkeleton(root, pts, rig.side);
