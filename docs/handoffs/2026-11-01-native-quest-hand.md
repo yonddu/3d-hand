@@ -328,3 +328,6 @@ not started. Retarget onto other skins is NOT proven visually (only equal bend n
 
 ## v0.42 — rig screen: pick points in any order
 - User: choose which point to place, not 0..20 in order. Tapping a dot or a name in the MediaPipe example panel selects that point; placing no longer auto-advances (the point stays selected; tapping the model again moves it). Test: scratchpad hv/picktest.cjs (12/4/17 picked, stays on 17 after placing).
+
+## v0.43 — rig screen: steady view
+- User: the view keeps shifting when placing points. Removed the camera chase of the selected point and the auto-zoom (frameHand is a no-op). Only turn / two-finger pan / pinch move the view. Test hv/viewtest.cjs: placed point drift over 4 more taps 61 px -> 0 px.
