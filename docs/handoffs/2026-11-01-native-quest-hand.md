@@ -346,3 +346,10 @@ not started. Retarget onto other skins is NOT proven visually (only equal bend n
 - User phone screenshots (gauntlet, v0.45): rigged glove fingers did not follow. Reproduced: greedy nearest-bone mapping breaks at ~20 % bone-length point error (wrist -> Thumb1, fingers swapped; 6-10/16 wrong).
 - rig.js mapByTree: hand = bone with 5-9 branches (within 2 levels) near point 0; branch = path into biggest subtree; each finger's MCP/PIP/DIP vs 3 consecutive branch bones (+0.15 palm per offset), best finger->branch permutation. Greedy = fallback. window.lastHandRig shows the mapping (debug).
 - Tests (hv/perturb.py, maptest.cjs, mapeval.sh): 0/16 wrong for noise 0.2/0.35 and mid-bone 0.5 on 3 models; noisy-point export 33.5 deg mean error -> 0.01. Exact points byte-identical.
+
+## v0.47 (747bca5) — 'MediaPipe as is' finger option + measured trade-off
+- User GLB (hand-anim-1793715474637.glb: in-app built 21 bones, skin follows bones) "fingers do their own thing, not aligned"; asked how other games apply MediaPipe.
+- New metric (hv/errtest.cjs, HMS_DEBUG inst.err): picture distance model joint -> MP point, % palm. Rules (default) fbx1/nat1/u4 27.8/36.4/48.7; HMS_PURE=3 (every bone aimed at MP direction) 19.4/31.0/38.5. Proper Mixamo gauntlet same pattern (31.1->23.9 ...). PURE=1 (knuckle only) 26.5/36.0/44.7; PURE=2 (other joints only) 22.8/30.3/36.0 but jumps x2.
+- Cost of PURE=3: live jumps>15 300/223/194 -> 271/305/333; exported GLB jumps 71/75/90 -> 61/160/175, max 150 deg (depth flips). Old takes are 12-18 fps live; new 30 fps re-read takes not measured yet.
+- Options button '손가락: MediaPipe 그대로 / 앱 보정 규칙' (SharedPreferences pure + localStorage hms.pure; window.setPure). Default = rules; default export byte-identical.
+- Remaining error also at finger ROOTS (8-13 % palm): model palm/knuckle shape vs user's (편 손 보정 fit).
