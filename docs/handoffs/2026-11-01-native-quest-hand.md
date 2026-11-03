@@ -413,3 +413,6 @@ not started. Retarget onto other skins is NOT proven visually (only equal bend n
 ## v0.60 (caa11ef) — finger mode: MediaPipe angle copy (default)
 - User: rig points (own or external) never match MediaPipe exactly; a few joints of mismatch twist grasp/open. Cause: direction mode (HMS_PURE=3) aims bones at MediaPipe's directions, so bends happen about MediaPipe's axis, not the model's hinge. Rules mode bends about the model hinge but DIP = 2/3 PIP.
 - Angle copy = rules with HMS_NOCOUPLE (window.setFingerMode 0 rules / 1 angle / 2 directions; Kotlin pref fingerMode, old pure pref -> 2). n49 fist knuckle/mid/end MP vs model: index 58/80/69 -> rules 59/79/53, angle 59/79/60; pinky 73/81/88 -> 68/78/52 / 68/78/81. Jumps>15 n49/fbx1/nat1/u4: rules 39/145/128/145, angle 60/187/146/172, directions 98/225/202/212. Not phone-verified.
+
+## v0.61 (4a4f16f)
+- Rig guide panel shows only the 11 tap points (middle joints hidden); prev/next and 완료 count over those 11.
