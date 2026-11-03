@@ -320,3 +320,8 @@ not started. Retarget onto other skins is NOT proven visually (only equal bend n
 - rig.js: POINTS now [ko, en, where]; header says "관절(접히는 곳), 손가락 두께 한가운데"; colour legend per finger (wrist white, thumb red, index orange, middle green, ring blue, pinky purple — same as the 3D markers).
 - Guide panel (top right, under header): 2D MediaPipe palm-view hand with all 21 numbered dots (filled = placed, ring = current; mirrored for "모델: 오른손") + names of the current finger's 4 points. Bottom label shows "위치: ..." text.
 - hand.html 752,526 bytes (+~5 KB). Screenshot native/v0.40-rig-guide.png. Not phone-verified.
+
+## v0.41 (fcb68ea) — rig screen arrows slower + pan
+- User: XYZ arrows too fast; fixed model centre makes it hard; asked for two-finger move = move view.
+- Cause of speed: the camera chased the dragged point every frame, so drags ran away (60 px finger -> point moved 0.313 model units, ~3.7x the finger).
+- Now: arrow drag = 0.3x finger (FINE in rig.js; 60 px -> 0.025, 17.7 px on screen), camera target frozen while tc.dragging; two fingers moving together pan 1:1 in screen plane (pinch still zooms); '화면 가운데로' button resets pan. Test: scratchpad hv/dragtest.cjs (mouse drag; synthetic touch events break TransformControls pointer capture).
