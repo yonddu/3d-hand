@@ -341,3 +341,8 @@ not started. Retarget onto other skins is NOT proven visually (only equal bend n
 - applyBodyRig: bones >= 8 → mapBodyBones (limbs nearest bone heads; head nearest; neck = nearest bone on the head's ancestor chain — nearest-to-shoulder-mid picked the collarbone; spine/chest/upperChest = bones between hips and neck) → VRM-style map into CustomBody. No bones → buildBody (Mixamo names) + bindBones skin.
 - Storage: localStorage hms.rig.<file> (hand), hms.bodyrig.<file>, hms.freerig.<file>. Unrigged file with both hand and body rigs: body wins (one made skeleton per skin).
 - Headless checks (scratchpad hv/bodyprep.py, bodyrig.cjs, bcmp.py, freetest.cjs): three-vrm-girl points from its VRM joints → same bones as VRM map, sway hand/foot path diff 0.00 % torso; bones stripped → 19 bones made, constant 10-11 % offset, skin follows (native/v0.45-body-rig-bare-vs-original.png); free 7 points → 7-bone tree GLB; hand rig export byte-identical to v0.44. hand.html 767 KB (+14 KB). Not phone-verified.
+
+## v0.46 — hand rig: tree-based bone matching
+- User phone screenshots (gauntlet, v0.45): rigged glove fingers did not follow. Reproduced: greedy nearest-bone mapping breaks at ~20 % bone-length point error (wrist -> Thumb1, fingers swapped; 6-10/16 wrong).
+- rig.js mapByTree: hand = bone with 5-9 branches (within 2 levels) near point 0; branch = path into biggest subtree; each finger's MCP/PIP/DIP vs 3 consecutive branch bones (+0.15 palm per offset), best finger->branch permutation. Greedy = fallback. window.lastHandRig shows the mapping (debug).
+- Tests (hv/perturb.py, maptest.cjs, mapeval.sh): 0/16 wrong for noise 0.2/0.35 and mid-bone 0.5 on 3 models; noisy-point export 33.5 deg mean error -> 0.01. Exact points byte-identical.
