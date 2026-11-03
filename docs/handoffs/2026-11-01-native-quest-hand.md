@@ -393,3 +393,7 @@ not started. Retarget onto other skins is NOT proven visually (only equal bend n
 ## v0.55 (19ac74b) — skin proportion option visible again
 - User: hand shape odd, skin vs MediaPipe size. Rotations are copied, so overall size is not the problem; proportions (finger lengths, knuckle/root positions) are. The fitHand button existed but was never added to the layout (and its label claimed on while main.js fitOn defaults off), so fit was always off.
 - Options button '스킨 비율: 내 손에 맞춤 / 모델 그대로' (prefs fit, default off). Fit on (hv/errtest3.cjs FIT=1): err n49_sw/fbx1/nat1/u4 24.2/18.9/32.2/42.9 -> 14.6/5.5/19.2/27.2 % palm; live jumps 39/145/128/145 -> 49/139/143/182. Saved GLB keeps model proportions (screen != GLB with fit on); bakeFitted exists for a fitted model.
+
+## v0.56 (add8531) — FBX 21 joints: no back bend
+- User: MediaPipe's own rig goes past the back of the hand. Counted on raw world points (knuckle-line axis): joints bent back > 5 deg = 5-27 % (n49 MCP/PIP/DIP 6/11/7 %, u4 23/25/27 %). (A palm-normal axis wrongly reads curled DIPs as back: 50 %.)
+- HandFix.kt noBackBend on the world points the FBX is built from (MainActivity startModel snapshot): fingers about knuckle line, thumb MCP/IP across the palm; < -35 mirrored forward, else >= 5; rest of finger rotated about the joint. Python twin hv/handfix.py: back joints -> 0, lengths exact; point moves > 1.5 cm/frame 170/833/474/288 -> 249/868/585/467 (clamp-only variant 228/853/562/456). Picture overlay is 2D (back bends are depth only, invisible there).
