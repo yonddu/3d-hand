@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quest 손 기록</title>
+<style>
+  :root { --bg: #1d2126; --fg: #eef1f4; --mute: #9aa4ae; --acc: #3d7be0; --rec: #e0483d; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 17px/1.5 system-ui, sans-serif; }
+  main { max-width: 720px; margin: 0 auto; padding: 20px 16px 60px; }
+  h1 { font-size: 24px; margin: 0 0 8px; }
+  p, li { color: var(--mute); }
+  b { color: var(--fg); }
+  button { font: inherit; font-size: 20px; padding: 14px 22px; border: 0; border-radius: 10px; background: var(--acc); color: #fff; margin: 6px 8px 6px 0; }
+  button:disabled { opacity: .4; }
+  input { font: inherit; padding: 10px; border-radius: 8px; border: 1px solid #555; background: #111; color: var(--fg); width: 220px; }
+  #status { margin: 14px 0; padding: 12px; border-radius: 8px; background: #111; white-space: pre-line; }
+  .take { display: flex; gap: 10px; align-items: center; margin: 6px 0; }
+  .take button { font-size: 16px; padding: 8px 14px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Quest 손 기록 (학습 정답용)</h1>
+  <p>Quest 3 손 추적으로 손 관절 25개(위치·회전)를 매 프레임 기록해요. 휴대폰 앱 측정과 <b>동시에</b> 쓰세요.</p>
+  <ol>
+    <li>컨트롤러를 내려놓고, 아래 <b>테이크 이름</b>을 적어요 (예: B1_천천히).</li>
+    <li><b>기록 시작</b>을 누르고 손 추적 권한을 허용해요. 손 관절에 작은 점이 보이면 기록 중이에요.</li>
+    <li>휴대폰 앱에서도 측정을 시작하고, 엄지-검지 <b>핀치 3번</b> (점이 노랗게 깜빡여요).</li>
+    <li>동작이 끝나면 Meta(오큘러스) 버튼으로 나와요. 파일(JSON)이 다운로드 폴더에 저장돼요.</li>
+  </ol>
+  <div><input id="name" value="take1" aria-label="테이크 이름"> <button id="start">기록 시작</button></div>
+  <div id="status">준비 중…</div>
+  <div id="takes"></div>
+</main>
+<script type="importmap">{ "imports": { "three": "./vendor/three/three.module.min.js" } }</script>
+<script type="module">
+import * as THREE from 'three';
+
+const statusEl = document.getElementById('status');
+const startBtn = document.getElementById('start');
+const nameEl = document.getElementById('name');
+const say = (t) => { statusEl.textContent = t; };
+
+// WebXR hand joints, in the spec's order (XRHand iterates the same way)
+const JOINTS = ['wrist',
+  'thumb-metacarpal', 'thumb-phalanx-proximal', 'thumb-phalanx-distal', 'thumb-tip',
+  'index-finger-metacarpal', 'index-finger-phalanx-proximal', 'index-finger-phalanx-intermediate', 'index-finger-phalanx-distal', 'index-finger-tip',
+  'middle-finger-metacarpal', 'middle-finger-phalanx-proximal', 'middle-finger-phalanx-intermediate', 'middle-finger-phalanx-distal', 'middle-finger-tip',
+  'ring-finger-metacarpal', 'ring-finger-phalanx-proximal', 'ring-finger-phalanx-intermediate', 'ring-finger-phalanx-distal', 'ring-finger-tip',
+  'pinky-finger-metacarpal', 'pinky-finger-phalanx-proximal', 'pinky-finger-phalanx-intermediate', 'pinky-finger-phalanx-distal', 'pinky-finger-tip'];
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(1);
+renderer.xr.enabled = true;
+renderer.setClearColor(0x000000, 0);
+const scene = new THREE.Scene();
+scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 2));
+const camera = new THREE.PerspectiveCamera(70, 1, 0.01, 20);
+
+// one small dot per joint per hand, so the user sees tracking is working
+const dotGeo = new THREE.SphereGeometry(0.004, 8, 6);
+const mats = { left: new THREE.MeshBasicMaterial({ color: 0x4fb0ff }), right: new THREE.MeshBasicMaterial({ color: 0x5ee08a }) };
+const pinchMat = new THREE.MeshBasicMaterial({ color: 0xffd23f });
+const dots = {};
+for (const side of ['left', 'right']) {
+  dots[side] = JOINTS.map(() => { const m = new THREE.Mesh(dotGeo, mats[side]); m.visible = false; scene.add(m); return m; });
+}
+
+let take = null; // { name, startWall, frames: [], pinches: [] }
+const takes = [];
+let lastSave = 0;
+const pinchState = { left: false, right: false };
+const MIN_DT = 1000 / 60; // keep at most 60 frames per second
+
+const r4 = (v) => Math.round(v * 1e4) / 1e4;
+const r5 = (v) => Math.round(v * 1e5) / 1e5;
+
+function onFrame(time, frame) {
+  if (frame && take) {
+    const ref = renderer.xr.getReferenceSpace();
+    const session = frame.session;
+    const hands = {};
+    for (const src of session.inputSources) {
+      if (!src.hand) continue;
+      const side = src.handedness === 'left' ? 'left' : 'right';
+      const rows = []; let ok = 0;
+      JOINTS.forEach((name, i) => {
+        const space = src.hand.get(name);
+        const pose = space && frame.getJointPose(space, ref);
+        const d = dots[side][i];
+        if (!pose) { rows.push(null); d.visible = false; return; }
+        ok++;
+        const p = pose.transform.position; const q = pose.transform.orientation;
+        rows.push([r5(p.x), r5(p.y), r5(p.z), r4(q.x), r4(q.y), r4(q.z), r4(q.w), r5(pose.radius || 0)]);
+        d.position.set(p.x, p.y, p.z); d.visible = true;
+      });
+      if (!ok) continue;
+      hands[side] = rows;
+      // pinch: thumb tip to index tip under 1.5 cm (closing) / over 3 cm (opening)
+      const a = rows[4]; const b = rows[9];
+      if (a && b) {
+        const dd = Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+        if (!pinchState[side] && dd < 0.015) { pinchState[side] = true; take.pinches.push({ t: time, side }); }
+        else if (pinchState[side] && dd > 0.03) pinchState[side] = false;
+        dots[side][4].material = dots[side][9].material = pinchState[side] ? pinchMat : mats[side];
+      }
+    }
+    for (const side of ['left', 'right']) if (!hands[side]) dots[side].forEach((d) => { d.visible = false; });
+    if (time - lastSave >= MIN_DT && (hands.left || hands.right)) {
+      lastSave = time;
+      // view (head) pose too: lets a later step check how the head moved
+      const vp = frame.getViewerPose(ref);
+      const head = vp ? (() => { const p = vp.transform.position; const q = vp.transform.orientation; return [r5(p.x), r5(p.y), r5(p.z), r4(q.x), r4(q.y), r4(q.z), r4(q.w)]; })() : null;
+      take.frames.push({ t: Math.round(time * 10) / 10, wall: Date.now(), head, hands });
+    }
+  }
+  renderer.render(scene, camera);
+}
+
+function download(t) {
+  const out = { format: 'hms-quest-hands-1', name: t.name, device: navigator.userAgent, startWall: t.startWall,
+    joints: JOINTS, row: ['px', 'py', 'pz', 'qx', 'qy', 'qz', 'qw', 'radius'], space: 'local-floor (m), y up', pinches: t.pinches, frames: t.frames };
+  const blob = new Blob([JSON.stringify(out)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `quest-${t.name}-${new Date(t.startWall).toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+  return blob.size;
+}
+
+function listTakes() {
+  const box = document.getElementById('takes'); box.innerHTML = '';
+  takes.forEach((t) => {
+    const row = document.createElement('div'); row.className = 'take';
+    const secs = t.frames.length ? ((t.frames[t.frames.length - 1].t - t.frames[0].t) / 1000).toFixed(1) : '0';
+    row.innerHTML = `<span>${t.name} · ${t.frames.length}프레임 · ${secs}초 · 핀치 ${t.pinches.length}번</span>`;
+    const b = document.createElement('button'); b.textContent = '다시 저장'; b.onclick = () => download(t);
+    row.appendChild(b); box.appendChild(row);
+  });
+}
+
+async function start() {
+  const xr = navigator.xr;
+  const mode = (await xr.isSessionSupported('immersive-ar').catch(() => false)) ? 'immersive-ar' : 'immersive-vr';
+  let session;
+  try {
+    session = await xr.requestSession(mode, { requiredFeatures: ['hand-tracking'], optionalFeatures: ['local-floor'] });
+  } catch (e) {
+    say('기록 시작 실패: ' + (e && e.message ? e.message : e) + '\n손 추적이 꺼져 있으면 Quest 설정 > 움직임 추적 > 손 추적을 켜 주세요.');
+    return;
+  }
+  renderer.xr.setReferenceSpaceType('local-floor');
+  await renderer.xr.setSession(session);
+  take = { name: (nameEl.value || 'take').replace(/[^\w가-힣.-]+/g, '_'), startWall: Date.now(), frames: [], pinches: [], mode };
+  lastSave = 0;
+  say(`기록 중 (${mode === 'immersive-ar' ? '패스스루' : 'VR'}) · Meta 버튼으로 나오면 저장돼요`);
+  session.addEventListener('end', () => {
+    const t = take; take = null;
+    if (!t || !t.frames.length) { say('손이 한 번도 잡히지 않아 저장할 게 없어요. 컨트롤러를 내려놓고 손을 앞에 보여주세요.'); return; }
+    takes.push(t);
+    const size = download(t);
+    const secs = ((t.frames[t.frames.length - 1].t - t.frames[0].t) / 1000).toFixed(1);
+    say(`저장: ${t.name} · ${t.frames.length}프레임 · ${secs}초 · 핀치 ${t.pinches.length}번 · ${(size / 1048576).toFixed(1)} MB\n다음 테이크 이름을 바꾸고 다시 시작하세요.`);
+    listTakes();
+    const m = nameEl.value.match(/^(.*?)(\d+)$/); if (m) nameEl.value = m[1] + (+m[2] + 1);
+  });
+}
+
+renderer.setAnimationLoop(onFrame);
+(async () => {
+  if (!navigator.xr) { say('이 브라우저는 WebXR이 없어요. Quest 3의 Quest 브라우저(Meta Quest Browser)로 열어 주세요.'); startBtn.disabled = true; return; }
+  const ar = await navigator.xr.isSessionSupported('immersive-ar').catch(() => false);
+  const vr = await navigator.xr.isSessionSupported('immersive-vr').catch(() => false);
+  if (!ar && !vr) { say('이 기기는 몰입형 WebXR을 지원하지 않아요. Quest 브라우저로 열어 주세요.'); startBtn.disabled = true; return; }
+  say(`준비됨 (${ar ? '패스스루 AR' : 'VR'}). 테이크 이름을 적고 기록 시작을 누르세요.`);
+  startBtn.onclick = () => { startBtn.disabled = true; start().finally(() => { startBtn.disabled = false; }); };
+})();
+</script>
+</body>
+</html>
