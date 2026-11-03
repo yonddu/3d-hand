@@ -94,3 +94,4 @@ v0.7의 원본 추적 경로를 유지하고 FBX 저장 코드·UI·검사를 �
 - 2026-11-03 native v0.40: rig screen guide (joint placement note, per-point position text, MediaPipe colour/name example panel).
 - 2026-11-03 native v0.41-v0.45: rig screen arrows 0.3x + pan, any-order picking, steady view, small dots; body (Pose 17) and free rig screens.
 - 2026-11-03 native v0.46-v0.49: tree hand-rig mapping; "MediaPipe as is" finger option (no back bend, min 5 deg, deep folds kept). v0.47/48 comparisons used wrongly swapped test takes; suspected live side inversion since v0.32 for skin posing (open, see native handoff v0.49).
+- 2026-11-03 native v0.50: v0.32 label swap was wrong (user right-hand take labelled left; err 38 -> 24 %, jumps 147 -> 49 when fixed). realSide keeps MediaPipe label; v0.32-v0.49 takes are swapped.
