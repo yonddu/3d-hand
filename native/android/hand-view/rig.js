@@ -211,7 +211,7 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
   let cur = pts.findIndex((p) => !p); if (cur < 0) cur = 0;
   const palmLen = () => (pts[0] && pts[9] ? pts[0].distanceTo(pts[9]) : 0);
   let framed = false; // zoom to the hand once the wrist and the middle root are placed
-  const frameHand = () => { if (!framed && palmLen() > 0) { framed = true; dist = Math.min(dist, palmLen() * 7); } };
+  const frameHand = () => {}; void framed;
 
   const tc = new TransformControls(camera, canvas);
   tc.setMode('translate'); tc.setSpace('world'); tc.setSize(0.9);
@@ -336,8 +336,7 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
   // The view orbits the point being placed (once placed), so a zoomed-in finger stays in view.
   const target = new THREE.Vector3(); const want = new THREE.Vector3();
   const loop = () => {
-    if (pts[cur]) { scene.updateMatrixWorld(true); want.copy(pts[cur]).applyMatrix4(model.matrixWorld); } else want.set(0, 0, 0);
-    if (!tc.dragging) target.lerp(want, 0.2);
+    // the view only changes when the user turns / pans / zooms (it used to chase the selected point and zoom by itself)
     const at = target.clone().add(pan); camera.position.set(at.x, at.y, at.z + dist); camera.lookAt(at);
     renderer.render(scene, camera); raf = requestAnimationFrame(loop);
   };
