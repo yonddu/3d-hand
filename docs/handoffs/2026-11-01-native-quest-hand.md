@@ -331,3 +331,6 @@ not started. Retarget onto other skins is NOT proven visually (only equal bend n
 
 ## v0.43 — rig screen: steady view
 - User: the view keeps shifting when placing points. Removed the camera chase of the selected point and the auto-zoom (frameHand is a no-op). Only turn / two-finger pan / pinch move the view. Test hv/viewtest.cjs: placed point drift over 4 more taps 61 px -> 0 px.
+
+## v0.44 (4b98de3) — rig markers half size
+- User asked for placed-point spheres half as big: marker size*0.006, palm*0.025 (current point x1.5).
