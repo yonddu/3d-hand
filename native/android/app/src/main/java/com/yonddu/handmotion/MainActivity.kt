@@ -439,15 +439,19 @@ class MainActivity : ComponentActivity() {
         val saves = LinearLayout(this).apply { gravity = Gravity.CENTER }
         buttons.removeView(saveButton); buttons.removeView(fbxButton)
         saves.addView(saveButton); saves.addView(fbxButton)
-        var fitOn = true
+        val fitPrefs = getSharedPreferences("hms", MODE_PRIVATE)
+        var fitOn = fitPrefs.getBoolean("fit", false)
+        val fitLabel = { on: Boolean -> if (on) "스킨 비율: 내 손에 맞춤 (화면만, 손가락 길이·뿌리 위치를 내 손대로)" else "스킨 비율: 모델 그대로 (회전만, 저장 GLB와 같음)" }
         val fitButton = Button(this).apply {
-            text = "화면: 내 손에 스킨 씌우기 (모델 뼈를 내 손에 맞춤)"
+            text = fitLabel(fitOn)
             setOnClickListener {
                 fitOn = !fitOn
+                fitPrefs.edit().putBoolean("fit", fitOn).apply()
                 handView.fitHand(fitOn)
-                text = if (fitOn) "화면: 내 손에 스킨 씌우기 (모델 뼈를 내 손에 맞춤)" else "화면: 모델 비율 그대로 (회전만)"
+                text = fitLabel(fitOn)
             }
         }
+        handView.postDelayed({ if (fitOn) handView.fitHand(true) }, 1500)
         val purePrefs = getSharedPreferences("hms", MODE_PRIVATE)
         var pureOn = purePrefs.getBoolean("pure", false)
         val pureLabel = { on: Boolean -> if (on) "손가락: MediaPipe 그대로 (손등 쪽 금지, 최소 5° 굽힘)" else "손가락: 앱 보정 규칙 (덜 튐, 손등 쪽 금지, 최소 5° 굽힘)" }
@@ -457,6 +461,7 @@ class MainActivity : ComponentActivity() {
         }
         handView.postDelayed({ handView.setPure(pureOn) }, 1500)
         opts.addView(pureButton)
+        opts.addView(fitButton)
         opts.addView(TextView(this).apply { text = "저장 (측정 중지 후) · GLB = 추가한 스킨의 뼈 회전 애니메이션 (보정 재생과 같음, 스킨이 있을 때만) · FBX = 내 손 21관절"; textSize = 12f })
         opts.addView(glbButton); opts.addView(saves)
         val optsButton = Button(this).apply { text = "옵션" }
