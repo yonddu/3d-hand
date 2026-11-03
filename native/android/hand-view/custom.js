@@ -578,7 +578,19 @@ export class CustomHand {
       const lim = window.HMS_EDGE != null ? +window.HMS_EDGE : EDGE_ON;
       const pos0 = new THREE.Vector3(); const q0 = new THREE.Quaternion(); const s0 = new THREE.Vector3();
       if (inst.held && inst.fresh && edge < lim) {
-        const k = window.HMS_EDGEK != null ? +window.HMS_EDGEK : EDGE_K;
+        let k = window.HMS_EDGEK != null ? +window.HMS_EDGEK : EDGE_K;
+        // Thumb check (user: the thumb is always on the palm side): edge-on, the thumb tip sits on
+        // the palm's side of the wrist->middle-root line in the picture. When the seen palm faces
+        // the other way, MediaPipe flipped it (4 of 67 edge-on frames in 4 takes, palm turned ~90
+        // deg in one frame): keep the last turn whole for this frame.
+        if (!window.HMS_NOTHUMBCUE) {
+          const nn = P[5].clone().sub(P[0]).cross(P[17].clone().sub(P[0])).normalize().multiplyScalar(inst.palmSign);
+          const ax = pr(P[9]).sub(pr(P[0])); const perp = new THREE.Vector2(-ax.y, ax.x).normalize();
+          const n2 = new THREE.Vector2(nn.x, nn.y);
+          const mid = pr(P[5]).add(pr(P[17])).multiplyScalar(0.5);
+          const th = pr(P[4]).sub(mid).dot(perp);
+          if (n2.length() > 0.3 && Math.sign(n2.dot(perp)) !== Math.sign(th)) { k = 0; inst.thumbCue = (inst.thumbCue || 0) + 1; }
+        }
         root.matrix.decompose(pos0, q0, s0);
         const hp = handRestPos.clone().applyMatrix4(root.matrix); // keep the wrist where it is seen
         const qn = inst.held.root.clone().slerp(q0, k);
