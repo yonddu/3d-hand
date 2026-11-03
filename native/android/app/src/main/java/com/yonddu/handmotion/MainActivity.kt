@@ -482,13 +482,18 @@ class MainActivity : ComponentActivity() {
         }
         handView.postDelayed({ if (fitOn) handView.fitHand(true) }, 1500)
         val purePrefs = getSharedPreferences("hms", MODE_PRIVATE)
-        var pureOn = purePrefs.getBoolean("pure", false)
-        val pureLabel = { on: Boolean -> if (on) "손가락: MediaPipe 그대로 (손등 쪽 금지, 최소 5° 굽힘)" else "손가락: 앱 보정 규칙 (덜 튐, 손등 쪽 금지, 최소 5° 굽힘)" }
+        // 0 rules, 1 angle copy (default from v0.60), 2 MediaPipe directions; old "pure" pref = 2
+        var fingerMode = purePrefs.getInt("fingerMode", if (purePrefs.getBoolean("pure", false)) 2 else 1)
+        val pureLabel = { m: Int -> when (m) {
+            0 -> "손가락: 앱 보정 규칙 (끝마디 = 가운데의 2/3, 가장 덜 튐)"
+            1 -> "손가락: MediaPipe 각도 복사 (모델 관절 축으로 접음, 비틀림 없음)"
+            else -> "손가락: MediaPipe 방향 그대로 (리깅 오차가 비틀림으로 보일 수 있음)"
+        } }
         val pureButton = Button(this).apply {
-            text = pureLabel(pureOn)
-            setOnClickListener { pureOn = !pureOn; purePrefs.edit().putBoolean("pure", pureOn).apply(); handView.setPure(pureOn); text = pureLabel(pureOn) }
+            text = pureLabel(fingerMode)
+            setOnClickListener { fingerMode = (fingerMode + 1) % 3; purePrefs.edit().putInt("fingerMode", fingerMode).apply(); handView.setFingerMode(fingerMode); text = pureLabel(fingerMode) }
         }
-        handView.postDelayed({ handView.setPure(pureOn) }, 1500)
+        handView.postDelayed({ handView.setFingerMode(fingerMode) }, 1500)
         opts.addView(pureButton)
         opts.addView(fitButton)
         opts.addView(TextView(this).apply { text = "저장 (측정 중지 후) · GLB = 추가한 스킨의 뼈 회전 애니메이션 (보정 재생과 같음, 스킨이 있을 때만) · FBX = 내 손 21관절"; textSize = 12f })

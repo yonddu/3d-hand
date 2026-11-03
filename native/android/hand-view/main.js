@@ -226,6 +226,9 @@ window.bakeBegin = () => {
 // knuckle range, end joint following the middle one, side limit, thumb cone). Closer to the picture, more flips.
 window.setPure = (on) => { window.HMS_PURE = on ? 3 : 0; try { localStorage.setItem('hms.pure', on ? '1' : '0'); } catch (e) { /* ignore */ } return 'ok'; };
 try { if (localStorage.getItem('hms.pure') === '1') window.HMS_PURE = 3; } catch (e) { /* ignore */ }
+// Finger mode (v0.60): 0 rules (end joint = 2/3 of the middle), 1 angle copy (MediaPipe's bend angle at
+// every joint about the model's own hinge: no twist from rig-point errors), 2 MediaPipe directions.
+window.setFingerMode = (m) => { window.HMS_PURE = m === 2 ? 3 : 0; window.HMS_NOCOUPLE = m === 1; return 'ok'; };
 // Weapon / prop (game build: 'Kukri' under the hand bone): shown or not, on screen and in saved GLBs.
 window.propOn = true;
 window.setProp = (on) => {
