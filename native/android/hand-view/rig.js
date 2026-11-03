@@ -12,18 +12,59 @@ import { TransformControls } from 'three/examples/jsm/controls/TransformControls
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 
 export const POINTS = [
-  ['손목', 'WRIST'],
-  ['엄지 뿌리', 'THUMB_CMC'], ['엄지 둘째 마디', 'THUMB_MCP'], ['엄지 끝마디', 'THUMB_IP'], ['엄지 끝', 'THUMB_TIP'],
-  ['검지 뿌리', 'INDEX_MCP'], ['검지 가운데 마디', 'INDEX_PIP'], ['검지 끝마디', 'INDEX_DIP'], ['검지 끝', 'INDEX_TIP'],
-  ['중지 뿌리', 'MIDDLE_MCP'], ['중지 가운데 마디', 'MIDDLE_PIP'], ['중지 끝마디', 'MIDDLE_DIP'], ['중지 끝', 'MIDDLE_TIP'],
-  ['약지 뿌리', 'RING_MCP'], ['약지 가운데 마디', 'RING_PIP'], ['약지 끝마디', 'RING_DIP'], ['약지 끝', 'RING_TIP'],
-  ['새끼 뿌리', 'PINKY_MCP'], ['새끼 가운데 마디', 'PINKY_PIP'], ['새끼 끝마디', 'PINKY_DIP'], ['새끼 끝', 'PINKY_TIP'],
+  ['손목', 'WRIST', '손목 주름 한가운데, 손목이 꺾이는 관절 중심'],
+  ['엄지 뿌리', 'THUMB_CMC', '손목 가까이 엄지가 시작되는 관절. 손바닥 두툼한 엄지 살(엄지두덩) 안쪽 깊은 곳'],
+  ['엄지 첫 관절', 'THUMB_MCP', '엄지가 손바닥에서 떨어져 나오는 관절. 엄지 손등 쪽 튀어나온 뼈마디'],
+  ['엄지 끝 관절', 'THUMB_IP', '엄지 손톱 바로 아래 주름이 생기는 관절'],
+  ['엄지 끝', 'THUMB_TIP', '엄지 손끝 살 끝 (손톱 끝 높이)'],
+  ['검지 뿌리', 'INDEX_MCP', '검지가 손바닥과 이어지는 관절. 주먹 쥐면 손등에 튀어나오는 너클'],
+  ['검지 가운데 관절', 'INDEX_PIP', '검지 가운데 주름 (손가락에서 가장 크게 접히는 곳)'],
+  ['검지 끝 관절', 'INDEX_DIP', '검지 손톱 바로 아래 주름'],
+  ['검지 끝', 'INDEX_TIP', '검지 손끝 살 끝 (손톱 끝 높이)'],
+  ['중지 뿌리', 'MIDDLE_MCP', '중지가 손바닥과 이어지는 관절. 주먹 쥐면 손등에 튀어나오는 너클'],
+  ['중지 가운데 관절', 'MIDDLE_PIP', '중지 가운데 주름 (손가락에서 가장 크게 접히는 곳)'],
+  ['중지 끝 관절', 'MIDDLE_DIP', '중지 손톱 바로 아래 주름'],
+  ['중지 끝', 'MIDDLE_TIP', '중지 손끝 살 끝 (손톱 끝 높이)'],
+  ['약지 뿌리', 'RING_MCP', '약지가 손바닥과 이어지는 관절. 주먹 쥐면 손등에 튀어나오는 너클'],
+  ['약지 가운데 관절', 'RING_PIP', '약지 가운데 주름 (손가락에서 가장 크게 접히는 곳)'],
+  ['약지 끝 관절', 'RING_DIP', '약지 손톱 바로 아래 주름'],
+  ['약지 끝', 'RING_TIP', '약지 손끝 살 끝 (손톱 끝 높이)'],
+  ['새끼 뿌리', 'PINKY_MCP', '새끼가 손바닥과 이어지는 관절. 주먹 쥐면 손등에 튀어나오는 너클'],
+  ['새끼 가운데 관절', 'PINKY_PIP', '새끼 가운데 주름 (손가락에서 가장 크게 접히는 곳)'],
+  ['새끼 끝 관절', 'PINKY_DIP', '새끼 손톱 바로 아래 주름'],
+  ['새끼 끝', 'PINKY_TIP', '새끼 손끝 살 끝 (손톱 끝 높이)'],
 ];
 export const FINGER_KEYS = ['thumb', 'index', 'middle', 'ring', 'pinky'];
 const MP = { thumb: [1, 2, 3, 4], index: [5, 6, 7, 8], middle: [9, 10, 11, 12], ring: [13, 14, 15, 16], pinky: [17, 18, 19, 20] };
 const COLORS = [0xffffff, 0xff5a5a, 0xffb02e, 0x4cd964, 0x3fa9ff, 0xc77dff];
 const colorOf = (i) => COLORS[i === 0 ? 0 : 1 + Math.floor((i - 1) / 4)];
 const MIXAMO = { thumb: 'Thumb', index: 'Index', middle: 'Middle', ring: 'Ring', pinky: 'Pinky' };
+
+// 2D guide picture: where each of the 21 points sits on a flat hand (palm facing you, fingers up).
+const GUIDE = [[.50,.95],[.36,.86],[.24,.74],[.15,.63],[.07,.53],
+  [.38,.52],[.35,.36],[.34,.25],[.33,.15],[.50,.50],[.50,.32],[.50,.20],[.50,.09],
+  [.62,.52],[.64,.35],[.65,.24],[.66,.14],[.73,.57],[.77,.44],[.79,.36],[.81,.28]];
+const hex = (c) => '#' + c.toString(16).padStart(6, '0');
+const FINGER_KO = ['손목', '엄지', '검지', '중지', '약지', '새끼'];
+function guideSvg(cur, side, placed) {
+  const W = 140, H = 152, P = (i) => [(side === 'right' ? 1 - GUIDE[i][0] : GUIDE[i][0]) * W, GUIDE[i][1] * H];
+  let g = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="background:rgba(255,255,255,.08);border-radius:8px">`;
+  const ln = (a, b) => { const [x1, y1] = P(a), [x2, y2] = P(b); g += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${hex(colorOf(b))}" stroke-width="2" opacity=".7"/>`; };
+  for (const key of FINGER_KEYS) { const m = MP[key]; ln(0, m[0]); ln(m[0], m[1]); ln(m[1], m[2]); ln(m[2], m[3]); }
+  ln(5, 9); ln(9, 13); ln(13, 17);
+  for (let i = 0; i < 21; i++) {
+    const [x, y] = P(i); const on = i === cur;
+    const c = hex(colorOf(i));
+    g += `<circle cx="${x}" cy="${y}" r="${on ? 7 : 4.5}" fill="${placed[i] ? c : '#222'}" stroke="${on ? '#fff' : c}" stroke-width="${on ? 2.5 : 1.5}"/>`;
+    g += `<text x="${x + 6}" y="${y - 5}" fill="${on ? '#fff' : '#bbb'}" font-size="${on ? 12 : 9}">${i}</text>`;
+  }
+  g += `<text x="4" y="${H - 4}" fill="#aaa" font-size="8">MediaPipe 예시 (손바닥) · 채움=놓음</text></svg>`;
+  // names of the current finger's points (wrist + its 4), same colours as the dots
+  const f = cur === 0 ? -1 : Math.floor((cur - 1) / 4);
+  const ids = f < 0 ? [0, 1, 5, 9, 13, 17] : [1, 2, 3, 4].map((k) => f * 4 + k);
+  const names = ids.map((i) => `<div style="color:${hex(colorOf(i))};${i === cur ? 'font-weight:bold;font-size:13px' : 'opacity:.85'}">● ${i} ${POINTS[i][0]} <span style="opacity:.6">${POINTS[i][1]}</span></div>`).join('');
+  return `<div style="background:rgba(0,0,0,.55);border-radius:8px;padding:4px;font:11px sans-serif;color:#fff">${g}${names}</div>`;
+}
 
 // Every object of a model in traverse order (a clone has the same order: maps are kept as indices).
 export function nodesOf(root) { const a = []; root.traverse((o) => a.push(o)); return a; }
@@ -179,16 +220,18 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
   const ui = document.createElement('div');
   Object.assign(ui.style, { position: 'absolute', left: '0', right: '0', bottom: '0', padding: '8px', background: 'rgba(0,0,0,.6)', color: '#fff', font: '15px sans-serif', zIndex: 5 });
   const head = document.createElement('div'); Object.assign(head.style, { position: 'absolute', left: '0', right: '0', top: '0', padding: '8px', background: 'rgba(0,0,0,.6)', color: '#fff', font: '13px sans-serif', zIndex: 5 });
-  head.textContent = '모델을 탭해서 점 놓기 · 화살표를 꾹 눌러 끌면 그 축으로 이동 · 빈 곳을 끌면 회전 · 두 손가락 확대 · 놓은 점을 탭하면 그 점 고치기';
+  head.innerHTML = '<b>점은 마디 중간이 아니라 관절(접히는 곳)에, 겉면이 아니라 손가락 두께 한가운데에 놓으세요.</b><br>' + '모델을 탭해서 점 놓기 · 화살표를 꾹 눌러 끌면 그 축으로 이동 · 빈 곳을 끌면 회전 · 두 손가락 확대 · 놓은 점을 탭하면 그 점 고치기' + '<br>색: ' + FINGER_KO.map((n, k) => `<span style="color:${hex(COLORS[k])}">●</span>${n}`).join(' ');
   const label = document.createElement('div'); label.style.marginBottom = '6px';
   const row = document.createElement('div'); Object.assign(row.style, { display: 'flex', flexWrap: 'wrap', gap: '6px' });
   const btn = (t, f) => { const b = document.createElement('button'); b.textContent = t; Object.assign(b.style, { font: '15px sans-serif', padding: '8px 10px' }); b.onclick = f; row.appendChild(b); return b; };
+  const guide = document.createElement('div'); Object.assign(guide.style, { position: 'absolute', right: '6px', top: '96px', zIndex: 5, pointerEvents: 'none' });
   ui.appendChild(label); ui.appendChild(row);
+  document.body.appendChild(guide);
   document.body.appendChild(ui); document.body.appendChild(head);
   btn('◀ 이전', () => select((cur + 20) % 21));
   btn('다음 ▶', () => select((cur + 1) % 21));
   btn('이 점 지우기', () => { pts[cur] = null; redraw(); select(cur); });
-  const sideBtn = btn('', () => { side0 = side0 === 'left' ? 'right' : 'left'; sideBtn.textContent = side0 === 'left' ? '모델: 왼손' : '모델: 오른손'; });
+  const sideBtn = btn('', () => { side0 = side0 === 'left' ? 'right' : 'left'; sideBtn.textContent = side0 === 'left' ? '모델: 왼손' : '모델: 오른손'; drawLines(); });
   sideBtn.textContent = side0 === 'left' ? '모델: 왼손' : '모델: 오른손';
   const doneBtn = btn('완료', () => finish(true));
   btn('취소', () => finish(false));
@@ -207,13 +250,15 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
     const seg = (a, b) => { if (!pts[a] || !pts[b]) return; const g = new THREE.BufferGeometry().setFromPoints([pts[a], pts[b]]); const l = new THREE.Line(g, new THREE.LineBasicMaterial({ color: colorOf(b), depthTest: false })); l.renderOrder = 9; lines.add(l); };
     for (const key of FINGER_KEYS) { const m = MP[key]; seg(0, m[0]); seg(m[0], m[1]); seg(m[1], m[2]); seg(m[2], m[3]); }
     const n = pts.filter(Boolean).length;
+    if (typeof guide !== 'undefined' && guide) { guide.innerHTML = guideSvg(cur, side0, pts); guide.style.top = (head.offsetHeight + 6) + 'px'; }
     if (!doneBtn) return;
     doneBtn.disabled = n < 21; doneBtn.textContent = `완료 (${n}/21)`;
   }
   function select(i) {
     cur = i; frameHand(); redraw();
-    const [ko, en] = POINTS[i];
-    label.innerHTML = `<b>점 ${i}: ${ko}</b> <span style="opacity:.7">${en}</span>${pts[i] ? ' · 놓임 (화살표로 조정)' : ' · 모델을 탭하세요'}`;
+    const [ko, en, where] = POINTS[i];
+    guide.innerHTML = guideSvg(i, side0, pts); guide.style.top = (head.offsetHeight + 6) + 'px';
+    label.innerHTML = `<div><span style="color:${hex(colorOf(i))};font-size:20px">●</span> <b>점 ${i}: ${ko}</b> <span style="opacity:.7">${en}</span>${pts[i] ? ' · 놓임 (화살표로 조정)' : ' · 모델을 탭하세요'}<br><span style="font-size:13px;opacity:.9">위치: ${where}</span></div>`;
     if (pts[i] && dots[i]) tc.attach(dots[i]); else tc.detach();
   }
   tc.addEventListener('objectChange', () => { const i = tc.object && tc.object.userData.point; if (i != null) { pts[i].copy(tc.object.position); drawLines(); } });
@@ -288,7 +333,7 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
     tc.detach(); tc.dispose();
     canvas.removeEventListener('pointerdown', onDown); canvas.removeEventListener('pointermove', onMove);
     canvas.removeEventListener('pointerup', onUp); canvas.removeEventListener('pointercancel', onUp);
-    ui.remove(); head.remove();
+    ui.remove(); head.remove(); guide.remove();
     renderer.setClearColor(0x000000, 0);
       const out = ok ? { side: side0, pts: pts.map((p) => p.toArray()) } : null; // model (template root) space
     onDone(out);
