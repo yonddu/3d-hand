@@ -518,12 +518,14 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * MediaPipe names the hand as if the picture were a mirrored selfie; this app films with the
-     * back camera (not mirrored), so its 'Left' is the user's right hand. Saved takes and the
-     * screen use the real side ("labels": "real" in the take).
+     * The hand's real side. MediaPipe Tasks' label here already matches the hand on the back
+     * camera picture: a user take of the right hand (v0.49, 222 frames) is labelled 'Right' by
+     * MediaPipe and its points fold like a right hand in 126 of 133 folded frames. v0.32-v0.49
+     * swapped it, so the skin was posed on the wrong side (fit error 24 -> 38 % palm, jumps x3).
+     * Takes from those versions carry "labels": "real" (swapped); new ones "labels": "mp".
      */
     private fun realSide(mpName: String): String =
-        if (mpName.lowercase(Locale.ROOT) == "left") "right" else "left"
+        if (mpName.lowercase(Locale.ROOT) == "left") "left" else "right"
 
     private fun startModel() {
         ready = false
@@ -773,7 +775,7 @@ class MainActivity : ComponentActivity() {
         .put("timingScope", "analysis callback to synchronous result; excludes sensor exposure and display presentation")
         .put("liveBackpressure", "KEEP_ONLY_LATEST; camera frames may be dropped, not an offline all-frame pass")
         .put("raw", JSONObject().put("aspect", frameWidth.toDouble() / frameHeight)
-            .put("firstPerson", true).put("swap", false).put("labels", "real").put("rightOnImageRight", true)
+            .put("firstPerson", true).put("swap", false).put("labels", "mp").put("rightOnImageRight", true)
             .put("offline", false).put("frames", frames))
         .toString()
 
