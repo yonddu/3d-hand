@@ -203,7 +203,7 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
   const place = () => {}; camera.position.set(0, 0, dist); camera.lookAt(0, 0, 0);
   place();
   const meshes = []; model.traverse((o) => { if (o.isMesh) { meshes.push(o); o.frustumCulled = false; (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => { m.transparent = true; m.opacity = 0.6; m.side = THREE.DoubleSide; }); } });
-  const marker = size * 0.012;
+  const marker = size * 0.006; // half of v0.43 (user)
   const pts = Array(21).fill(null); const dots = Array(21).fill(null);
   const lines = new THREE.Group(); model.add(lines);
   let side0 = side || 'right';
@@ -244,7 +244,7 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
     dots.forEach((d) => d && model.remove(d));
     pts.forEach((p, i) => {
       if (!p) { dots[i] = null; return; }
-      const m = new THREE.Mesh(new THREE.SphereGeometry((palmLen() > 0 ? Math.min(marker, palmLen() * 0.05) : marker) * (i === cur ? 1.5 : 1), 12, 8), new THREE.MeshBasicMaterial({ color: colorOf(i), depthTest: false }));
+      const m = new THREE.Mesh(new THREE.SphereGeometry((palmLen() > 0 ? Math.min(marker, palmLen() * 0.025) : marker) * (i === cur ? 1.5 : 1), 12, 8), new THREE.MeshBasicMaterial({ color: colorOf(i), depthTest: false }));
       m.renderOrder = 10; m.position.copy(p); m.userData.point = i; model.add(m); dots[i] = m;
     });
     drawLines();
