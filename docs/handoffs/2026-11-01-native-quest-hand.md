@@ -416,3 +416,6 @@ not started. Retarget onto other skins is NOT proven visually (only equal bend n
 
 ## v0.61 (4a4f16f)
 - Rig guide panel shows only the 11 tap points (middle joints hidden); prev/next and 완료 count over those 11.
+
+## v0.62 (df5295b) — 16:9 game-screen check
+- Guide steps now 1 스킨 2 리깅 3 편 손 4 측정 5 재생 6 가로 7 저장. Step 6: SENSOR_LANDSCAPE (manifest configChanges keeps the activity), only the skin view letterboxed to 16:9 (main.js wideView), corrected take looping. Game camera (main.js gameCam): engine presets Unreal 90 h / Unity 60 v / Blender 39.6 h (50 mm on 36 mm), FOV +-5, hand distance +-0.05 m; mean wrist of the take placed at (0.2 right, 0.17 down, 0.45 ahead). Prefs gameEngine/gameFov/gameZ. Headless renders hv/widetest.cjs. Not phone-verified.
