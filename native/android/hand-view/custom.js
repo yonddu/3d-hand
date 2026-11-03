@@ -462,17 +462,19 @@ export class CustomHand {
         if (window.HMS_PURE && (window.HMS_PURE === 3 || (window.HMS_PURE === 1) === (k === 0))) {
           // 'MediaPipe as is': the bone aimed at MediaPipe's own direction (1 = knuckle bone only,
           // 2 = other bones only, 3 = all). User rule: fingers never bend toward the back of the hand:
-          // a backward bend is taken as forward (MediaPipe's depth read flipped, PUREBACK 1, default)
-          // or held straight (PUREBACK 2); 0 = no limit.
+          // PUREBACK 3 (default): a bend read far back (past BACK_MAX) is a deep fold read flipped and
+          // is taken forward, a small backward bend is held at MIN_FLEX (v0.48's PUREBACK 2 held every
+          // backward read straight, so a fist's deep folds (pinky 136/128 deg) came out 43/36 deg);
+          // 1 = every backward bend taken forward; 0 = no limit.
           target = seen[k + off].clone();
-          const mode = window.HMS_PUREBACK == null ? 2 : window.HMS_PUREBACK;
+          const mode = window.HMS_PUREBACK == null ? 3 : window.HMS_PUREBACK;
           // user: never quite straight either - a slight bend (MIN_FLEX) keeps which way is front fixed
           const minF = (window.HMS_MINFLEX == null ? MIN_FLEX_DEG : window.HMS_MINFLEX) * D2R;
           if (f.key !== 'thumb' && mode) {
             if (k === 0) {
               const d = target.clone().applyMatrix3(Fi);
               const n = ps * d.z; const r = Math.hypot(d.y, n); const a0 = Math.atan2(n, d.y);
-              if (a0 < minF) { const ang = mode === 1 && a0 < 0 ? Math.min(-a0, 100 * D2R) : minF; d.y = r * Math.cos(ang); d.z = ps * r * Math.sin(ang); target = d.applyMatrix3(F3); }
+              if (a0 < minF) { const ang = (mode === 1 && a0 < 0) || (mode === 3 && a0 < -BACK_MAX) ? Math.min(-a0, 100 * D2R) : minF; d.y = r * Math.cos(ang); d.z = ps * r * Math.sin(ang); target = d.applyMatrix3(F3); }
             } else {
               const pBone = list[k - 1];
               const pd = pos.clone().sub(at(pBone, par)).normalize();
@@ -481,7 +483,7 @@ export class CustomHand {
               axis.addScaledVector(pd, -axis.dot(pd)).normalize();
               const bnd = bendOf(pd, target.clone().normalize(), axis, ps);
               if (bnd.flex < minF) {
-                const flex = mode === 1 && bnd.flex < 0 ? Math.min(-bnd.flex, 115 * D2R) : minF;
+                const flex = (mode === 1 && bnd.flex < 0) || (mode === 3 && bnd.flex < -BACK_MAX) ? Math.min(-bnd.flex, 115 * D2R) : minF;
                 target = pd.clone().applyAxisAngle(axis.clone().multiplyScalar(ps), flex);
                 target.multiplyScalar(Math.cos(bnd.side)).addScaledVector(axis, Math.sin(bnd.side));
               }
@@ -579,7 +581,7 @@ export class CustomHand {
       // Bends (deg) of the model's middle / end joints, for checks.
       inst.bends = Object.fromEntries(FINGERS.map((f) => {
         const ch = h.chains[f.key];
-        const pts = [...ch.bones, ...(ch.tip ? [ch.tip] : [])].map((b) => at(b, new THREE.Vector3()));
+        const pts = [h.hand, ...ch.bones, ...(ch.tip ? [ch.tip] : [])].map((b) => at(b, new THREE.Vector3())); // hand first: knuckle bend too
         const dirs = pts.slice(1).map((p, i) => p.clone().sub(pts[i]).normalize());
         return [f.key, dirs.slice(1).map((d, i) => Math.round(Math.acos(Math.min(1, Math.max(-1, d.dot(dirs[i])))) / D2R))];
       }));

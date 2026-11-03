@@ -93,6 +93,7 @@ window.calibrateClear = () => {
   return 'ok';
 };
 window.debugSnap = (side) => { const i = customSlots[side || 'right'][0]; return i ? custom.snapshot(i, 0) : null; };
+window.debugSlots = () => customSlots; // tests: the posed model instances
 window.calStatus = () => JSON.stringify({ fitN: { left: fitCal.left.samples.length, right: fitCal.right.samples.length }, fit: Object.fromEntries(['left', 'right'].map((s) => [s, customSlots[s].map((i) => i.fitted)])), left: !!calRaw.left, right: !!calRaw.right, err: Object.fromEntries(['left', 'right'].map((s) => [s, customSlots[s].map((i) => i.err)])), bends: Object.fromEntries(['left', 'right'].map((s) => [s, customSlots[s].map((i) => i.bends)])) });
 const toVecs = (a) => Array.from({ length: 21 }, (_, j) => toThree(a, j));
 
