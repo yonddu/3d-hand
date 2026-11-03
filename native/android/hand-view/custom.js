@@ -448,6 +448,7 @@ export class CustomHand {
     const cal = inst.cal;
     if (!inst.prevQ) { inst.prevQ = new Map(); inst.refLen = {}; }
     const D2R = Math.PI / 180;
+    const minR = (window.HMS_MINFLEX == null ? MIN_FLEX_DEG : +window.HMS_MINFLEX) * D2R; // rules mode: least bend toward the palm
     for (const f of FINGERS) {
       const ch = h.chains[f.key];
       const list = ch.bones;
@@ -499,7 +500,7 @@ export class CustomHand {
             const n = ps * d.z; const r = Math.hypot(d.y, n);
             let a0 = Math.atan2(n, d.y);
             if (a0 < -BACK_MAX - 20 * D2R && !window.HMS_NOBACKFIX) a0 = -a0; // knuckle bent far back: read flipped
-            const ang = Math.min(100 * D2R, Math.max((window.HMS_MCPBACK ? -30 : 0) * D2R, a0)); // never past the back of the hand
+            const ang = Math.min(100 * D2R, Math.max(window.HMS_MCPBACK ? -30 * D2R : minR, a0)); // never past the back of the hand, a little bent (user)
             d.y = r * Math.cos(ang); d.z = ps * r * Math.sin(ang);
           }
           target = d.applyMatrix3(F3);
@@ -510,13 +511,13 @@ export class CustomHand {
           const o = cal && cal.off[f.key][k];
           let flex = a.flex + (o ? o.flex : 0);
           let side = a.side + (o ? o.side : 0);
-          flex = Math.min(115 * D2R, Math.max(0, flex));
+          flex = Math.min(115 * D2R, Math.max(minR, flex)); // never bent back, a little bent (user)
           const sideLim = window.HMS_SIDE != null ? window.HMS_SIDE * D2R : SIDE_RAD;
           side = Math.min(sideLim, Math.max(-sideLim, side));
           // End joint moves with the middle one (one tendon drives both): about 2/3 of its bend,
           // straight in line; MediaPipe's own end-joint reading is mostly depth noise.
           if (k === 2 && off === 0 && !window.HMS_NOCOUPLE) {
-            flex = DIP_RATIO * pipFlex;
+            flex = Math.max(minR, DIP_RATIO * pipFlex);
             side = 0;
           }
           if (k === 1) pipFlex = flex;
@@ -538,6 +539,32 @@ export class CustomHand {
             if (ang > lim) {
               const ax = new THREE.Vector3().crossVectors(pd, target);
               if (ax.lengthSq() > 1e-12) target = pd.clone().applyAxisAngle(ax.normalize(), lim);
+            }
+          }
+        }
+        // Thumb (user): its middle and end joints never bend toward the back of the hand and stay
+        // at least THUMB_MIN_DEG toward the palm. Flex is measured about (bone before) x (joint -> middle of the
+        // palm): + = folding across the palm.
+        if (f.key === 'thumb' && k + off >= 1 && !window.HMS_NOTHUMBBACK) {
+          const pd = pos.clone().sub(at(list[k - 1], par)).normalize();
+          // the thumb folds across the palm: toward the middle of the palm (model's own points)
+          const ctr = at(h.hand, new THREE.Vector3()).add(at(h.chains.index.bones[0], new THREE.Vector3())).add(at(h.chains.pinky.bones[0], new THREE.Vector3())).multiplyScalar(1 / 3);
+          const palmN = ctr.sub(pos);
+          const ax = new THREE.Vector3().crossVectors(pd, palmN);
+          if (ax.lengthSq() > 1e-6) {
+            ax.normalize();
+            const t = target.clone().normalize();
+            const side = Math.asin(Math.max(-1, Math.min(1, t.dot(ax))));
+            const inPlane = t.clone().addScaledVector(ax, -t.dot(ax));
+            if (inPlane.lengthSq() > 1e-12) {
+              inPlane.normalize();
+              const flex = Math.atan2(new THREE.Vector3().crossVectors(pd, inPlane).dot(ax), pd.dot(inPlane));
+              if (window.HMS_TFLEX) (window.HMS_TFLEX[k] = window.HMS_TFLEX[k] || []).push(Math.round(flex / D2R));
+              const minT = (window.HMS_THUMBMIN == null ? THUMB_MIN_DEG : +window.HMS_THUMBMIN) * D2R;
+              if (flex < minT) {
+                const fl = flex < -BACK_MAX ? Math.min(-flex, 90 * D2R) : minT; // far back = flipped read
+                target = pd.clone().applyAxisAngle(ax, fl).multiplyScalar(Math.cos(side)).addScaledVector(ax, Math.sin(side));
+              }
             }
           }
         }
@@ -716,6 +743,7 @@ function bendOf(a, b, lat, palmSign) {
 // middle / end joint bends sideways only a little, so all of the bend beyond SIDE_RAD is taken
 // as flex (the bend's size is kept); only a clearly backward bend (past 10 deg) counts as back.
 const MIN_FLEX_DEG = 5;
+const THUMB_MIN_DEG = 5; // thumb middle / end joints: at least this much toward the palm (user)
 const EDGE_ON = 0.25; // picture: |sin| of the angle wrist->index root / wrist->pinky root below this = edge-on
 const EDGE_K = 0.3; // edge-on: share of the way to the new reading per frame // 'MediaPipe as is' fingers: each joint bent at least this much toward the palm
 function seenBend(a, b, lat, palmSign) {
