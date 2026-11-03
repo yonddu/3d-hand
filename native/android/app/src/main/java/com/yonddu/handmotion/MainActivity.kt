@@ -71,6 +71,14 @@ class MainActivity : ComponentActivity() {
     private lateinit var modelButton: Button
     private lateinit var modelInfo: TextView
     private var customModel = false
+    // First-use guide: steps 1 skin, 2 rig, 3 open-hand calibration, 4 record, 5 check & save.
+    private var step = 1
+    private val doneSteps = mutableSetOf<Int>()
+    private lateinit var stepBar: LinearLayout
+    private lateinit var guideText: TextView
+    private lateinit var guideMain: Button
+    private lateinit var guideAlt: Button
+    private var guideRig: () -> Unit = {}
     private lateinit var sideButton: Button
     private lateinit var modelPanel: LinearLayout
     private lateinit var calButton: Button
@@ -149,8 +157,9 @@ class MainActivity : ComponentActivity() {
                     handView.loadModel(name, bytes) { result ->
                         modelButton.isEnabled = true
                         modelFile = true; listOf(rigButton, bodyRigButton, freeRigButton).forEach { it.visibility = android.view.View.VISIBLE }
-                        if (result.startsWith("ok:")) modelLoaded(result)
+                        if (result.startsWith("ok:")) { modelLoaded(result); goStep(3, 1, 2) }
                         else {
+                            goStep(2, 1)
                             modelButton.text = "스킨 빼기 (내 손 점만 보기)"
                             modelInfo.text = "손 모델: 아직 못 움직임: " + result.removePrefix("error:")
                         }
@@ -272,6 +281,22 @@ class MainActivity : ComponentActivity() {
         mainCol.addView(stage, LinearLayout.LayoutParams(-1, 0, 1f))
         status = TextView(this).apply { text = "손 검출 모델 준비 중…"; textSize = 11f }
         mainCol.addView(status)
+        stepBar = LinearLayout(this).apply { gravity = Gravity.CENTER }
+        listOf("스킨", "리깅", "편 손", "측정", "저장").forEachIndexed { i, name ->
+            stepBar.addView(TextView(this).apply {
+                text = "${i + 1} $name"; textSize = 13f; gravity = Gravity.CENTER; setPadding(8, 14, 8, 14)
+                setOnClickListener { goStep(i + 1) }
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+        }
+        mainCol.addView(stepBar, 0)
+        guideText = TextView(this).apply { textSize = 13f; setPadding(8, 6, 8, 6) }
+        guideMain = Button(this).apply { textSize = 16f; setOnClickListener { guideAction(true) } }
+        guideAlt = Button(this).apply { setOnClickListener { guideAction(false) } }
+        mainCol.addView(guideText)
+        mainCol.addView(LinearLayout(this).apply {
+            gravity = Gravity.CENTER
+            addView(guideMain, LinearLayout.LayoutParams(0, -2, 2f)); addView(guideAlt, LinearLayout.LayoutParams(0, -2, 1f))
+        })
         val buttons = LinearLayout(this).apply { gravity = Gravity.CENTER }
         recordButton = Button(this).apply {
             text = "측정 시작"; isEnabled = false
@@ -282,6 +307,7 @@ class MainActivity : ComponentActivity() {
                     recording = false
                     worker.execute { runOnUiThread {
                         recordButton.text = "새 측정"; recordButton.isEnabled = true
+                        if (frames.length() > 0) goStep(5, 4) else showStep()
                         saveButton.isEnabled = frames.length() > 0
                         fbxButton.isEnabled = frames.length() > 0 && !fbxBusy
                         updateModelButtons()
@@ -298,6 +324,7 @@ class MainActivity : ComponentActivity() {
                         handView.reviewStop(); reviewButton.isEnabled = false
                         startVideo()
                         recordButton.text = "측정 중지"; recordButton.isEnabled = true
+                        if (step != 4) goStep(4) else showStep()
                         saveButton.isEnabled = false
                         fbxButton.isEnabled = false
                         handView.frozen = false
@@ -381,6 +408,7 @@ class MainActivity : ComponentActivity() {
                     calButton.visibility = android.view.View.GONE
                     handView.frozen = false
                     text = "스킨 추가 (손 모델 GLB/FBX 불러오기)"; modelInfo.text = ""
+                    doneSteps.removeAll(listOf(1, 2, 3)); goStep(1)
                 } else openModel.launch(arrayOf("*/*"))
             }
         }
@@ -407,6 +435,7 @@ class MainActivity : ComponentActivity() {
                 handView.calibrate {
                     modelInfo.text = modelInfo.text.lines().first() + "\n편 손 보정: 다음 프레임의 손을 모델 기본 자세로 저장"
                     Toast.makeText(this@MainActivity, "편 손 보정 저장 (손을 쫙 편 상태)", Toast.LENGTH_SHORT).show()
+                    goStep(4, 3)
                 }
             }
         }
@@ -470,6 +499,7 @@ class MainActivity : ComponentActivity() {
         val back = Button(this).apply { text = "← 카메라 화면으로" }
         opts.addView(back, 0)
         optsButton.setOnClickListener { mainCol.visibility = android.view.View.GONE; optsScroll.visibility = android.view.View.VISIBLE; updateModelButtons() }
+        optsOpen = { optsButton.performClick() }
         back.setOnClickListener { optsScroll.visibility = android.view.View.GONE; mainCol.visibility = android.view.View.VISIBLE }
         // Rig screens (their own screen, camera off): hand = MediaPipe's 21 hand points, body = MediaPipe
         // Pose points, free = any points (bones made on them, saved as a rigged GLB).
@@ -487,7 +517,7 @@ class MainActivity : ComponentActivity() {
                     hidden.forEachIndexed { i, v -> v.visibility = was[i] }
                     handView.frozen = false
                     when {
-                        result.startsWith("done:") -> { modelLoaded(result.removePrefix("done:")); Toast.makeText(this@MainActivity, "리깅 저장 (이 모델 파일에 기억)", Toast.LENGTH_LONG).show() }
+                        result.startsWith("done:") -> { modelLoaded(result.removePrefix("done:")); goStep(3, 2); Toast.makeText(this@MainActivity, "리깅 저장 (이 모델 파일에 기억)", Toast.LENGTH_LONG).show() }
                         result.startsWith("glb:") -> handView.rigGlb { st, bytes ->
                             if (bytes == null) modelInfo.text = "리깅 GLB 실패: " + st.removePrefix("error:") else {
                                 pendingGlb = bytes
@@ -506,6 +536,7 @@ class MainActivity : ComponentActivity() {
             setOnClickListener { openRig(kind) }
         }
         rigButton = rigBtn("손 리깅 잡기 (MediaPipe 손 점 21개)", "hand")
+        guideRig = { openRig("hand") }
         bodyRigButton = rigBtn("몸 리깅 잡기 (MediaPipe Pose 점 17개)", "body")
         freeRigButton = rigBtn("기타 리깅 잡기 (자유롭게 점 찍기 → 뼈 넣은 GLB 저장)", "free")
         opts.addView(rigButton, opts.indexOfChild(sideButton) + 1)
@@ -519,8 +550,55 @@ class MainActivity : ComponentActivity() {
         root.addView(mainCol, LinearLayout.LayoutParams(-1, 0, 1f))
         root.addView(optsScroll, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
+        showStep()
         startModel()
     }
+
+    /** Marks steps [done] finished and moves the guide to [to]. */
+    private fun goStep(to: Int, vararg done: Int) { doneSteps.addAll(done.toList()); step = to; showStep() }
+
+    private fun showStep() {
+        for (i in 0 until stepBar.childCount) {
+            val v = stepBar.getChildAt(i) as TextView; val n = i + 1
+            v.text = (if (n in doneSteps) "✓ " else "${n} ") + listOf("스킨", "리깅", "편 손", "측정", "저장")[i]
+            v.setTextColor(if (n == step) android.graphics.Color.WHITE else if (n in doneSteps) android.graphics.Color.rgb(120, 200, 140) else android.graphics.Color.GRAY)
+            v.setBackgroundColor(if (n == step) android.graphics.Color.rgb(40, 90, 170) else android.graphics.Color.TRANSPARENT)
+        }
+        val (text, main, alt) = when (step) {
+            1 -> if (customModel || modelFile) Triple("1단계: 모델을 불러왔어요. 다른 모델로 바꾸려면 옵션에서 스킨을 빼고 다시 불러오세요.", "다음 단계", "옵션")
+                 else Triple("1단계: 손에 씌울 모델을 고르세요. 내 모델(GLB/FBX)을 불러오거나, 모델 없이 내 손 점으로 시작해요.", "내 모델 불러오기", "모델 없이")
+            2 -> if (customModel) Triple("2단계: 이 모델은 손 뼈가 이미 있어요. 손가락이 이상하면 리깅을 다시 잡으세요.", "다음 단계", "리깅 다시 잡기")
+                 else if (modelFile) Triple("2단계: 이 모델은 손 뼈가 없어요. 손 점 21개를 모델 위에 찍어 리깅을 잡으세요 (손가락 두께 가운데, 관절 접히는 곳).", "손 리깅 잡기", "건너뛰기")
+                 else Triple("2단계: 먼저 1단계에서 모델을 불러오세요.", "1단계로", "건너뛰기")
+            3 -> if (!customModel) Triple("3단계: 모델이 없으면 필요 없어요.", "다음 단계", "건너뛰기") else Triple("3단계: 손을 쫙 펴서 카메라에 보여준 채로 누르세요. 모델의 기본 자세가 내 편 손에 맞춰져요.", "편 손 보정", "건너뛰기")
+            4 -> Triple(if (recording) "4단계: 측정 중이에요. 동작이 끝나면 중지를 누르세요." else "4단계: 손이 화면에 다 들어오게 하고 측정을 시작하세요.", if (recording) "측정 중지" else "측정 시작", "옵션")
+            else -> Triple("5단계: 보정된 동작을 재생해 확인하고 저장하세요. FBX = 내 손 21관절 · 모델 애니메이션(GLB)·기록은 옵션에서 저장. 다시 찍으려면 4 측정을 누르세요.", "보정 재생", "FBX 저장")
+        }
+        guideText.text = text; guideMain.text = main; guideAlt.text = alt
+    }
+
+    /** Clicks [b] when it is ready, else says it is not (performClick ignores isEnabled). */
+    private fun press(b: Button) { if (b.isEnabled) b.performClick() else Toast.makeText(this, "아직 준비 중이에요 (모델 준비·분석이 끝나면 다시 눌러 주세요)", Toast.LENGTH_SHORT).show() }
+
+    private fun guideAction(main: Boolean) {
+        when (step) {
+            1 -> when {
+                customModel || modelFile -> if (main) goStep(if (customModel) 3 else 2, 1) else optsOpen()
+                main -> press(modelButton)
+                else -> { doneSteps.addAll(listOf(1, 2, 3)); goStep(4) }
+            }
+            2 -> when {
+                customModel && main -> goStep(3, 2)
+                customModel || modelFile -> if (main || customModel) guideRig() else goStep(3)
+                main -> goStep(1)
+                else -> goStep(3)
+            }
+            3 -> if (main && customModel) press(calButton) else goStep(4)
+            4 -> if (main) press(recordButton) else optsOpen()
+            else -> if (main) press(reviewButton) else press(fbxButton)
+        }
+    }
+    private var optsOpen: () -> Unit = {}
 
     /**
      * The hand's real side. MediaPipe Tasks' label here already matches the hand on the back

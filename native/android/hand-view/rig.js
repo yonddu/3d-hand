@@ -499,7 +499,50 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
   btn('이 점 지우기', () => { pts[cur] = null; redraw(); select(cur); });
   const sideBtn = kind === 'hand' ? btn('', () => { side0 = side0 === 'left' ? 'right' : 'left'; sideBtn.textContent = side0 === 'left' ? '모델: 왼손' : '모델: 오른손'; drawLines(); }) : document.createElement('button');
   sideBtn.textContent = side0 === 'left' ? '모델: 왼손' : '모델: 오른손';
-  const doneBtn = btn('완료', () => finish(true));
+  // Hand rig check (user GLB: points stacked, 85 % of the skin ended on the wrist bone): before
+  // finishing, warn about points on top of each other, too short finger segments and points
+  // outside the model; a second press finishes anyway.
+  let warned = false;
+  // inside = most of 6 axis rays cross the surface an odd number of times; a point just past the
+  // surface (finger tips sit on the skin) counts as inside when a surface is within `near`
+  const inside = (p, near) => {
+    const w = p.clone().applyMatrix4(model.matrixWorld); let votes = 0; let close = Infinity;
+    const sc = new THREE.Vector3().setFromMatrixScale(model.matrixWorld).x;
+    for (const d of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
+      ray.set(w, new THREE.Vector3(...d)); const h = ray.intersectObjects(meshes, false);
+      if (h.length % 2 === 1) votes++; if (h.length) close = Math.min(close, h[0].distance / sc);
+    }
+    return votes >= 3 || close < near;
+  };
+  function checkHand() {
+    const bad = []; const palm = pts[0] && pts[9] ? pts[0].distanceTo(pts[9]) : 0;
+    if (!palm) return bad;
+    const name = (i) => `점 ${i}(${POINTS[i][0]})`;
+    for (const key of FINGER_KEYS) {
+      const m = MP[key];
+      for (let k = 0; k < 3; k++) {
+        const a = m[k]; const b = m[k + 1]; const d = pts[a].distanceTo(pts[b]) / palm;
+        if (d < 0.12) bad.push({ i: b, text: `${name(a)}–${name(b)} 마디가 너무 짧아요 (손바닥의 ${Math.round(d * 100)}%)` });
+      }
+    }
+    for (let i = 0; i < 21; i++) for (let j = i + 1; j < 21; j++) if (pts[i].distanceTo(pts[j]) < 0.06 * palm && !bad.some((x) => x.i === j)) bad.push({ i: j, text: `${name(i)}, ${name(j)} 위치가 겹쳐요` });
+    model.updateMatrixWorld(true);
+    for (let i = 0; i < 21; i++) if (!inside(pts[i], 0.1 * palm)) bad.push({ i, text: `${name(i)} 위치가 모델 밖이에요` });
+    return bad;
+  }
+  const doneBtn = btn('완료', () => {
+    if (kind === 'hand' && !warned) {
+      const bad = checkHand();
+      if (bad.length) {
+        warned = true; select(bad[0].i);
+        label.innerHTML = `<div style="color:#ffb4a8"><b>리깅 점 확인 필요 (${bad.length}곳)</b><br>${bad.slice(0, 5).map((x) => x.text).join('<br>')}${bad.length > 5 ? `<br>외 ${bad.length - 5}곳` : ''}<br><span style="color:#fff">고친 뒤 완료, 또는 그대로 "그래도 완료"</span></div>`;
+        doneBtn.textContent = '그래도 완료';
+        window.lastRigCheck = bad.map((x) => x.text);
+        return;
+      }
+    }
+    finish(true);
+  });
   btn('취소', () => finish(false));
 
   function redraw() {
@@ -518,7 +561,7 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
     const n = pts.filter(Boolean).length;
     if (typeof guide !== 'undefined' && guide) { guide.innerHTML = panelHtml(); guide.style.top = (head.offsetHeight + 6) + 'px'; }
     if (!doneBtn) return;
-    doneBtn.disabled = n < need(); doneBtn.textContent = kind === 'free' ? `완료 (점 ${n}개)` : `완료 (${n}/${N()})`;
+    doneBtn.disabled = n < need(); if (!warned) doneBtn.textContent = kind === 'free' ? `완료 (점 ${n}개)` : `완료 (${n}/${N()})`;
   }
   function select(i) {
     cur = i; frameHand(); redraw();
@@ -534,7 +577,7 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
   tc.addEventListener('objectChange', () => {
     const i = tc.object && tc.object.userData.point; if (i == null) return;
     if (tc.dragging) tc.object.position.sub(dragStart).multiplyScalar(FINE).add(dragStart);
-    pts[i].copy(tc.object.position); drawLines();
+    pts[i].copy(tc.object.position); warned = false; drawLines();
   });
 
   // Touch: tap = place / pick, one finger drag = turn, two fingers = zoom (unless on an arrow).
@@ -590,7 +633,7 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
     const a = hits[0].point; let b = null;
     for (const h of hits.slice(1)) if (h.distance - hits[0].distance > size * 0.002) { b = h.point; break; }
     const w = b ? a.clone().add(b).multiplyScalar(0.5) : a.clone().addScaledVector(ray.ray.direction, size * 0.01);
-    pts[cur] = model.worldToLocal(w.clone());
+    pts[cur] = model.worldToLocal(w.clone()); warned = false;
     select(cur);
   }
 
