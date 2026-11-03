@@ -92,3 +92,4 @@ v0.7의 원본 추적 경로를 유지하고 FBX 저장 코드·UI·검사를 �
 - 2026-11-02 native v0.36 (e52d1c1): live z One Euro x0.5 (jumps -3..-8%), sideways 15 deg; record z filter tested, no gain, off.
 - 2026-11-02 native v0.37-v0.39: rig screen (21 points, XYZ arrows), thumb touch IK, body foot lock + hand contacts. Old takes nat1/fbx1/u4 have inverted labels.
 - 2026-11-03 native v0.40: rig screen guide (joint placement note, per-point position text, MediaPipe colour/name example panel).
+- 2026-11-03 native v0.41-v0.45: rig screen arrows 0.3x + pan, any-order picking, steady view, small dots; body (Pose 17) and free rig screens.

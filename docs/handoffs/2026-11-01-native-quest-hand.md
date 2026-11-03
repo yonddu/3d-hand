@@ -334,3 +334,10 @@ not started. Retarget onto other skins is NOT proven visually (only equal bend n
 
 ## v0.44 (4b98de3) — rig markers half size
 - User asked for placed-point spheres half as big: marker size*0.006, palm*0.025 (current point x1.5).
+
+## v0.45 (67b02a4) — body (MediaPipe Pose) + free rig screens
+- Options: three buttons — 손 리깅 (21 hand points), 몸 리깅 (17 Pose points: 0,7,8,11-16,23-28,31,32), 기타 리깅 (free points → rigged GLB). Kotlin openRig(kind) local fun in onCreate; HandView.rigOpen(kind), rigGlb().
+- rig.js openEditor({kind}): per-kind colours/lines/example panel/text. Body 'left' = model's own left (front view: screen right). Free: '새 점 추가' adds a point whose parent = current point; output {kind:'free', pts, parents}.
+- applyBodyRig: bones >= 8 → mapBodyBones (limbs nearest bone heads; head nearest; neck = nearest bone on the head's ancestor chain — nearest-to-shoulder-mid picked the collarbone; spine/chest/upperChest = bones between hips and neck) → VRM-style map into CustomBody. No bones → buildBody (Mixamo names) + bindBones skin.
+- Storage: localStorage hms.rig.<file> (hand), hms.bodyrig.<file>, hms.freerig.<file>. Unrigged file with both hand and body rigs: body wins (one made skeleton per skin).
+- Headless checks (scratchpad hv/bodyprep.py, bodyrig.cjs, bcmp.py, freetest.cjs): three-vrm-girl points from its VRM joints → same bones as VRM map, sway hand/foot path diff 0.00 % torso; bones stripped → 19 bones made, constant 10-11 % offset, skin follows (native/v0.45-body-rig-bare-vs-original.png); free 7 points → 7-bone tree GLB; hand rig export byte-identical to v0.44. hand.html 767 KB (+14 KB). Not phone-verified.
