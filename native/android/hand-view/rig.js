@@ -37,6 +37,8 @@ export const POINTS = [
 export const FINGER_KEYS = ['thumb', 'index', 'middle', 'ring', 'pinky'];
 const MP = { thumb: [1, 2, 3, 4], index: [5, 6, 7, 8], middle: [9, 10, 11, 12], ring: [13, 14, 15, 16], pinky: [17, 18, 19, 20] };
 const COLORS = [0xffffff, 0xff5a5a, 0xffb02e, 0x4cd964, 0x3fa9ff, 0xc77dff];
+// the 11 points placed by hand (wrist, 5 roots, 5 tips); middle joints are automatic (v0.59)
+const HAND_TAP = [0, 1, 4, 5, 8, 9, 12, 13, 16, 17, 20];
 const colorOf = (i) => COLORS[i === 0 ? 0 : 1 + Math.floor((i - 1) / 4)];
 const MIXAMO = { thumb: 'Thumb', index: 'Index', middle: 'Middle', ring: 'Ring', pinky: 'Pinky' };
 
@@ -50,9 +52,9 @@ function guideSvg(cur, side, placed) {
   const W = 140, H = 152, P = (i) => [(side === 'right' ? 1 - GUIDE[i][0] : GUIDE[i][0]) * W, GUIDE[i][1] * H];
   let g = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="background:rgba(255,255,255,.08);border-radius:8px">`;
   const ln = (a, b) => { const [x1, y1] = P(a), [x2, y2] = P(b); g += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${hex(colorOf(b))}" stroke-width="2" opacity=".7"/>`; };
-  for (const key of FINGER_KEYS) { const m = MP[key]; ln(0, m[0]); ln(m[0], m[1]); ln(m[1], m[2]); ln(m[2], m[3]); }
+  for (const key of FINGER_KEYS) { const m = MP[key]; ln(0, m[0]); ln(m[0], m[3]); } // middle joints are automatic: root -> tip
   ln(5, 9); ln(9, 13); ln(13, 17);
-  for (let i = 0; i < 21; i++) {
+  for (const i of HAND_TAP) {
     const [x, y] = P(i); const on = i === cur;
     const c = hex(colorOf(i));
     g += `<circle cx="${x}" cy="${y}" r="${on ? 7 : 4.5}" fill="${placed[i] ? c : '#222'}" stroke="${on ? '#fff' : c}" stroke-width="${on ? 2.5 : 1.5}"/>`;
@@ -62,7 +64,7 @@ function guideSvg(cur, side, placed) {
   g += `<text x="4" y="${H - 4}" fill="#aaa" font-size="8">MediaPipe 예시 (손바닥) · 채움=놓음</text></svg>`;
   // names of the current finger's points (wrist + its 4), same colours as the dots
   const f = cur === 0 ? -1 : Math.floor((cur - 1) / 4);
-  const ids = f < 0 ? [0, 1, 5, 9, 13, 17] : [1, 2, 3, 4].map((k) => f * 4 + k);
+  const ids = f < 0 ? [0, 1, 5, 9, 13, 17] : [1, 4].map((k) => f * 4 + k);
   const names = ids.map((i) => `<div data-i="${i}" style="padding:2px 0;color:${hex(colorOf(i))};${i === cur ? 'font-weight:bold;font-size:13px' : 'opacity:.85'}">● ${i} ${POINTS[i][0]} <span style="opacity:.6">${POINTS[i][1]}</span></div>`).join('');
   return `<div style="background:rgba(0,0,0,.55);border-radius:8px;padding:4px;font:11px sans-serif;color:#fff">${g}${names}</div>`;
 }
@@ -494,8 +496,9 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
   ui.appendChild(label); ui.appendChild(row);
   document.body.appendChild(guide);
   document.body.appendChild(ui); document.body.appendChild(head);
-  btn('◀ 이전', () => select((cur + N() - 1) % N()));
-  btn('다음 ▶', () => select((cur + 1) % N()));
+  const stepPt = (d) => { if (kind !== 'hand') return (cur + N() + d) % N(); const j = HAND_TAP.indexOf(cur); return HAND_TAP[((j < 0 ? 0 : j) + d + HAND_TAP.length) % HAND_TAP.length]; };
+  btn('◀ 이전', () => select(stepPt(-1)));
+  btn('다음 ▶', () => select(stepPt(1)));
   if (kind === 'free') btn('새 점 추가 (지금 점에 이어서)', () => { pts.push(null); dots.push(null); parents.push(pts[cur] ? cur : parents[cur]); select(pts.length - 1); });
   btn('화면 가운데로', () => { pan.set(0, 0, 0); });
   btn('이 점 지우기', () => { pts[cur] = null; if (kind === 'hand' && MIDS.has(cur)) { manual.delete(cur); autoMids(); } redraw(); select(cur); });
@@ -596,7 +599,7 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
     const n = pts.filter(Boolean).length;
     if (typeof guide !== 'undefined' && guide) { guide.innerHTML = panelHtml(); guide.style.top = (head.offsetHeight + 6) + 'px'; }
     if (!doneBtn) return;
-    doneBtn.disabled = n < need(); if (!warned) doneBtn.textContent = kind === 'free' ? `완료 (점 ${n}개)` : `완료 (${n}/${N()})`;
+    doneBtn.disabled = n < need(); if (!warned) doneBtn.textContent = kind === 'free' ? `완료 (점 ${n}개)` : kind === 'hand' ? `완료 (${HAND_TAP.filter((i) => pts[i]).length}/11)` : `완료 (${n}/${N()})`;
   }
   function select(i) {
     cur = i; frameHand(); redraw();
