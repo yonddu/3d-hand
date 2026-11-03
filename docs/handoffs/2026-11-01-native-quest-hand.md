@@ -409,3 +409,7 @@ not started. Retarget onto other skins is NOT proven visually (only equal bend n
 
 ## v0.59 (98df380) — hand rig = 11 points
 - User: hand-placed joints make the GLB joints bend wrong. Editor now asks only wrist + 5 roots + 5 tips; middle joints go on the root->tip line at 0.44/0.72 (thumb 0.35/0.67; ratios from the two hand-rigged gauntlets, whose fingers are 0.97-1.0 straight), then centred in the finger thickness by 2 cross rays. A middle joint tapped/dragged by hand is kept (saved rigs keep theirs). hv/autotest.cjs: auto vs hand-placed mean 4.5 % (g1) / 3.0 % (g2) palm, thumb 7-10 %. Not phone-verified.
+
+## v0.60 (caa11ef) — finger mode: MediaPipe angle copy (default)
+- User: rig points (own or external) never match MediaPipe exactly; a few joints of mismatch twist grasp/open. Cause: direction mode (HMS_PURE=3) aims bones at MediaPipe's directions, so bends happen about MediaPipe's axis, not the model's hinge. Rules mode bends about the model hinge but DIP = 2/3 PIP.
+- Angle copy = rules with HMS_NOCOUPLE (window.setFingerMode 0 rules / 1 angle / 2 directions; Kotlin pref fingerMode, old pure pref -> 2). n49 fist knuckle/mid/end MP vs model: index 58/80/69 -> rules 59/79/53, angle 59/79/60; pinky 73/81/88 -> 68/78/52 / 68/78/81. Jumps>15 n49/fbx1/nat1/u4: rules 39/145/128/145, angle 60/187/146/172, directions 98/225/202/212. Not phone-verified.
