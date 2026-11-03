@@ -397,3 +397,7 @@ not started. Retarget onto other skins is NOT proven visually (only equal bend n
 ## v0.56 (add8531) — FBX 21 joints: no back bend
 - User: MediaPipe's own rig goes past the back of the hand. Counted on raw world points (knuckle-line axis): joints bent back > 5 deg = 5-27 % (n49 MCP/PIP/DIP 6/11/7 %, u4 23/25/27 %). (A palm-normal axis wrongly reads curled DIPs as back: 50 %.)
 - HandFix.kt noBackBend on the world points the FBX is built from (MainActivity startModel snapshot): fingers about knuckle line, thumb MCP/IP across the palm; < -35 mirrored forward, else >= 5; rest of finger rotated about the joint. Python twin hv/handfix.py: back joints -> 0, lengths exact; point moves > 1.5 cm/frame 170/833/474/288 -> 249/868/585/467 (clamp-only variant 228/853/562/456). Picture overlay is 2D (back bends are depth only, invisible there).
+
+## v0.57 (2740739) — FBX whole-take clean
+- User asked for the before/after-frames fix. Median of joint flex over time did NOT lower point jumps (hv/handfix2.py, R 1-3); smoothing positions relative to the wrist was worse (MP world origin is the hand centre, wrist jitters).
+- HandFix.cleanTake: per hand run (gap > 0.3 s splits): per-frame noBackBend -> per-point median +-2 frames -> Gaussian sigma 0.12 s (absolute world points) -> noBackBend again. hv/hf4.py: moves > 1.5 cm/frame raw 170/833/474/288 -> 29/77/184/278, back 0, mean shift 0.5-1.0 cm. Applied in startModel before RawFbx.encode.
