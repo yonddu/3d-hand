@@ -185,7 +185,8 @@ window.reviewPlay = () => {
     renderer.render(scene, camera);
     review.raf = requestAnimationFrame(step);
   };
-  review = { raf: requestAnimationFrame(step) };
+  review = { raf: requestAnimationFrame(step), frames, inst };
+  if (wide) gameCamApply();
   return `ok:${frames.length}:${len.toFixed(1)}`;
 };
 let exportOut = null; window.exportStatus = '';
@@ -434,6 +435,35 @@ window.setHands = function setHands(data) {
 // 16:9 check (game screen): the largest 16:9 box in the window; the camera keeps the recorded
 // vertical view (the whole recorded height shows, the sides show more).
 let wide = false;
-const wideLayout = () => { layout(16, 9); camera.aspect = 16 / 9; camera.updateProjectionMatrix(); renderer.setClearColor(0x3a3f47, 1); };
-window.wideView = (on) => { wide = !!on; if (wide) wideLayout(); else { last = null; renderer.setClearColor(0x000000, 0); } return 'ok'; };
+// Game camera (user: how it looks on the real game screen, Unreal): horizontal FOV like Unreal's (90 = vertical 58.7 at 16:9),
+// and the take's average wrist put at a first-person arm spot (x right, y up, z forward, metres
+// from the eye); the hand's own motion and turn stay as recorded.
+// fov + h (horizontal, Unreal; Blender's lens 50 mm on a 36 mm sensor = 39.6) or v (vertical, Unity)
+const gameCam = { fov: 90, h: true, x: 0.2, y: -0.17, z: 0.45, on: true };
+let meanWrist = null;
+function gameCamApply() {
+  if (!wide) return;
+  if (!gameCam.on) { camera.position.set(0, 0, 0); camera.fov = camFov0; camera.updateProjectionMatrix(); return; }
+  if (!meanWrist && review && review.inst) {
+    const inst = review.inst; const m = new THREE.Vector3(); let n = 0; const v = new THREE.Vector3();
+    const bone = inst.h && inst.h.hand != null ? inst.h.hand : null;
+    for (let i = 0; i < review.frames.length; i += 3) {
+      CustomHand.prototype.applySnapshot(inst, review.frames[i]); inst.outer.updateMatrixWorld(true);
+      (bone && bone.getWorldPosition ? bone : inst.outer).getWorldPosition(v); m.add(v); n++;
+    }
+    if (n) meanWrist = m.multiplyScalar(1 / n);
+  }
+  const w = meanWrist || new THREE.Vector3(0, 0, -0.4);
+  camera.position.set(w.x - gameCam.x, w.y - gameCam.y, w.z + gameCam.z);
+  camera.fov = gameCam.h ? THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(gameCam.fov) / 2) * 9 / 16)) : gameCam.fov; camera.updateProjectionMatrix();
+}
+let camFov0 = 50;
+const wideLayout = () => { layout(16, 9); camera.aspect = 16 / 9; gameCamApply(); camera.updateProjectionMatrix(); renderer.setClearColor(0x3a3f47, 1); };
+window.wideView = (on) => {
+  if (on && !wide) camFov0 = camera.fov;
+  wide = !!on; meanWrist = null;
+  if (wide) wideLayout(); else { camera.position.set(0, 0, 0); camera.fov = camFov0; camera.updateProjectionMatrix(); last = null; renderer.setClearColor(0x000000, 0); }
+  return 'ok';
+};
+window.gameCam = (o) => { Object.assign(gameCam, typeof o === 'string' ? JSON.parse(o) : o); gameCamApply(); return JSON.stringify(gameCam); };
 window.addEventListener('resize', () => { last = null; if (wide) wideLayout(); });

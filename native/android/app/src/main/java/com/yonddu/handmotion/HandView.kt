@@ -90,6 +90,8 @@ class HandView(context: Context) : WebView(context) {
     fun reviewPlay(done: (String) -> Unit) { evaluateJavascript("window.reviewPlay ? reviewPlay() : 'error:old page'") { done(it.trim('"')) } }
     fun reviewStop() { evaluateJavascript("window.reviewStop && reviewStop()", null) }
     /** On: the view letterboxed to 16:9 (game screen), same camera height; off: back to the camera picture shape. */
+    /** Game camera for the 16:9 view: fov in degrees (horizontal when h), wrist spot from the eye in metres. */
+    fun gameCam(fov: Double, h: Boolean, z: Double) { evaluateJavascript("window.gameCam && gameCam({fov:$fov,h:$h,z:$z})", null) }
     fun wideView(on: Boolean) { evaluateJavascript("window.wideView && wideView($on)", null) }
 
     /**

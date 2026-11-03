@@ -83,7 +83,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var rootCol: LinearLayout
     private lateinit var mainColV: LinearLayout
     private lateinit var stageV: FrameLayout
-    private var wideExit: Button? = null
+    private var wideExit: android.view.View? = null
     private var wideHidden: List<Pair<android.view.View, Int>> = emptyList()
     private lateinit var sideButton: Button
     private lateinit var modelPanel: LinearLayout
@@ -585,7 +585,7 @@ class MainActivity : ComponentActivity() {
             3 -> if (!customModel) Triple("3단계: 모델이 없으면 필요 없어요.", "다음 단계", "건너뛰기") else Triple("3단계: 손을 쫙 펴서 카메라에 보여준 채로 누르세요. 모델의 기본 자세가 내 편 손에 맞춰져요.", "편 손 보정", "건너뛰기")
             4 -> Triple(if (recording) "4단계: 측정 중이에요. 동작이 끝나면 중지를 누르세요." else "4단계: 손이 화면에 다 들어오게 하고 측정을 시작하세요.", if (recording) "측정 중지" else "측정 시작", "옵션")
             5 -> Triple("5단계: 보정된 동작을 재생해 확인하세요. 다시 찍으려면 4 측정을 누르세요.", "보정 재생", "다음 단계")
-            6 -> Triple("6단계: 휴대폰을 가로로 돌려 게임 화면(16:9)에서 스킨이 어떻게 보이는지 확인하세요.", "가로 16:9로 보기", "다음 단계")
+            6 -> Triple("6단계: 휴대폰을 가로로 돌려 게임 화면(16:9)에서 어떻게 보이는지 확인하세요. 엔진(언리얼·유니티·블렌더)을 고르면 그 엔진의 기본 시야각(FOV)으로 보여요.", "가로 16:9로 보기", "다음 단계")
             else -> Triple("7단계: 저장하세요. FBX = 내 손 21관절 · 모델 애니메이션(GLB)·기록은 옵션에서 저장.", "FBX 저장", "옵션")
         }
         guideText.text = text; guideMain.text = main; guideAlt.text = alt
@@ -628,9 +628,31 @@ class MainActivity : ComponentActivity() {
             wideHidden = all.filter { it !in keep }.map { it to it.visibility }
             wideHidden.forEach { it.first.visibility = android.view.View.GONE }
             rootCol.setPadding(0, 0, 0, 0)
-            val exit = Button(this).apply { text = "세로로 돌아가기"; alpha = 0.85f; setOnClickListener { wideView(false) } }
-            stageV.addView(exit, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END))
-            wideExit = exit
+            // game camera: engine preset (FOV the way that engine counts it), FOV and hand distance steps
+            val gp = getSharedPreferences("hms", MODE_PRIVATE)
+            val engines = listOf(Triple("언리얼", 90.0, true), Triple("유니티", 60.0, false), Triple("블렌더", 39.6, true))
+            var eng = gp.getInt("gameEngine", 0).coerceIn(0, 2)
+            var fov = gp.getFloat("gameFov", engines[eng].second.toFloat()).toDouble()
+            var z = gp.getFloat("gameZ", 0.45f).toDouble()
+            val info = TextView(this).apply { setTextColor(android.graphics.Color.WHITE); textSize = 12f; setBackgroundColor(android.graphics.Color.argb(140, 0, 0, 0)); setPadding(12, 6, 12, 6) }
+            fun refresh() {
+                val (name, _, h) = engines[eng]
+                info.text = "$name · FOV ${"%.1f".format(fov)}° (${if (h) "가로" else "세로"}) · 손 거리 ${"%.2f".format(z)} m"
+                gp.edit().putInt("gameEngine", eng).putFloat("gameFov", fov.toFloat()).putFloat("gameZ", z.toFloat()).apply()
+                handView.gameCam(fov, h, z)
+            }
+            fun small(t: String, f: () -> Unit) = Button(this).apply { text = t; alpha = 0.85f; minWidth = 0; minimumWidth = 0; setPadding(18, 0, 18, 0); setOnClickListener { f(); refresh() } }
+            val bar = LinearLayout(this).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                addView(small("엔진") { eng = (eng + 1) % 3; fov = engines[eng].second })
+                addView(small("FOV−") { fov = maxOf(20.0, fov - 5) }); addView(small("FOV+") { fov = minOf(130.0, fov + 5) })
+                addView(small("손 가깝게") { z = maxOf(0.15, z - 0.05) }); addView(small("멀리") { z = minOf(1.2, z + 0.05) })
+                addView(small("세로로 돌아가기") { wideView(false) })
+            }
+            val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; addView(bar); addView(info) }
+            stageV.addView(panel, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START))
+            wideExit = panel
+            handView.postDelayed({ refresh() }, 700)
             requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
             stopPoints(); handView.frozen = true; this.overlay.update(emptyList(), emptyList(), 1, 1)
             handView.postDelayed({
