@@ -220,7 +220,7 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
   const ui = document.createElement('div');
   Object.assign(ui.style, { position: 'absolute', left: '0', right: '0', bottom: '0', padding: '8px', background: 'rgba(0,0,0,.6)', color: '#fff', font: '15px sans-serif', zIndex: 5 });
   const head = document.createElement('div'); Object.assign(head.style, { position: 'absolute', left: '0', right: '0', top: '0', padding: '8px', background: 'rgba(0,0,0,.6)', color: '#fff', font: '13px sans-serif', zIndex: 5 });
-  head.innerHTML = '<b>점은 마디 중간이 아니라 관절(접히는 곳)에, 겉면이 아니라 손가락 두께 한가운데에 놓으세요.</b><br>' + '모델을 탭해서 점 놓기 · 화살표를 꾹 눌러 끌면 그 축으로 이동 · 빈 곳을 끌면 회전 · 두 손가락 확대 · 놓은 점을 탭하면 그 점 고치기' + '<br>색: ' + FINGER_KO.map((n, k) => `<span style="color:${hex(COLORS[k])}">●</span>${n}`).join(' ');
+  head.innerHTML = '<b>점은 마디 중간이 아니라 관절(접히는 곳)에, 겉면이 아니라 손가락 두께 한가운데에 놓으세요.</b><br>' + '모델을 탭해서 점 놓기 · 화살표를 꾹 눌러 끌면 그 축으로 이동 · 빈 곳을 끌면 회전 · 두 손가락 벌리기=확대, 같이 밀기=화면 이동 · 화살표는 손가락보다 천천히(0.3배) 움직여요 · 놓은 점을 탭하면 그 점 고치기' + '<br>색: ' + FINGER_KO.map((n, k) => `<span style="color:${hex(COLORS[k])}">●</span>${n}`).join(' ');
   const label = document.createElement('div'); label.style.marginBottom = '6px';
   const row = document.createElement('div'); Object.assign(row.style, { display: 'flex', flexWrap: 'wrap', gap: '6px' });
   const btn = (t, f) => { const b = document.createElement('button'); b.textContent = t; Object.assign(b.style, { font: '15px sans-serif', padding: '8px 10px' }); b.onclick = f; row.appendChild(b); return b; };
@@ -230,6 +230,7 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
   document.body.appendChild(ui); document.body.appendChild(head);
   btn('◀ 이전', () => select((cur + 20) % 21));
   btn('다음 ▶', () => select((cur + 1) % 21));
+  btn('화면 가운데로', () => { pan.set(0, 0, 0); });
   btn('이 점 지우기', () => { pts[cur] = null; redraw(); select(cur); });
   const sideBtn = btn('', () => { side0 = side0 === 'left' ? 'right' : 'left'; sideBtn.textContent = side0 === 'left' ? '모델: 왼손' : '모델: 오른손'; drawLines(); });
   sideBtn.textContent = side0 === 'left' ? '모델: 왼손' : '모델: 오른손';
@@ -261,23 +262,39 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
     label.innerHTML = `<div><span style="color:${hex(colorOf(i))};font-size:20px">●</span> <b>점 ${i}: ${ko}</b> <span style="opacity:.7">${en}</span>${pts[i] ? ' · 놓임 (화살표로 조정)' : ' · 모델을 탭하세요'}<br><span style="font-size:13px;opacity:.9">위치: ${where}</span></div>`;
     if (pts[i] && dots[i]) tc.attach(dots[i]); else tc.detach();
   }
-  tc.addEventListener('objectChange', () => { const i = tc.object && tc.object.userData.point; if (i != null) { pts[i].copy(tc.object.position); drawLines(); } });
+  // Arrow drags move the point at FINE x the finger (the plain gizmo felt far too fast on a zoomed-in hand),
+  // and the view stays still while dragging (it used to chase the moving point, which sped the drag up).
+  const FINE = 0.3; const dragStart = new THREE.Vector3();
+  tc.addEventListener('mouseDown', () => { if (tc.object) dragStart.copy(tc.object.position); });
+  tc.addEventListener('objectChange', () => {
+    const i = tc.object && tc.object.userData.point; if (i == null) return;
+    if (tc.dragging) tc.object.position.sub(dragStart).multiplyScalar(FINE).add(dragStart);
+    pts[i].copy(tc.object.position); drawLines();
+  });
 
   // Touch: tap = place / pick, one finger drag = turn, two fingers = zoom (unless on an arrow).
   const ray = new THREE.Raycaster(); const ndc = new THREE.Vector2();
+  const pan = new THREE.Vector3(); let mid0 = null; const pan0 = new THREE.Vector3();
   const down = new Map(); let pinch0 = 0; let dist0 = dist; let moved = false; let t0 = 0; let last = null; let gizmo = false;
   const onDown = (e) => {
     down.set(e.pointerId, [e.clientX, e.clientY]);
     if (down.size === 1) gizmo = !!(tc.dragging || tc.axis);
     if (gizmo) return;
     moved = false; t0 = performance.now(); last = [e.clientX, e.clientY];
-    if (down.size === 2) { const [a, b] = [...down.values()]; pinch0 = Math.hypot(a[0] - b[0], a[1] - b[1]); dist0 = dist; moved = true; }
+    if (down.size === 2) { const [a, b] = [...down.values()]; pinch0 = Math.hypot(a[0] - b[0], a[1] - b[1]); dist0 = dist; mid0 = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; pan0.copy(pan); moved = true; }
   };
   const onMove = (e) => {
     if (!down.has(e.pointerId)) return;
     down.set(e.pointerId, [e.clientX, e.clientY]);
     if (gizmo || tc.dragging) return;
-    if (down.size === 2) { const [a, b] = [...down.values()]; const d = Math.hypot(a[0] - b[0], a[1] - b[1]); if (pinch0 > 0) { dist = Math.max(size * 0.01, Math.min(size * 6, dist0 * pinch0 / d)); } moved = true; last = null; return; }
+    if (down.size === 2) { const [a, b] = [...down.values()]; const d = Math.hypot(a[0] - b[0], a[1] - b[1]); if (pinch0 > 0) { dist = Math.max(size * 0.01, Math.min(size * 6, dist0 * pinch0 / d)); }
+      // both fingers moving together = slide the view (pan), screen-plane, 1:1 with the fingers
+      if (mid0) {
+        const k = 2 * dist * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / H;
+        const mx = (a[0] + b[0]) / 2 - mid0[0], my = (a[1] + b[1]) / 2 - mid0[1];
+        pan.copy(pan0).add(new THREE.Vector3(-mx * k, my * k, 0));
+      }
+      moved = true; last = null; return; }
     if (!last) { last = [e.clientX, e.clientY]; return; }
     const dx = e.clientX - last[0]; const dy = e.clientY - last[1];
     if (Math.abs(dx) + Math.abs(dy) > 2) moved = moved || Math.hypot(e.clientX - last[0], e.clientY - last[1]) > 6;
@@ -287,7 +304,7 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
     }
   };
   const onUp = (e) => {
-    const was = down.size; down.delete(e.pointerId);
+    const was = down.size; down.delete(e.pointerId); if (down.size < 2) mid0 = null;
     if (gizmo || tc.dragging) { if (!down.size) gizmo = false; last = null; return; }
     if (was === 1 && !moved && performance.now() - t0 < 500) tap(e.clientX, e.clientY);
     last = null;
@@ -319,8 +336,8 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
   const target = new THREE.Vector3(); const want = new THREE.Vector3();
   const loop = () => {
     if (pts[cur]) { scene.updateMatrixWorld(true); want.copy(pts[cur]).applyMatrix4(model.matrixWorld); } else want.set(0, 0, 0);
-    target.lerp(want, 0.2);
-    camera.position.set(target.x, target.y, target.z + dist); camera.lookAt(target);
+    if (!tc.dragging) target.lerp(want, 0.2);
+    const at = target.clone().add(pan); camera.position.set(at.x, at.y, at.z + dist); camera.lookAt(at);
     renderer.render(scene, camera); raf = requestAnimationFrame(loop);
   };
   const onResize = () => { W = window.innerWidth; H = window.innerHeight; Object.assign(canvas.style, { width: `${W}px`, height: `${H}px` }); renderer.setSize(W, H, false); camera.aspect = W / H; camera.updateProjectionMatrix(); };
@@ -343,6 +360,9 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
     setPoint: (i, p) => { pts[i] = new THREE.Vector3(...p); select(i); },
     tap,
     dist: () => dist,
+    screenOf: (i) => { scene.updateMatrixWorld(true); const v = pts[i].clone().applyMatrix4(model.matrixWorld).project(camera); return [(v.x + 1) / 2 * W, (1 - v.y) / 2 * H]; },
+    local: (i) => pts[i].toArray(),
+    pan: () => pan.toArray(),
     setSide: (v) => { side0 = v; sideBtn.textContent = side0 === 'left' ? '모델: 왼손' : '모델: 오른손'; },
     finish,
   };
