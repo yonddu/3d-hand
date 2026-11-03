@@ -80,6 +80,7 @@ class HandView(context: Context) : WebView(context) {
     fun setProp(on: Boolean) { evaluateJavascript("window.setProp && setProp($on)", null) }
 
     fun setPure(on: Boolean) { evaluateJavascript("window.setPure && setPure($on)", null) }
+    fun setPalmPrism(on: Boolean) { evaluateJavascript("window.setPalmPrism && setPalmPrism($on)", null) }
     fun fitHand(on: Boolean) { evaluateJavascript("window.fitHand && fitHand($on)", null) }
     fun clearCalibration() { evaluateJavascript("window.calibrateClear && calibrateClear()", null) }
     fun recBegin(done: () -> Unit) { evaluateJavascript("window.recBegin ? recBegin() : ''") { done() } }

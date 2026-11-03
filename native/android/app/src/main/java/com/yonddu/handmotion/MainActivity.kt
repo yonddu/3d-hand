@@ -457,6 +457,14 @@ class MainActivity : ComponentActivity() {
         }
         handView.postDelayed({ handView.setPure(pureOn) }, 1500)
         opts.addView(pureButton)
+        var prismOn = purePrefs.getBoolean("prism", false)
+        val prismLabel = { on: Boolean -> if (on) "손바닥 도형: 표시 (빨강 손바닥 · 파랑 손등 · 노랑 엄지쪽 · 초록 손가락뿌리 · 보라 새끼쪽)" else "손바닥 도형: 숨김" }
+        val prismButton = Button(this).apply {
+            text = prismLabel(prismOn)
+            setOnClickListener { prismOn = !prismOn; purePrefs.edit().putBoolean("prism", prismOn).apply(); handView.setPalmPrism(prismOn); text = prismLabel(prismOn) }
+        }
+        handView.postDelayed({ handView.setPalmPrism(prismOn) }, 1500)
+        opts.addView(prismButton)
         opts.addView(TextView(this).apply { text = "저장 (측정 중지 후) · GLB = 추가한 스킨의 뼈 회전 애니메이션 (보정 재생과 같음, 스킨이 있을 때만) · FBX = 내 손 21관절"; textSize = 12f })
         opts.addView(glbButton); opts.addView(saves)
         val optsButton = Button(this).apply { text = "옵션" }

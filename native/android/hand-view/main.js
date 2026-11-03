@@ -379,6 +379,7 @@ window.setHands = function setHands(data) {
       if (hand.world && hand.world.length >= 63) hand.world = liveFilter(`${side}${n}w`, hand.world, now, window.HMS_OEZ != null ? +window.HMS_OEZ : OE_ZK);
     }
     const P = toVecs(hand.cam);
+    if (window.palmPrismOn && n === 0) palmPrism(side, P, now);
     const Wd = hand.world && hand.world.length >= 63 ? toVecs(hand.world) : null;
     const refit = !d.record && calibrateFit(side, hand.world) && fitOn; // measured also with the fit off (for the bake)
     if (calWanted && Wd && n === 0) {
@@ -424,8 +425,40 @@ window.setHands = function setHands(data) {
       if (!posed.has(i)) i.outer.visible = i.outer.visible && now - (lastSeen[side][n] || 0) < HOLD_MS;
     });
   }
-  if (!d.noRender) renderer.render(scene, camera);
+  for (const side of ['left', 'right']) if (prisms[side] && (!window.palmPrismOn || now - (prismSeen[side] || 0) > HOLD_MS)) prisms[side].visible = false;
+  if (!d.noRender) {
+    renderer.render(scene, camera);
+    if (prismScene.children.some((m) => m.visible)) { const ac = renderer.autoClear; renderer.autoClear = false; renderer.clearDepth(); renderer.render(prismScene, camera); renderer.autoClear = ac; }
+  }
   return 'ok';
 };
+
+// Palm prism (user): a triangular block on the palm - wrist, index root, pinky root - one colour per
+// face, so which way the palm faces can be seen (and when MediaPipe flips it). Drawn from the
+// seen points only; palm side = +(index-wrist)x(pinky-wrist) for a right hand, - for a left one.
+const PRISM_COL = { palm: 0xff4d6d, back: 0x3a86ff, thumb: 0xffd60a, knuckle: 0x2dc653, pinky: 0xb15cff, wrist: 0xffffff };
+const prisms = {}; const prismSeen = {}; const prismScene = new THREE.Scene(); // drawn over the model (own depth)
+function palmPrism(side, P, now) {
+  if (!prisms[side]) {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(8 * 3 * 3), 3));
+    g.addGroup(0, 3, 0); g.addGroup(3, 3, 1); g.addGroup(6, 6, 2); g.addGroup(12, 6, 3); g.addGroup(18, 6, 4);
+    const mats = [PRISM_COL.palm, PRISM_COL.back, PRISM_COL.thumb, PRISM_COL.knuckle, PRISM_COL.pinky].map((c) => new THREE.MeshBasicMaterial({ color: c, side: THREE.DoubleSide, transparent: true, opacity: 0.8 }));
+    prisms[side] = new THREE.Mesh(g, mats); prisms[side].frustumCulled = false; prisms[side].renderOrder = 5; prismScene.add(prisms[side]);
+  }
+  const a = P[0]; const b = P[5]; const c = P[17];
+  const n = b.clone().sub(a).cross(c.clone().sub(a)).normalize().multiplyScalar(side === 'left' ? -1 : 1);
+  const t = a.distanceTo(P[9]) * 0.12; // half thickness
+  const up = (v) => v.clone().addScaledVector(n, t); const dn = (v) => v.clone().addScaledVector(n, -t);
+  const [A, B, C] = [up(a), up(b), up(c)]; const [A2, B2, C2] = [dn(a), dn(b), dn(c)];
+  const quad = (p, q, r, s2) => [p, q, r, p, r, s2];
+  const tri = [A, B, C, A2, C2, B2, ...quad(A, B, B2, A2), ...quad(B, C, C2, B2), ...quad(C, A, A2, C2)];
+  const arr = prisms[side].geometry.attributes.position;
+  tri.forEach((v, i) => arr.setXYZ(i, v.x, v.y, v.z));
+  arr.needsUpdate = true; prisms[side].geometry.computeBoundingSphere();
+  prisms[side].visible = true; prismSeen[side] = now;
+}
+window.setPalmPrism = (on) => { window.palmPrismOn = !!on; try { localStorage.setItem('hms.prism', on ? '1' : '0'); } catch (e) { /* ignore */ } return 'ok'; };
+try { if (localStorage.getItem('hms.prism') === '1') window.palmPrismOn = true; } catch (e) { /* ignore */ }
 
 window.addEventListener('resize', () => { last = null; });
