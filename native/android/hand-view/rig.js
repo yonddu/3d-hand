@@ -464,9 +464,11 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
   const pointText = (i) => {
     if (kind === 'body') { const [k, ko, en, where] = BODY_POINTS[i]; return { title: `점 ${k}: ${ko}`, en, where }; }
     if (kind === 'free') return { title: `점 ${i + 1}`, en: parents[i] >= 0 ? `← 점 ${parents[i] + 1}에 이어짐` : '뿌리 뼈', where: '뼈가 꺾일 곳(관절)에 놓으세요. "새 점 추가"를 누르면 지금 점에 이어지는 다음 뼈가 생겨요' };
-    const [ko, en, where] = POINTS[i]; return { title: `점 ${i}: ${ko}`, en, where };
+    const [ko, en, where] = POINTS[i];
+    if (MIDS.has(i)) return { title: `점 ${i}: ${ko}`, en: manual.has(i) ? '직접 놓음' : '자동 (뿌리·끝으로 계산)', where: manual.has(i) ? where : `자동으로 놓여요. 접히는 곳과 다르면 화살표로 옮기세요 (옮긴 점은 그대로 유지). ${where}` };
+    return { title: `점 ${i}: ${ko}`, en, where };
   };
-  let cur = pts.findIndex((p) => !p); if (cur < 0) cur = 0;
+  let cur = pts.findIndex((p, i) => !p && !(kind === 'hand' && [2, 3, 6, 7, 10, 11, 14, 15, 18, 19].includes(i))); if (cur < 0) cur = 0;
   const palmLen = () => refLen();
   let framed = false; // zoom to the hand once the wrist and the middle root are placed
   const frameHand = () => {}; void framed;
@@ -482,7 +484,7 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
   const howTo = '탭=점 놓기 · 화살표 끌기=그 축으로 이동(0.3배) · 빈 곳 끌기=회전 · 두 손가락 벌리기=확대, 같이 밀기=화면 이동';
   if (kind === 'body') head.innerHTML = '<b>몸 리깅 (MediaPipe Pose): 관절 중심, 팔다리 두께 한가운데에. 왼쪽 = 모델 자신의 왼쪽 (정면에서 보면 화면 오른쪽)</b><br>' + howTo + ' · 오른쪽 예시에서 점 고르기<br>색: ' + Object.keys(BODY_KO).map((k) => `<span style="color:${hex(BODY_COL[k])}">●</span>${BODY_KO[k]}`).join(' ');
   else if (kind === 'free') head.innerHTML = '<b>기타 리깅: 찍은 점마다 뼈가 생겨요. "새 점 추가" = 지금 점에 이어지는 다음 뼈 (꼬리·날개·소품 등). 완료하면 뼈 넣은 GLB로 저장</b><br>' + howTo;
-  else head.innerHTML = '<b>점은 마디 중간이 아니라 관절(접히는 곳)에, 겉면이 아니라 손가락 두께 한가운데에 놓으세요.</b><br>' + howTo + ' · 놓은 점 탭=고치기 · 오른쪽 예시에서 점 고르기(순서 상관없음)<br>색: ' + FINGER_KO.map((n, k) => `<span style="color:${hex(COLORS[k])}">●</span>${n}`).join(' ');
+  else head.innerHTML = '<b>손목, 손가락 뿌리 5개, 손가락 끝 5개만 찍으세요 (11점). 가운데 관절은 자동으로 놓여요.</b><br>' + howTo + ' · 놓은 점 탭=고치기 · 오른쪽 예시에서 점 고르기(순서 상관없음)<br>색: ' + FINGER_KO.map((n, k) => `<span style="color:${hex(COLORS[k])}">●</span>${n}`).join(' ');
   const label = document.createElement('div'); label.style.marginBottom = '6px';
   const row = document.createElement('div'); Object.assign(row.style, { display: 'flex', flexWrap: 'wrap', gap: '6px' });
   const btn = (t, f) => { const b = document.createElement('button'); b.textContent = t; Object.assign(b.style, { font: '15px sans-serif', padding: '8px 10px' }); b.onclick = f; row.appendChild(b); return b; };
@@ -496,13 +498,46 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
   btn('다음 ▶', () => select((cur + 1) % N()));
   if (kind === 'free') btn('새 점 추가 (지금 점에 이어서)', () => { pts.push(null); dots.push(null); parents.push(pts[cur] ? cur : parents[cur]); select(pts.length - 1); });
   btn('화면 가운데로', () => { pan.set(0, 0, 0); });
-  btn('이 점 지우기', () => { pts[cur] = null; redraw(); select(cur); });
+  btn('이 점 지우기', () => { pts[cur] = null; if (kind === 'hand' && MIDS.has(cur)) { manual.delete(cur); autoMids(); } redraw(); select(cur); });
   const sideBtn = kind === 'hand' ? btn('', () => { side0 = side0 === 'left' ? 'right' : 'left'; sideBtn.textContent = side0 === 'left' ? '모델: 왼손' : '모델: 오른손'; drawLines(); }) : document.createElement('button');
   sideBtn.textContent = side0 === 'left' ? '모델: 왼손' : '모델: 오른손';
   // Hand rig check (user GLB: points stacked, 85 % of the skin ended on the wrist bone): before
   // finishing, warn about points on top of each other, too short finger segments and points
   // outside the model; a second press finishes anyway.
   let warned = false;
+  // Hand: only the wrist, the 5 roots and the 5 tips are placed by hand; the 2 middle joints of each
+  // finger go on the root->tip line at hand-model ratios (two hand-rigged gauntlets: fingers
+  // 0.44/0.28/0.28, thumb 0.31-0.39/0.30-0.34; root->tip 0.97-1.0 of the chain = straight), then to the
+  // middle of the finger's thickness. A middle joint moved by hand stays where it was put.
+  const MIDS = new Set(FINGER_KEYS.flatMap((k) => [MP[k][1], MP[k][2]]));
+  const manual = new Set(kind === 'hand' ? [...MIDS].filter((i) => pts[i]) : []); // middle joints the user placed or dragged (a saved rig keeps its own)
+  const centre = (p, dir) => {
+    // move p to halfway between the surfaces on both sides, across the finger (2 directions)
+    const pal = refLen() || size * 0.1; const w = model.localToWorld(p.clone());
+    const wd = model.localToWorld(p.clone().add(dir)).sub(w).normalize();
+    const u = new THREE.Vector3(0, 1, 0).cross(wd); if (u.lengthSq() < 1e-6) u.set(1, 0, 0).cross(wd); u.normalize();
+    const v = wd.clone().cross(u).normalize();
+    const rc = new THREE.Raycaster();
+    for (const ax of [u, v]) {
+      const hit = (d) => { rc.set(w, d); const h = rc.intersectObjects(meshes, false)[0]; return h && h.distance < 0.25 * pal * (model.matrixWorld.getMaxScaleOnAxis() || 1) ? h.point : null; };
+      const a = hit(ax.clone()); const b = hit(ax.clone().negate());
+      if (a && b) w.copy(a).add(b).multiplyScalar(0.5);
+    }
+    return model.worldToLocal(w);
+  };
+  function autoMids() {
+    if (kind !== 'hand') return;
+    model.updateMatrixWorld(true);
+    for (const key of FINGER_KEYS) {
+      const m = MP[key]; const r = pts[m[0]]; const t = pts[m[3]]; if (!r || !t) continue;
+      const q = key === 'thumb' ? [0.35, 0.67] : [0.44, 0.72];
+      [1, 2].forEach((k, j) => {
+        if (manual.has(m[k])) return;
+        const p = r.clone().lerp(t, q[j]);
+        pts[m[k]] = centre(p, t.clone().sub(r));
+      });
+    }
+  }
   // inside = most of 6 axis rays cross the surface an odd number of times; a point just past the
   // surface (finger tips sit on the skin) counts as inside when a surface is within `near`
   const inside = (p, near) => {
@@ -577,7 +612,9 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
   tc.addEventListener('objectChange', () => {
     const i = tc.object && tc.object.userData.point; if (i == null) return;
     if (tc.dragging) tc.object.position.sub(dragStart).multiplyScalar(FINE).add(dragStart);
-    pts[i].copy(tc.object.position); warned = false; drawLines();
+    pts[i].copy(tc.object.position); warned = false;
+    if (MIDS.has(i)) manual.add(i); else if (kind === 'hand') { autoMids(); redraw(); tc.attach(dots[i]); }
+    drawLines();
   });
 
   // Touch: tap = place / pick, one finger drag = turn, two fingers = zoom (unless on an arrow).
@@ -634,6 +671,10 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
     for (const h of hits.slice(1)) if (h.distance - hits[0].distance > size * 0.002) { b = h.point; break; }
     const w = b ? a.clone().add(b).multiplyScalar(0.5) : a.clone().addScaledVector(ray.ray.direction, size * 0.01);
     pts[cur] = model.worldToLocal(w.clone()); warned = false;
+    if (MIDS.has(cur)) manual.add(cur);
+    autoMids();
+    // next point to place by hand: the first missing wrist/root/tip (middle joints are automatic)
+    if (kind === 'hand') { const nx = [0, ...FINGER_KEYS.flatMap((k) => [MP[k][0], MP[k][3]])].find((k) => !pts[k]); if (nx != null && !MIDS.has(cur)) cur = nx; }
     select(cur);
   }
 
@@ -665,6 +706,8 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
   // test hooks
   return {
     setPoint: (i, p) => { pts[i] = new THREE.Vector3(...p); select(i); },
+    auto: () => { autoMids(); redraw(); drawLines(); return pts.map((p) => (p ? p.toArray() : null)); },
+    clear: () => { pts.fill(null); manual.clear(); redraw(); },
     tap,
     dist: () => dist,
     screenOf: (i) => { scene.updateMatrixWorld(true); const v = pts[i].clone().applyMatrix4(model.matrixWorld).project(camera); return [(v.x + 1) / 2 * W, (1 - v.y) / 2 * H]; },
