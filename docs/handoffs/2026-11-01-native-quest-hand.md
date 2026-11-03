@@ -353,3 +353,8 @@ not started. Retarget onto other skins is NOT proven visually (only equal bend n
 - Cost of PURE=3: live jumps>15 300/223/194 -> 271/305/333; exported GLB jumps 71/75/90 -> 61/160/175, max 150 deg (depth flips). Old takes are 12-18 fps live; new 30 fps re-read takes not measured yet.
 - Options button '손가락: MediaPipe 그대로 / 앱 보정 규칙' (SharedPreferences pure + localStorage hms.pure; window.setPure). Default = rules; default export byte-identical.
 - Remaining error also at finger ROOTS (8-13 % palm): model palm/knuckle shape vs user's (편 손 보정 fit).
+
+## v0.48 (64b3d34) — as-is fingers: no back bend, min 5 deg
+- User: fingers must never go toward the back; keep slightly bent (>0) so front/back is decided.
+- custom.js HMS_PURE branch: non-thumb joints flex >= MIN_FLEX_DEG 5 (knuckle in palm frame; middle/end via bendOf about model knuckle line). HMS_PUREBACK 2 = clamp (default), 1 = mirror back bend to forward (worse: 31.0/41.3/51.6, jumps 609/386/310), 0 = none. HMS_MINFLEX test override.
+- fbx1/nat1/u4: picture err 24.7/35.6/45.2 (rules 27.8/36.4/48.7, as-is free 19.4/31.0/38.5); live jumps 267/183/184 (rules 300/223/194); GLB jumps 172/68/77 max 47-65 (rules 71/75/90 max 22-39, free 61/160/175 max 139-150). MIN 10: err 23.5/35.8/46.8 jumps 331/203/180.
