@@ -90,6 +90,7 @@ export class CustomBody {
   constructor(root, name, vrmMap) {
     this.name = name; this.template = root; this.vrm = !!vrmMap;
     this.H = findHumanoid(root, vrmMap);
+    if (typeof window !== 'undefined' && this.H) window.lastBodyBones = { hips: this.H.hips && this.H.hips.name, spine: this.H.spine.map((b) => b.name), neck: this.H.neck && this.H.neck.name, head: this.H.head && this.H.head.name, l: Object.fromEntries(Object.entries(this.H.l).map(([k, b]) => [k, b && b.name])), r: Object.fromEntries(Object.entries(this.H.r).map(([k, b]) => [k, b && b.name])) };
     if (!this.H) throw new Error('전신 뼈(엉덩이, 팔)를 찾지 못했습니다');
     this.vrmMap = vrmMap;
     const H = this.H;

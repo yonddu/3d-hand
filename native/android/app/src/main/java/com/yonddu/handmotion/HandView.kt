@@ -97,6 +97,9 @@ class HandView(context: Context) : WebView(context) {
     /** The loaded model rebuilt to the user's measured hand (bones = MediaPipe's), as a GLB. */
     fun bakeModel(done: (String, ByteArray?) -> Unit) = pullGlb("window.bakeBegin ? bakeBegin() : 'error:화면 준비 안 됨'", done)
 
+    /** The GLB the free rig screen made (bones on the user's points). */
+    fun rigGlb(done: (String, ByteArray?) -> Unit) = pullGlb("window.rigGlbBegin ? rigGlbBegin() : 'error:화면 준비 안 됨'", done)
+
     private fun pullGlb(begin: String, done: (String, ByteArray?) -> Unit) {
         val main = Handler(Looper.getMainLooper())
         val size = 512 * 1024
@@ -153,7 +156,7 @@ class HandView(context: Context) : WebView(context) {
      * The rig screen (page draws the loaded skin full size with the 21 point names). done gets
      * "done:ok:<model summary>", "cancel" or "error:<reason>" when the user leaves it. UI thread.
      */
-    fun rigOpen(done: (String) -> Unit) {
+    fun rigOpen(kind: String, done: (String) -> Unit) {
         val main = Handler(Looper.getMainLooper())
         fun poll() {
             evaluateJavascript("window.rigStatus || ''") { answer ->
@@ -161,7 +164,7 @@ class HandView(context: Context) : WebView(context) {
                 if (st == "open") main.postDelayed({ poll() }, 400) else done(st)
             }
         }
-        evaluateJavascript("window.rigOpen ? rigOpen() : 'error:이전 화면 버전'") { answer ->
+        evaluateJavascript("window.rigOpen ? rigOpen('$kind') : 'error:이전 화면 버전'") { answer ->
             val st = answer.trim('"')
             if (st == "open") main.postDelayed({ poll() }, 400) else done(st)
         }

@@ -9,9 +9,9 @@
 //   already on their picture rays (MainActivity), so the model lies over the seen hand.
 import * as THREE from 'three';
 import { CustomHand, loadFile, exportGlb, bakeFitted, smoothTake } from './custom.js';
-import { parseBody } from './body.js';
+import { parseBody, CustomBody } from './body.js';
 import { cleanTake } from './clean.js';
-import { openEditor, applyRig } from './rig.js';
+import { openEditor, applyRig, applyBodyRig, applyFreeRig } from './rig.js';
 
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, premultipliedAlpha: false });
@@ -247,26 +247,34 @@ window.modelEnd = () => {
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   rigSource = { bytes, name };
-  let rig = null;
-  try { rig = JSON.parse(localStorage.getItem(rigKey(name)) || 'null'); } catch (e) { rig = null; }
-  useModel(bytes, name, rig).then((st) => { window.modelStatus = st; })
+  const rig = savedRig(name, 'hand');
+  useModel(bytes, name, rig, savedRig(name, 'body')).then((st) => { window.modelStatus = st; })
     .catch((e) => { window.modelStatus = `error:${e && e.message ? e.message : e} · 옵션의 '리깅 잡기'로 점 21개를 찍으면 쓸 수 있어요`; });
   return 'ok';
 };
 // The last loaded file (the rig editor reloads it fresh), and the user's point marks per file.
 let rigSource = null;
-const rigKey = (name) => `hms.rig.${name}`;
-async function useModel(bytes, name, rig) {
+const rigKey = (name, kind = 'hand') => (kind === 'hand' ? `hms.rig.${name}` : `hms.${kind}rig.${name}`);
+function savedRig(name, kind) { try { return JSON.parse(localStorage.getItem(rigKey(name, kind)) || 'null'); } catch (e) { return null; } }
+const boneCount = (root) => { let n = 0; root.traverse((o) => { if (o.isBone) n++; }); return n; };
+async function useModel(bytes, name, rig, bodyRig) {
   const f = await loadFile(bytes, name);
   // One skin can drive the hands (finger bones), the whole body (humanoid bones), or both.
   let hand = null; let body = null; let why = ''; let rigNote = '';
-  if (rig) {
+  let bodyNote = ''; let bodyMap = null; let bodyBuilt = false;
+  // a model without bones: bones are made from ONE rig (body first) - two made skeletons can't share a skin
+  const bare = boneCount(f.root) < 8;
+  if (bodyRig) { const r = applyBodyRig(f.root, bodyRig); bodyNote = r.note; bodyMap = r.map; bodyBuilt = !r.map; }
+  if (rig && bare && bodyRig) rigNote = '손 리깅은 뼈 없는 모델에서 몸 리깅과 같이 못 써요 (몸 리깅 사용)';
+  else if (rig) {
     const r = applyRig(f.root, rig); rigNote = r.note;
     hand = new CustomHand(f.root, name, r.map);
   } else {
     try { hand = new CustomHand(f.root, name); } catch (e) { why = e && e.message ? e.message : String(e); }
   }
-  try { body = await parseBody(f.gltf || f.root, name); } catch (e) { body = null; }
+  if (bodyMap) { body = new CustomBody(f.root, name, bodyMap); body.vrm = false; } // throws if a needed bone is missing
+  else if (bodyBuilt) body = new CustomBody(f.root, name, null);
+  else try { body = await parseBody(f.gltf || f.root, name); } catch (e) { body = null; }
   if (!hand && !body) throw new Error(why || '뼈를 찾지 못했습니다');
   dropCustom();
   custom = hand; bodyModel = body;
@@ -277,33 +285,51 @@ async function useModel(bytes, name, rig) {
   }
   if (rigNote) parts.push(rigNote);
   if (body) parts.push(`전신${body.vrm ? '(VRM)' : ''}: 몸 뼈 ${body.found}개 인식 (몸 추적에서 움직임)`);
+  if (bodyNote) parts.push(bodyNote);
   return `ok:${name} · ${parts.join(' · ')}`;
 }
 // "리깅 잡기": the editor over the whole page; rigStatus: 'open' | 'done:<status>' | 'error:..' | 'cancel'.
 let rigOpenNow = false;
 window.rigStatus = '';
-window.rigOpen = () => {
+window.rigOpen = (kind = 'hand') => {
   if (!rigSource) return 'error:먼저 스킨(GLB/FBX)을 불러오세요';
   if (rigOpenNow) return 'open';
   rigOpenNow = true; window.rigStatus = 'open';
   reviewStop();
-  for (const side of ['left', 'right']) customSlots[side].forEach((i) => { i.outer.visible = false; });
+  const show = (v) => { for (const side of ['left', 'right']) customSlots[side].forEach((i) => { i.outer.visible = v; }); if (bodySlot) bodySlot.outer.visible = v; };
+  show(false);
   const { bytes, name } = rigSource;
-  let saved = null;
-  try { saved = JSON.parse(localStorage.getItem(rigKey(name)) || 'null'); } catch (e) { saved = null; }
+  const saved = savedRig(name, kind);
   loadFile(bytes, name).then((f) => {
-    window.rigEditor = openEditor({ renderer, canvas, template: f.root, name, side: custom ? custom.handedness() : 'right', saved, onDone: (rig) => {
+    window.rigEditor = openEditor({ renderer, canvas, template: f.root, name, kind, side: custom ? custom.handedness() : 'right', saved, onDone: (rig) => {
       rigOpenNow = false; window.rigEditor = null;
       last = null; // the next frame lays the canvas out again
-      if (!rig) { for (const side of ['left', 'right']) customSlots[side].forEach((i) => { i.outer.visible = true; }); window.rigStatus = 'cancel'; return; }
-      try { localStorage.setItem(rigKey(name), JSON.stringify(rig)); } catch (e) { /* kept for this run only */ }
-      useModel(bytes, name, rig).then((st) => { window.modelStatus = st; window.rigStatus = `done:${st}`; })
+      if (!rig) { show(true); window.rigStatus = 'cancel'; return; }
+      try { localStorage.setItem(rigKey(name, kind), JSON.stringify(rig)); } catch (e) { /* kept for this run only */ }
+      if (kind === 'free') { show(true); freeRigGlb(bytes, name, rig); return; }
+      useModel(bytes, name, kind === 'hand' ? rig : savedRig(name, 'hand'), kind === 'body' ? rig : savedRig(name, 'body'))
+        .then((st) => { window.modelStatus = st; window.rigStatus = `done:${st}`; })
         .catch((e) => { window.rigStatus = `error:${e && e.message ? e.message : e}`; });
     } });
-  }).catch((e) => { rigOpenNow = false; window.rigStatus = `error:${e && e.message ? e.message : e}`; });
+  }).catch((e) => { rigOpenNow = false; show(true); window.rigStatus = `error:${e && e.message ? e.message : e}`; });
   return 'open';
 };
-window.rigForget = () => { if (rigSource) try { localStorage.removeItem(rigKey(rigSource.name)); } catch (e) { /* ignore */ } return 'ok'; };
+// Free rig: bones on the user's points in a fresh copy of the file, saved as a GLB (rigStatus 'glb:<note>').
+async function freeRigGlb(bytes, name, rig) {
+  try {
+    const f = await loadFile(bytes, name);
+    const r = applyFreeRig(f.root, rig);
+    const { GLTFExporter } = await import('three/examples/jsm/exporters/GLTFExporter.js');
+    const buf = await new Promise((ok, no) => new GLTFExporter().parse(f.root, ok, no, { binary: true }));
+    const u8 = new Uint8Array(buf); let bin = '';
+    for (let i = 0; i < u8.length; i += 0x8000) bin += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+    exportOut = btoa(bin); freeReady = `ok:free:${r.built}:0:${u8.length}`;
+    window.rigStatus = `glb:${r.note}`;
+  } catch (e) { window.rigStatus = `error:${e && e.message ? e.message : e}`; }
+}
+let freeReady = '';
+window.rigGlbBegin = () => { if (!freeReady) return 'error:만든 GLB가 없습니다'; window.exportStatus = freeReady; freeReady = ''; return 'working'; };
+window.rigForget = () => { if (rigSource) try { for (const k of ['hand', 'body', 'free']) localStorage.removeItem(rigKey(rigSource.name, k)); } catch (e) { /* ignore */ } return 'ok'; };
 function dropCustom() {
   for (const side of ['left', 'right']) customSlots[side].forEach((i) => scene.remove(i.outer));
   customSlots = { left: [], right: [] };

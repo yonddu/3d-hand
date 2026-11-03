@@ -63,7 +63,7 @@ function guideSvg(cur, side, placed) {
   // names of the current finger's points (wrist + its 4), same colours as the dots
   const f = cur === 0 ? -1 : Math.floor((cur - 1) / 4);
   const ids = f < 0 ? [0, 1, 5, 9, 13, 17] : [1, 2, 3, 4].map((k) => f * 4 + k);
-  const names = ids.map((i) => `<div data-i="${i}" style="padding:2px 0;"color:${hex(colorOf(i))};${i === cur ? 'font-weight:bold;font-size:13px' : 'opacity:.85'}">● ${i} ${POINTS[i][0]} <span style="opacity:.6">${POINTS[i][1]}</span></div>`).join('');
+  const names = ids.map((i) => `<div data-i="${i}" style="padding:2px 0;color:${hex(colorOf(i))};${i === cur ? 'font-weight:bold;font-size:13px' : 'opacity:.85'}">● ${i} ${POINTS[i][0]} <span style="opacity:.6">${POINTS[i][1]}</span></div>`).join('');
   return `<div style="background:rgba(0,0,0,.55);border-radius:8px;padding:4px;font:11px sans-serif;color:#fff">${g}${names}</div>`;
 }
 
@@ -166,6 +166,181 @@ function buildSkeleton(root, pts, side) {
   return { built: all.length, meshes: meshes.length };
 }
 
+// ---- body (MediaPipe Pose) and free points --------------------------------------------------
+
+// MediaPipe Pose points the body skin uses: [Pose index, 한국어, ENGLISH, where, role key].
+// "left" = the PERSON's (the model's own) left, as MediaPipe names it.
+export const BODY_POINTS = [
+  [0, '코', 'NOSE', '코끝. 머리가 어디를 보는지 잡는 점 (얼굴 겉면이어도 괜찮아요)', 'nose'],
+  [7, '왼쪽 귀', 'LEFT_EAR', '모델 자신의 왼쪽 귀 구멍, 머리 두께 안쪽', 'lEar'],
+  [8, '오른쪽 귀', 'RIGHT_EAR', '모델 자신의 오른쪽 귀 구멍, 머리 두께 안쪽', 'rEar'],
+  [11, '왼쪽 어깨', 'LEFT_SHOULDER', '왼팔이 몸통에 붙는 관절 중심 (어깨 두께 한가운데)', 'lSh'],
+  [12, '오른쪽 어깨', 'RIGHT_SHOULDER', '오른팔이 몸통에 붙는 관절 중심', 'rSh'],
+  [13, '왼쪽 팔꿈치', 'LEFT_ELBOW', '왼팔이 접히는 팔꿈치 관절 중심', 'lEl'],
+  [14, '오른쪽 팔꿈치', 'RIGHT_ELBOW', '오른팔 팔꿈치 관절 중심', 'rEl'],
+  [15, '왼쪽 손목', 'LEFT_WRIST', '왼손목 주름 한가운데', 'lWr'],
+  [16, '오른쪽 손목', 'RIGHT_WRIST', '오른손목 주름 한가운데', 'rWr'],
+  [23, '왼쪽 엉덩이', 'LEFT_HIP', '왼다리가 골반에 붙는 고관절. 허벅지 뿌리 한가운데 (사타구니 옆)', 'lHip'],
+  [24, '오른쪽 엉덩이', 'RIGHT_HIP', '오른다리 고관절. 허벅지 뿌리 한가운데', 'rHip'],
+  [25, '왼쪽 무릎', 'LEFT_KNEE', '왼무릎이 접히는 관절 중심 (무릎뼈 안쪽)', 'lKn'],
+  [26, '오른쪽 무릎', 'RIGHT_KNEE', '오른무릎 관절 중심', 'rKn'],
+  [27, '왼쪽 발목', 'LEFT_ANKLE', '왼발목 관절 중심 (복사뼈 높이)', 'lAn'],
+  [28, '오른쪽 발목', 'RIGHT_ANKLE', '오른발목 관절 중심', 'rAn'],
+  [31, '왼쪽 발끝', 'LEFT_FOOT_INDEX', '왼발 엄지발가락 끝', 'lFt'],
+  [32, '오른쪽 발끝', 'RIGHT_FOOT_INDEX', '오른발 엄지발가락 끝', 'rFt'],
+];
+const B = Object.fromEntries(BODY_POINTS.map((p, i) => [p[4], i]));
+const BODY_SEGS = [['lEar', 'nose'], ['rEar', 'nose'], ['lSh', 'rSh'], ['lSh', 'lEl'], ['lEl', 'lWr'], ['rSh', 'rEl'], ['rEl', 'rWr'],
+  ['lSh', 'lHip'], ['rSh', 'rHip'], ['lHip', 'rHip'], ['lHip', 'lKn'], ['lKn', 'lAn'], ['lAn', 'lFt'], ['rHip', 'rKn'], ['rKn', 'rAn'], ['rAn', 'rFt']]
+  .map(([a, b]) => [B[a], B[b]]);
+// colours: head white, left arm orange, right arm blue, left leg red, right leg purple
+const BODY_PART = ['head', 'head', 'head', 'la', 'ra', 'la', 'ra', 'la', 'ra', 'll', 'rl', 'll', 'rl', 'll', 'rl', 'll', 'rl'];
+const BODY_COL = { head: 0xffffff, la: 0xffb02e, ra: 0x3fa9ff, ll: 0xff5a5a, rl: 0xc77dff };
+const BODY_KO = { head: '머리', la: '왼팔', ra: '오른팔', ll: '왼다리', rl: '오른다리' };
+const bodyColor = (i) => BODY_COL[BODY_PART[i]];
+// front view (the person faces you: their LEFT is on your right)
+const BODY_GUIDE = [[.50,.08],[.57,.07],[.43,.07],[.65,.22],[.35,.22],[.74,.37],[.26,.37],[.80,.51],[.20,.51],
+  [.58,.52],[.42,.52],[.60,.71],[.40,.71],[.60,.89],[.40,.89],[.66,.96],[.34,.96]];
+function bodyGuideSvg(cur, placed) {
+  const W = 100, H = 170, P = (i) => [BODY_GUIDE[i][0] * W, BODY_GUIDE[i][1] * H];
+  let g = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="background:rgba(255,255,255,.08);border-radius:8px">`;
+  for (const [a, b] of BODY_SEGS) { const [x1, y1] = P(a), [x2, y2] = P(b); g += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${hex(bodyColor(b))}" stroke-width="2" opacity=".7"/>`; }
+  for (let i = 0; i < BODY_POINTS.length; i++) {
+    const [x, y] = P(i); const on = i === cur; const c = hex(bodyColor(i));
+    g += `<circle cx="${x}" cy="${y}" r="${on ? 7 : 4.5}" fill="${placed[i] ? c : '#222'}" stroke="${on ? '#fff' : c}" stroke-width="${on ? 2.5 : 1.5}"/>`;
+    g += `<circle data-i="${i}" cx="${x}" cy="${y}" r="10" fill="transparent"/>`;
+    g += `<text pointer-events="none" x="${x + 6}" y="${y - 4}" fill="${on ? '#fff' : '#bbb'}" font-size="${on ? 11 : 8}">${BODY_POINTS[i][0]}</text>`;
+  }
+  g += `<text x="3" y="${H - 3}" fill="#aaa" font-size="8">Pose 예시 (정면) · 채움=놓음</text></svg>`;
+  const part = BODY_PART[cur];
+  const names = BODY_POINTS.map((p, i) => i).filter((i) => BODY_PART[i] === part).map((i) => `<div data-i="${i}" style="padding:2px 0;color:${hex(bodyColor(i))};${i === cur ? 'font-weight:bold;font-size:13px' : 'opacity:.85'}">● ${BODY_POINTS[i][0]} ${BODY_POINTS[i][1]} <span style="opacity:.6">${BODY_POINTS[i][2]}</span></div>`).join('');
+  return `<div style="background:rgba(0,0,0,.55);border-radius:8px;padding:4px;font:11px sans-serif;color:#fff">${g}${names}</div>`;
+}
+const FREE_COL = [0xffffff, 0xff5a5a, 0xffb02e, 0x4cd964, 0x3fa9ff, 0xc77dff, 0xffe14d, 0x4de1d2];
+function freeGuideHtml(cur, pts, parents) {
+  const rows = pts.map((p, i) => `<div data-i="${i}" style="padding:3px 2px;color:${hex(FREE_COL[i % FREE_COL.length])};${i === cur ? 'font-weight:bold;font-size:13px;background:rgba(255,255,255,.12)' : 'opacity:.85'}">● 점 ${i + 1}${parents[i] >= 0 ? ` ← 점 ${parents[i] + 1}` : ' (뿌리)'}${p ? '' : ' · 비어 있음'}</div>`).join('');
+  return `<div style="background:rgba(0,0,0,.55);border-radius:8px;padding:6px;font:12px sans-serif;color:#fff;max-height:45vh;overflow:auto;min-width:120px">자유 점 (누르면 선택)<br>${rows}</div>`;
+}
+
+// Bones on given places (root space) with a parent per bone, and the skin bound to them (each
+// vertex to its nearest bone segments; a bone owns the segments to its children; a leaf its point).
+function bindBones(root, defs, scale) {
+  root.updateMatrixWorld(true);
+  const rootInv = root.matrixWorld.clone().invert();
+  const all = defs.map((d) => { const b = new THREE.Bone(); b.name = d.name; return b; });
+  defs.forEach((d, i) => {
+    const pp = d.parent >= 0 ? defs[d.parent].at : new THREE.Vector3();
+    all[i].position.copy(d.at).sub(pp);
+    (d.parent >= 0 ? all[d.parent] : root).add(all[i]);
+  });
+  const segs = [];
+  defs.forEach((d, i) => { const kids = defs.map((c, j) => (c.parent === i ? j : -1)).filter((j) => j >= 0); if (kids.length) kids.forEach((j) => segs.push({ bi: i, a: d.at, b: defs[j].at })); else segs.push({ bi: i, a: d.at, b: d.tail || d.at }); });
+  root.updateMatrixWorld(true);
+  const skeleton = new THREE.Skeleton(all);
+  const meshes = []; root.traverse((o) => { if (o.isMesh && !o.isSkinnedMesh) meshes.push(o); });
+  for (const mesh of meshes) {
+    const g = mesh.geometry; const pos = g.attributes.position; const n = pos.count;
+    const toRoot = rootInv.clone().multiply(mesh.matrixWorld);
+    const si = new Uint16Array(n * 4); const sw = new Float32Array(n * 4); const v = new THREE.Vector3();
+    for (let i = 0; i < n; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(toRoot);
+      const per = new Map(); for (const sg of segs) { const dd = segDist(v, sg.a, sg.b); if (!per.has(sg.bi) || per.get(sg.bi) > dd) per.set(sg.bi, dd); }
+      const list = [...per.entries()].map(([bi, dd]) => ({ bi, d: dd })).sort((a, b) => a.d - b.d).slice(0, 4);
+      const d0 = list[0].d; const blend = Math.max(0.06 * scale, d0 * 0.5);
+      let ws = list.map((x) => (x.d - d0 > blend ? 0 : Math.pow(1 - (x.d - d0) / blend, 2)));
+      const sum = ws.reduce((a, b) => a + b, 0) || 1; ws = ws.map((w) => w / sum);
+      list.forEach((x, k) => { si[i * 4 + k] = x.bi; sw[i * 4 + k] = ws[k]; });
+    }
+    const geo = g.clone();
+    geo.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(si, 4));
+    geo.setAttribute('skinWeight', new THREE.Float32BufferAttribute(sw, 4));
+    const sk = new THREE.SkinnedMesh(geo, mesh.material);
+    sk.name = mesh.name; sk.position.copy(mesh.position); sk.quaternion.copy(mesh.quaternion); sk.scale.copy(mesh.scale);
+    const parent = mesh.parent; parent.add(sk); parent.remove(mesh);
+    mesh.children.slice().forEach((c) => sk.add(c));
+    sk.updateMatrixWorld(true); sk.bind(skeleton, sk.matrixWorld); sk.frustumCulled = false;
+  }
+  return { built: all.length, meshes: meshes.length };
+}
+
+const mid = (a, b, t = 0.5) => a.clone().lerp(b, t);
+// Body rig: places of the humanoid roles from the Pose points (root space).
+function bodyPlaces(p) {
+  const hips = mid(p[B.lHip], p[B.rHip]); const neck = mid(p[B.lSh], p[B.rSh]);
+  const ears = mid(p[B.lEar], p[B.rEar]);
+  return { hips, spine: mid(hips, neck, 0.35), chest: mid(hips, neck, 0.7), neck, head: mid(neck, ears, 0.55), top: ears.clone().add(ears.clone().sub(neck).multiplyScalar(0.6)), torso: hips.distanceTo(neck) || 1 };
+}
+// A model with bones: each role takes the nearest bone (limbs first) -> VRM-style role map (nodes).
+function mapBodyBones(root, p) {
+  root.updateMatrixWorld(true);
+  const bones = bonesOf(root); const rootInv = root.matrixWorld.clone().invert();
+  const head = bones.map((b) => b.getWorldPosition(new THREE.Vector3()).applyMatrix4(rootInv));
+  const used = new Set(); const map = {}; const far = [];
+  const P = bodyPlaces(p);
+  const take = (role, at, label) => {
+    let best = -1; let bd = Infinity;
+    head.forEach((h, i) => { if (!used.has(i)) { const d = h.distanceTo(at); if (d < bd) { bd = d; best = i; } } });
+    if (best < 0) return; used.add(best); map[role] = bones[best];
+    if (bd > 0.25 * P.torso) far.push(label);
+  };
+  for (const [s, w, k] of [['l', 'left', '왼'], ['r', 'right', '오른']]) {
+    take(`${w}UpperArm`, p[B[`${s}Sh`]], `${k}쪽 어깨`); take(`${w}LowerArm`, p[B[`${s}El`]], `${k}쪽 팔꿈치`); take(`${w}Hand`, p[B[`${s}Wr`]], `${k}쪽 손목`);
+    take(`${w}UpperLeg`, p[B[`${s}Hip`]], `${k}쪽 엉덩이`); take(`${w}LowerLeg`, p[B[`${s}Kn`]], `${k}쪽 무릎`); take(`${w}Foot`, p[B[`${s}An`]], `${k}쪽 발목`);
+  }
+  take('hips', P.hips, '골반'); take('head', P.head, '머리');
+  // neck: on the head's own chain (the nearest bone to the shoulder middle is often a collarbone)
+  if (map.head) {
+    let o = map.head.parent; let best = null; let bd = Infinity;
+    while (o && o !== map.hips) { if (o.isBone) { const d = o.getWorldPosition(new THREE.Vector3()).applyMatrix4(rootInv).distanceTo(P.neck); if (d < bd) { bd = d; best = o; } } o = o.parent; }
+    if (best) map.neck = best; else take('neck', P.neck, '목');
+  } else take('neck', P.neck, '목');
+  // spine bones: between hips and neck on the bone tree
+  if (map.hips && map.neck) {
+    const path = []; let o = map.neck.parent;
+    while (o && o !== map.hips) { if (o.isBone) path.unshift(o); o = o.parent; }
+    if (o === map.hips) { const roles = ['spine', 'chest', 'upperChest']; path.slice(0, 3).forEach((b, i) => { map[roles[i]] = b; }); }
+  }
+  return { map, far };
+}
+// A model without bones: humanoid bones on the points (Mixamo names, so the body code finds them).
+function buildBody(root, p) {
+  const P = bodyPlaces(p);
+  const d = []; const add = (name, at, parent, tail) => { d.push({ name, at: at.clone(), parent, tail }); return d.length - 1; };
+  const hips = add('Hips', P.hips, -1); const spine = add('Spine', P.spine, hips); const chest = add('Spine1', P.chest, spine);
+  const neck = add('Neck', P.neck, chest); add('Head', P.head, neck, P.top);
+  for (const [s, w] of [['l', 'Left'], ['r', 'Right']]) {
+    const up = add(`${w}Arm`, p[B[`${s}Sh`]], chest); const lo = add(`${w}ForeArm`, p[B[`${s}El`]], up);
+    const wr = p[B[`${s}Wr`]]; add(`${w}Hand`, wr, lo, wr.clone().add(wr.clone().sub(p[B[`${s}El`]]).multiplyScalar(0.35)));
+    const ul = add(`${w}UpLeg`, p[B[`${s}Hip`]], hips); const ll = add(`${w}Leg`, p[B[`${s}Kn`]], ul);
+    const ft = add(`${w}Foot`, p[B[`${s}An`]], ll); add(`${w}ToeBase`, p[B[`${s}Ft`]], ft);
+  }
+  return bindBones(root, d, P.torso);
+}
+// Applies a body rig: { map: VRM-style role map | null (bones made: found by name), note }.
+export function applyBodyRig(root, rig) {
+  const p = rig.pts.map((q) => new THREE.Vector3(...q));
+  if (bonesOf(root).length >= 8) {
+    const r = mapBodyBones(root, p);
+    if (typeof window !== 'undefined') window.lastBodyRig = Object.fromEntries(Object.entries(r.map).map(([k, b]) => [k, b.name]));
+    return { map: r.map, note: `몸 리깅: Pose 점 17개 → 기존 뼈에 연결${r.far.length ? ` (멀리 떨어진 점: ${r.far.join(', ')})` : ''}` };
+  }
+  const b = buildBody(root, p);
+  return { map: null, note: `몸 리깅: 몸 뼈 ${b.built}개 새로 만들고 메시 ${b.meshes}개에 피부 연결` };
+}
+// Free rig: bones on the user's points (parent = the point it was added from), skin bound.
+export function applyFreeRig(root, rig) {
+  const at = rig.pts.map((q) => (q ? new THREE.Vector3(...q) : null));
+  const keep = at.map((q, i) => i).filter((i) => at[i]);
+  const idx = new Map(keep.map((i, k) => [i, k]));
+  const up = (i) => { let q = rig.parents[i]; while (q >= 0 && !at[q]) q = rig.parents[q]; return q; };
+  const defs = keep.map((i) => ({ name: `Bone_${i + 1}`, at: at[i], parent: up(i) >= 0 ? idx.get(up(i)) : -1 }));
+  // several roots: hang them under the first one
+  defs.forEach((d, k) => { if (k > 0 && d.parent < 0) d.parent = 0; });
+  const box = new THREE.Box3().setFromObject(root); const scale = box.getSize(new THREE.Vector3()).length() * 0.2 || 1;
+  const b = bindBones(root, defs, scale);
+  return { note: `기타 리깅: 뼈 ${b.built}개, 메시 ${b.meshes}개에 피부 연결`, built: b.built };
+}
+
 // Applies a rig to a loaded root. Returns { root (maybe changed in place), map | null, note }.
 export function applyRig(root, rig) {
   const pts = rig.pts.map((p) => new THREE.Vector3(...p));
@@ -180,7 +355,7 @@ export function applyRig(root, rig) {
 
 // ---- the editor -----------------------------------------------------------------------
 
-export function openEditor({ renderer, canvas, template, name, side, saved, onDone }) {
+export function openEditor({ renderer, canvas, template, name, side, saved, onDone, kind = 'hand' }) {
   let W = window.innerWidth; let H = window.innerHeight;
   Object.assign(canvas.style, { left: '0px', top: '0px', width: `${W}px`, height: `${H}px` });
   renderer.setSize(W, H, false);
@@ -204,12 +379,37 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
   place();
   const meshes = []; model.traverse((o) => { if (o.isMesh) { meshes.push(o); o.frustumCulled = false; (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => { m.transparent = true; m.opacity = 0.6; m.side = THREE.DoubleSide; }); } });
   const marker = size * 0.006; // half of v0.43 (user)
-  const pts = Array(21).fill(null); const dots = Array(21).fill(null);
+  const N0 = kind === 'body' ? BODY_POINTS.length : kind === 'free' ? 1 : 21;
+  const pts = Array(N0).fill(null); const dots = Array(N0).fill(null);
+  const parents = kind === 'free' ? [-1] : null; // free: each point hangs from the one it was added from
+  const N = () => pts.length;
   const lines = new THREE.Group(); model.add(lines);
   let side0 = side || 'right';
-  if (saved && saved.pts && saved.pts.length === 21) { saved.pts.forEach((p, i) => { pts[i] = new THREE.Vector3(...p); }); side0 = saved.side || side0; }
+  if (kind === 'free' && saved && saved.pts && saved.parents && saved.pts.length) {
+    pts.length = 0; dots.length = 0; parents.length = 0;
+    saved.pts.forEach((p, i) => { pts.push(p ? new THREE.Vector3(...p) : null); dots.push(null); parents.push(saved.parents[i]); });
+  } else if (saved && saved.pts && saved.pts.length === N0) { saved.pts.forEach((p, i) => { pts[i] = new THREE.Vector3(...p); }); side0 = saved.side || side0; }
+  // per kind: colour, lines, how big the markers can be, the example panel, the point's text
+  const colorAt = (i) => (kind === 'body' ? bodyColor(i) : kind === 'free' ? FREE_COL[i % FREE_COL.length] : colorOf(i));
+  const segList = () => {
+    if (kind === 'body') return BODY_SEGS;
+    if (kind === 'free') return parents.map((q, i) => [q, i]).filter(([q]) => q >= 0);
+    const a = []; for (const key of FINGER_KEYS) { const m = MP[key]; a.push([0, m[0]], [m[0], m[1]], [m[1], m[2]], [m[2], m[3]]); } return a;
+  };
+  const refLen = () => {
+    if (kind === 'body') return pts[B.lSh] && pts[B.lHip] ? pts[B.lSh].distanceTo(pts[B.lHip]) * 0.5 : 0;
+    if (kind === 'free') return 0;
+    return pts[0] && pts[9] ? pts[0].distanceTo(pts[9]) : 0;
+  };
+  const panelHtml = () => (kind === 'body' ? bodyGuideSvg(cur, pts) : kind === 'free' ? freeGuideHtml(cur, pts, parents) : guideSvg(cur, side0, pts));
+  const need = () => (kind === 'free' ? 2 : N());
+  const pointText = (i) => {
+    if (kind === 'body') { const [k, ko, en, where] = BODY_POINTS[i]; return { title: `점 ${k}: ${ko}`, en, where }; }
+    if (kind === 'free') return { title: `점 ${i + 1}`, en: parents[i] >= 0 ? `← 점 ${parents[i] + 1}에 이어짐` : '뿌리 뼈', where: '뼈가 꺾일 곳(관절)에 놓으세요. "새 점 추가"를 누르면 지금 점에 이어지는 다음 뼈가 생겨요' };
+    const [ko, en, where] = POINTS[i]; return { title: `점 ${i}: ${ko}`, en, where };
+  };
   let cur = pts.findIndex((p) => !p); if (cur < 0) cur = 0;
-  const palmLen = () => (pts[0] && pts[9] ? pts[0].distanceTo(pts[9]) : 0);
+  const palmLen = () => refLen();
   let framed = false; // zoom to the hand once the wrist and the middle root are placed
   const frameHand = () => {}; void framed;
 
@@ -221,7 +421,10 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
   const ui = document.createElement('div');
   Object.assign(ui.style, { position: 'absolute', left: '0', right: '0', bottom: '0', padding: '8px', background: 'rgba(0,0,0,.6)', color: '#fff', font: '15px sans-serif', zIndex: 5 });
   const head = document.createElement('div'); Object.assign(head.style, { position: 'absolute', left: '0', right: '0', top: '0', padding: '8px', background: 'rgba(0,0,0,.6)', color: '#fff', font: '13px sans-serif', zIndex: 5 });
-  head.innerHTML = '<b>점은 마디 중간이 아니라 관절(접히는 곳)에, 겉면이 아니라 손가락 두께 한가운데에 놓으세요.</b><br>' + '모델을 탭해서 점 놓기 · 화살표를 꾹 눌러 끌면 그 축으로 이동 · 빈 곳을 끌면 회전 · 두 손가락 벌리기=확대, 같이 밀기=화면 이동 · 화살표는 손가락보다 천천히(0.3배) 움직여요 · 놓은 점을 탭하면 그 점 고치기 · <b>오른쪽 예시에서 점을 눌러 찍을 점 고르기(순서 상관없음)</b>' + '<br>색: ' + FINGER_KO.map((n, k) => `<span style="color:${hex(COLORS[k])}">●</span>${n}`).join(' ');
+  const howTo = '탭=점 놓기 · 화살표 끌기=그 축으로 이동(0.3배) · 빈 곳 끌기=회전 · 두 손가락 벌리기=확대, 같이 밀기=화면 이동';
+  if (kind === 'body') head.innerHTML = '<b>몸 리깅 (MediaPipe Pose): 관절 중심, 팔다리 두께 한가운데에. 왼쪽 = 모델 자신의 왼쪽 (정면에서 보면 화면 오른쪽)</b><br>' + howTo + ' · 오른쪽 예시에서 점 고르기<br>색: ' + Object.keys(BODY_KO).map((k) => `<span style="color:${hex(BODY_COL[k])}">●</span>${BODY_KO[k]}`).join(' ');
+  else if (kind === 'free') head.innerHTML = '<b>기타 리깅: 찍은 점마다 뼈가 생겨요. "새 점 추가" = 지금 점에 이어지는 다음 뼈 (꼬리·날개·소품 등). 완료하면 뼈 넣은 GLB로 저장</b><br>' + howTo;
+  else head.innerHTML = '<b>점은 마디 중간이 아니라 관절(접히는 곳)에, 겉면이 아니라 손가락 두께 한가운데에 놓으세요.</b><br>' + howTo + ' · 놓은 점 탭=고치기 · 오른쪽 예시에서 점 고르기(순서 상관없음)<br>색: ' + FINGER_KO.map((n, k) => `<span style="color:${hex(COLORS[k])}">●</span>${n}`).join(' ');
   const label = document.createElement('div'); label.style.marginBottom = '6px';
   const row = document.createElement('div'); Object.assign(row.style, { display: 'flex', flexWrap: 'wrap', gap: '6px' });
   const btn = (t, f) => { const b = document.createElement('button'); b.textContent = t; Object.assign(b.style, { font: '15px sans-serif', padding: '8px 10px' }); b.onclick = f; row.appendChild(b); return b; };
@@ -231,11 +434,12 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
   ui.appendChild(label); ui.appendChild(row);
   document.body.appendChild(guide);
   document.body.appendChild(ui); document.body.appendChild(head);
-  btn('◀ 이전', () => select((cur + 20) % 21));
-  btn('다음 ▶', () => select((cur + 1) % 21));
+  btn('◀ 이전', () => select((cur + N() - 1) % N()));
+  btn('다음 ▶', () => select((cur + 1) % N()));
+  if (kind === 'free') btn('새 점 추가 (지금 점에 이어서)', () => { pts.push(null); dots.push(null); parents.push(pts[cur] ? cur : parents[cur]); select(pts.length - 1); });
   btn('화면 가운데로', () => { pan.set(0, 0, 0); });
   btn('이 점 지우기', () => { pts[cur] = null; redraw(); select(cur); });
-  const sideBtn = btn('', () => { side0 = side0 === 'left' ? 'right' : 'left'; sideBtn.textContent = side0 === 'left' ? '모델: 왼손' : '모델: 오른손'; drawLines(); });
+  const sideBtn = kind === 'hand' ? btn('', () => { side0 = side0 === 'left' ? 'right' : 'left'; sideBtn.textContent = side0 === 'left' ? '모델: 왼손' : '모델: 오른손'; drawLines(); }) : document.createElement('button');
   sideBtn.textContent = side0 === 'left' ? '모델: 왼손' : '모델: 오른손';
   const doneBtn = btn('완료', () => finish(true));
   btn('취소', () => finish(false));
@@ -244,25 +448,25 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
     dots.forEach((d) => d && model.remove(d));
     pts.forEach((p, i) => {
       if (!p) { dots[i] = null; return; }
-      const m = new THREE.Mesh(new THREE.SphereGeometry((palmLen() > 0 ? Math.min(marker, palmLen() * 0.025) : marker) * (i === cur ? 1.5 : 1), 12, 8), new THREE.MeshBasicMaterial({ color: colorOf(i), depthTest: false }));
+      const m = new THREE.Mesh(new THREE.SphereGeometry((palmLen() > 0 ? Math.min(marker, palmLen() * 0.025) : marker) * (i === cur ? 1.5 : 1), 12, 8), new THREE.MeshBasicMaterial({ color: colorAt(i), depthTest: false }));
       m.renderOrder = 10; m.position.copy(p); m.userData.point = i; model.add(m); dots[i] = m;
     });
     drawLines();
   }
   function drawLines() {
     lines.clear();
-    const seg = (a, b) => { if (!pts[a] || !pts[b]) return; const g = new THREE.BufferGeometry().setFromPoints([pts[a], pts[b]]); const l = new THREE.Line(g, new THREE.LineBasicMaterial({ color: colorOf(b), depthTest: false })); l.renderOrder = 9; lines.add(l); };
-    for (const key of FINGER_KEYS) { const m = MP[key]; seg(0, m[0]); seg(m[0], m[1]); seg(m[1], m[2]); seg(m[2], m[3]); }
+    const seg = (a, b) => { if (!pts[a] || !pts[b]) return; const g = new THREE.BufferGeometry().setFromPoints([pts[a], pts[b]]); const l = new THREE.Line(g, new THREE.LineBasicMaterial({ color: colorAt(b), depthTest: false })); l.renderOrder = 9; lines.add(l); };
+    for (const [a, b] of segList()) seg(a, b);
     const n = pts.filter(Boolean).length;
-    if (typeof guide !== 'undefined' && guide) { guide.innerHTML = guideSvg(cur, side0, pts); guide.style.top = (head.offsetHeight + 6) + 'px'; }
+    if (typeof guide !== 'undefined' && guide) { guide.innerHTML = panelHtml(); guide.style.top = (head.offsetHeight + 6) + 'px'; }
     if (!doneBtn) return;
-    doneBtn.disabled = n < 21; doneBtn.textContent = `완료 (${n}/21)`;
+    doneBtn.disabled = n < need(); doneBtn.textContent = kind === 'free' ? `완료 (점 ${n}개)` : `완료 (${n}/${N()})`;
   }
   function select(i) {
     cur = i; frameHand(); redraw();
-    const [ko, en, where] = POINTS[i];
-    guide.innerHTML = guideSvg(i, side0, pts); guide.style.top = (head.offsetHeight + 6) + 'px';
-    label.innerHTML = `<div><span style="color:${hex(colorOf(i))};font-size:20px">●</span> <b>점 ${i}: ${ko}</b> <span style="opacity:.7">${en}</span>${pts[i] ? ' · 놓임 (화살표로 조정, 다시 탭하면 옮김)' : ' · 모델을 탭하세요'}<br><span style="font-size:13px;opacity:.9">위치: ${where}</span></div>`;
+    const { title: ko, en, where } = pointText(i);
+    guide.innerHTML = panelHtml(); guide.style.top = (head.offsetHeight + 6) + 'px';
+    label.innerHTML = `<div><span style="color:${hex(colorAt(i))};font-size:20px">●</span> <b>${ko}</b> <span style="opacity:.7">${en}</span>${pts[i] ? ' · 놓임 (화살표로 조정, 다시 탭하면 옮김)' : ' · 모델을 탭하세요'}<br><span style="font-size:13px;opacity:.9">위치: ${where}</span></div>`;
     if (pts[i] && dots[i]) tc.attach(dots[i]); else tc.detach();
   }
   // Arrow drags move the point at FINE x the finger (the plain gizmo felt far too fast on a zoomed-in hand),
@@ -352,7 +556,9 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
     canvas.removeEventListener('pointerup', onUp); canvas.removeEventListener('pointercancel', onUp);
     ui.remove(); head.remove(); guide.remove();
     renderer.setClearColor(0x000000, 0);
-      const out = ok ? { side: side0, pts: pts.map((p) => p.toArray()) } : null; // model (template root) space
+      // model (template root) space
+      const out = !ok ? null : kind === 'free' ? { kind, pts: pts.map((p) => (p ? p.toArray() : null)), parents: parents.slice() }
+        : kind === 'body' ? { kind, pts: pts.map((p) => p.toArray()) } : { side: side0, pts: pts.map((p) => p.toArray()) };
     onDone(out);
   }
   // test hooks

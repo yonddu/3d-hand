@@ -61,6 +61,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var overlay: LandmarkOverlay
     private lateinit var handView: HandView
     private lateinit var rigButton: Button
+    private lateinit var bodyRigButton: Button
+    private lateinit var freeRigButton: Button
     private var modelFile = false // a skin file is loaded (it may still need its points: rig screen)
     private lateinit var status: TextView
     private lateinit var recordButton: Button
@@ -146,7 +148,7 @@ class MainActivity : ComponentActivity() {
                     modelButton.text = "손 모델 불러오는 중… (${bytes.size / 1024} KB)"
                     handView.loadModel(name, bytes) { result ->
                         modelButton.isEnabled = true
-                        modelFile = true; rigButton.visibility = android.view.View.VISIBLE
+                        modelFile = true; listOf(rigButton, bodyRigButton, freeRigButton).forEach { it.visibility = android.view.View.VISIBLE }
                         if (result.startsWith("ok:")) modelLoaded(result)
                         else {
                             modelButton.text = "스킨 빼기 (내 손 점만 보기)"
@@ -373,7 +375,7 @@ class MainActivity : ComponentActivity() {
             setOnClickListener {
                 if (customModel || modelFile) {
                     handView.resetModel(); customModel = false; modelFile = false; updateModelButtons()
-                    rigButton.visibility = android.view.View.GONE
+                    listOf(rigButton, bodyRigButton, freeRigButton).forEach { it.visibility = android.view.View.GONE }
                     sideButton.visibility = android.view.View.GONE
                     modelPanel.visibility = android.view.View.GONE
                     calButton.visibility = android.view.View.GONE
@@ -455,31 +457,46 @@ class MainActivity : ComponentActivity() {
         opts.addView(back, 0)
         optsButton.setOnClickListener { mainCol.visibility = android.view.View.GONE; optsScroll.visibility = android.view.View.VISIBLE; updateModelButtons() }
         back.setOnClickListener { optsScroll.visibility = android.view.View.GONE; mainCol.visibility = android.view.View.VISIBLE }
-        // Rig screen (its own screen, camera off): mark the 21 MediaPipe points on the skin.
-        rigButton = Button(this).apply {
-            text = "리깅 잡기 화면 (스킨에 손 점 21개 찍기)"; visibility = android.view.View.GONE
-            setOnClickListener {
-                if (recording || analysing) { Toast.makeText(this@MainActivity, "측정을 멈춘 뒤 열 수 있습니다", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
-                stopPoints(); handView.reviewStop(); handView.frozen = true
-                provider?.unbindAll()
-                val hidden = listOf<android.view.View>(title, this@MainActivity.status, buttons, this@MainActivity.preview, this@MainActivity.overlay, this@MainActivity.busyLabel)
-                val was = hidden.map { it.visibility }
-                hidden.forEach { it.visibility = android.view.View.GONE }
-                optsScroll.visibility = android.view.View.GONE; mainCol.visibility = android.view.View.VISIBLE
-                handView.postDelayed({
-                    handView.rigOpen { result ->
-                        hidden.forEachIndexed { i, v -> v.visibility = was[i] }
-                        handView.frozen = false
-                        when {
-                            result.startsWith("done:") -> { modelLoaded(result.removePrefix("done:")); Toast.makeText(this@MainActivity, "리깅 저장 (이 모델 파일에 기억)", Toast.LENGTH_LONG).show() }
-                            result.startsWith("error:") -> modelInfo.text = "리깅 실패: " + result.removePrefix("error:")
+        // Rig screens (their own screen, camera off): hand = MediaPipe's 21 hand points, body = MediaPipe
+        // Pose points, free = any points (bones made on them, saved as a rigged GLB).
+        /** Opens a rig screen ('hand' | 'body' | 'free') over the whole app; camera off while it is open. */
+        fun openRig(kind: String) {
+            if (recording || analysing) { Toast.makeText(this@MainActivity, "측정을 멈춘 뒤 열 수 있습니다", Toast.LENGTH_SHORT).show(); return }
+            stopPoints(); handView.reviewStop(); handView.frozen = true
+            provider?.unbindAll()
+            val hidden = listOf<android.view.View>(title, this@MainActivity.status, buttons, this@MainActivity.preview, this@MainActivity.overlay, this@MainActivity.busyLabel)
+            val was = hidden.map { it.visibility }
+            hidden.forEach { it.visibility = android.view.View.GONE }
+            optsScroll.visibility = android.view.View.GONE; mainCol.visibility = android.view.View.VISIBLE
+            handView.postDelayed({
+                handView.rigOpen(kind) { result ->
+                    hidden.forEachIndexed { i, v -> v.visibility = was[i] }
+                    handView.frozen = false
+                    when {
+                        result.startsWith("done:") -> { modelLoaded(result.removePrefix("done:")); Toast.makeText(this@MainActivity, "리깅 저장 (이 모델 파일에 기억)", Toast.LENGTH_LONG).show() }
+                        result.startsWith("glb:") -> handView.rigGlb { st, bytes ->
+                            if (bytes == null) modelInfo.text = "리깅 GLB 실패: " + st.removePrefix("error:") else {
+                                pendingGlb = bytes
+                                modelInfo.text = modelInfo.text.lines().first() + "\n" + result.removePrefix("glb:") + " · ${bytes.size / 1024} KB"
+                                saveGlbDocument.launch("rigged-${System.currentTimeMillis()}.glb")
+                            }
                         }
-                        startCamera()
+                        result.startsWith("error:") -> modelInfo.text = "리깅 실패: " + result.removePrefix("error:")
                     }
-                }, 250)
-            }
+                    startCamera()
+                }
+            }, 250)
         }
+        fun rigBtn(label: String, kind: String) = Button(this).apply {
+            text = label; visibility = android.view.View.GONE
+            setOnClickListener { openRig(kind) }
+        }
+        rigButton = rigBtn("손 리깅 잡기 (MediaPipe 손 점 21개)", "hand")
+        bodyRigButton = rigBtn("몸 리깅 잡기 (MediaPipe Pose 점 17개)", "body")
+        freeRigButton = rigBtn("기타 리깅 잡기 (자유롭게 점 찍기 → 뼈 넣은 GLB 저장)", "free")
         opts.addView(rigButton, opts.indexOfChild(sideButton) + 1)
+        opts.addView(bodyRigButton, opts.indexOfChild(rigButton) + 1)
+        opts.addView(freeRigButton, opts.indexOfChild(bodyRigButton) + 1)
         val note = TextView(this).apply {
             text = "기본 화면 = 내 손 (MediaPipe 점과 선) · 스킨 추가: 뼈가 있는 손 모델(GLB/FBX)을 불러오면 내 손 동작으로 뼈만 돌려 씌움 (텍스처 그대로)\n추적: 손 또는 몸 (몸 = MediaPipe Pose 33점, 전신 스킨(Mixamo/VRM)을 추가하면 팔·몸통·다리·머리가 따라 움직임) · 측정을 멈추면 녹화 영상을 처음부터 다시 분석해 보정한 동작을 보여줌"
             textSize = 12f
