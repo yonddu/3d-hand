@@ -425,3 +425,4 @@ not started. Retarget onto other skins is NOT proven visually (only equal bend n
 
 ## v0.63 (d796dec) — landscape app
 - User: portrait awkward, game is landscape. Manifest sensorLandscape; mainCol horizontal: stage left, 300 dp scrolling side column (title, step bar 2-line labels, status, guide, buttons vertical). Step 6 = hide side column + 16:9 game cam (no rotation). Rig editor landscape: ui right 300 px, guide top-left, camera.setViewOffset(+150 px). Camera analysis/video follow display rotation (existing code). Not phone-verified: check picture orientation and skin direction first.
+- v0.64 (67de522): user wanted buttons at the bottom: step bar top, view middle, bottom row = guide text + guide buttons + record/review/cal/options; rig editor compact bottom bar (13 px buttons), view offset removed.
