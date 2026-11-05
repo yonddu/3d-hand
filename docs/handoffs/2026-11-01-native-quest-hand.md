@@ -422,3 +422,6 @@ not started. Retarget onto other skins is NOT proven visually (only equal bend n
 
 ## 2026-11-03 quest.html (Quest teacher step 1)
 - Web repo root quest.html (Pages yonddu.github.io/3d-hand/quest.html): Quest Browser WebXR (immersive-ar passthrough, else vr), hand-tracking required, local-floor. Records <=60 fps: 25 joints [px,py,pz,qx,qy,qz,qw,radius] per hand + head pose + wall clock; pinch marks (thumb-index tip <1.5 cm close, >3 cm open) for phone sync; JSON download on session end (Meta button), format hms-quest-hands-1. Recording list doc https://claude.ai/artifact/X9vEFmKnj3Rur4MtaGiPhr. Not tried on a Quest yet (container cannot reach Pages).
+
+## v0.63 (d796dec) — landscape app
+- User: portrait awkward, game is landscape. Manifest sensorLandscape; mainCol horizontal: stage left, 300 dp scrolling side column (title, step bar 2-line labels, status, guide, buttons vertical). Step 6 = hide side column + 16:9 game cam (no rotation). Rig editor landscape: ui right 300 px, guide top-left, camera.setViewOffset(+150 px). Camera analysis/video follow display rotation (existing code). Not phone-verified: check picture orientation and skin direction first.
