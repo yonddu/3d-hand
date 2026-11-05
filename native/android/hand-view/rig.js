@@ -430,6 +430,9 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
   const size = box.getSize(new THREE.Vector3()).length() || 1; const center = box.getCenter(new THREE.Vector3());
   model.position.sub(center); // the model turns about its middle (points are kept in model space)
   const camera = new THREE.PerspectiveCamera(40, W / H, size / 200, size * 20);
+  // landscape: the right 300 px hold the buttons, so the view centres the model in the rest
+  const offsetView = () => { if (W > H) camera.setViewOffset(W, H, 150, 0, W, H); else camera.clearViewOffset(); };
+  offsetView();
   let dist = size * 1.4;
   // Look across the model's thinnest side (largest outline), e.g. at the palm of a flat hand.
   const ext = box.getSize(new THREE.Vector3());
@@ -494,6 +497,13 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
   // tap a dot (or a name) in the example to choose which point to place/fix next: any order
   guide.addEventListener('pointerdown', (e) => { e.stopPropagation(); const t = e.target.closest('[data-i]'); if (t) select(+t.dataset.i); });
   ui.appendChild(label); ui.appendChild(row);
+  // landscape (v0.63 app is landscape): text and buttons in a right-hand column, example panel top-left,
+  // so the model keeps the whole height
+  if (window.innerWidth > window.innerHeight) {
+    Object.assign(ui.style, { left: 'auto', top: '0', width: '300px', overflowY: 'auto', boxSizing: 'border-box' });
+    Object.assign(head.style, { right: '300px', font: '12px sans-serif', padding: '4px 8px' });
+    Object.assign(guide.style, { right: 'auto', left: '6px' });
+  }
   document.body.appendChild(guide);
   document.body.appendChild(ui); document.body.appendChild(head);
   const stepPt = (d) => { if (kind !== 'hand') return (cur + N() + d) % N(); const j = HAND_TAP.indexOf(cur); return HAND_TAP[((j < 0 ? 0 : j) + d + HAND_TAP.length) % HAND_TAP.length]; };
@@ -689,7 +699,7 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
     const at = target.clone().add(pan); camera.position.set(at.x, at.y, at.z + dist); camera.lookAt(at);
     renderer.render(scene, camera); raf = requestAnimationFrame(loop);
   };
-  const onResize = () => { W = window.innerWidth; H = window.innerHeight; Object.assign(canvas.style, { width: `${W}px`, height: `${H}px` }); renderer.setSize(W, H, false); camera.aspect = W / H; camera.updateProjectionMatrix(); };
+  const onResize = () => { W = window.innerWidth; H = window.innerHeight; Object.assign(canvas.style, { width: `${W}px`, height: `${H}px` }); renderer.setSize(W, H, false); camera.aspect = W / H; offsetView(); camera.updateProjectionMatrix(); };
   window.addEventListener('resize', onResize);
   loop();
   select(cur);
