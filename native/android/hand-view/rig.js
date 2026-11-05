@@ -431,7 +431,7 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
   model.position.sub(center); // the model turns about its middle (points are kept in model space)
   const camera = new THREE.PerspectiveCamera(40, W / H, size / 200, size * 20);
   // landscape: the right 300 px hold the buttons, so the view centres the model in the rest
-  const offsetView = () => { if (W > H) camera.setViewOffset(W, H, 150, 0, W, H); else camera.clearViewOffset(); };
+  const offsetView = () => {}; // v0.63 right column is gone (buttons at the bottom again)
   offsetView();
   let dist = size * 1.4;
   // Look across the model's thinnest side (largest outline), e.g. at the palm of a flat hand.
@@ -492,17 +492,17 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
   else head.innerHTML = '<b>손목, 손가락 뿌리 5개, 손가락 끝 5개만 찍으세요 (11점). 가운데 관절은 자동으로 놓여요.</b><br>' + howTo + ' · 놓은 점 탭=고치기 · 오른쪽 예시에서 점 고르기(순서 상관없음)<br>색: ' + FINGER_KO.map((n, k) => `<span style="color:${hex(COLORS[k])}">●</span>${n}`).join(' ');
   const label = document.createElement('div'); label.style.marginBottom = '6px';
   const row = document.createElement('div'); Object.assign(row.style, { display: 'flex', flexWrap: 'wrap', gap: '6px' });
-  const btn = (t, f) => { const b = document.createElement('button'); b.textContent = t; Object.assign(b.style, { font: '15px sans-serif', padding: '8px 10px' }); b.onclick = f; row.appendChild(b); return b; };
+  const btn = (t, f) => { const b = document.createElement('button'); b.textContent = t; Object.assign(b.style, window.innerWidth > window.innerHeight ? { font: '13px sans-serif', padding: '5px 8px' } : { font: '15px sans-serif', padding: '8px 10px' }); b.onclick = f; row.appendChild(b); return b; };
   const guide = document.createElement('div'); Object.assign(guide.style, { position: 'absolute', right: '6px', top: '96px', zIndex: 5 });
   // tap a dot (or a name) in the example to choose which point to place/fix next: any order
   guide.addEventListener('pointerdown', (e) => { e.stopPropagation(); const t = e.target.closest('[data-i]'); if (t) select(+t.dataset.i); });
   ui.appendChild(label); ui.appendChild(row);
-  // landscape (v0.63 app is landscape): text and buttons in a right-hand column, example panel top-left,
-  // so the model keeps the whole height
+  // landscape (v0.63 app is landscape; v0.64 user: buttons at the bottom): one compact bottom bar,
+  // short header, example panel top-right as before
   if (window.innerWidth > window.innerHeight) {
-    Object.assign(ui.style, { left: 'auto', top: '0', width: '300px', overflowY: 'auto', boxSizing: 'border-box' });
-    Object.assign(head.style, { right: '300px', font: '12px sans-serif', padding: '4px 8px' });
-    Object.assign(guide.style, { right: 'auto', left: '6px' });
+    Object.assign(ui.style, { padding: '4px 6px', font: '13px sans-serif' });
+    Object.assign(head.style, { font: '11px sans-serif', padding: '3px 8px' });
+    label.style.marginBottom = '3px'; row.style.gap = '4px';
   }
   document.body.appendChild(guide);
   document.body.appendChild(ui); document.body.appendChild(head);

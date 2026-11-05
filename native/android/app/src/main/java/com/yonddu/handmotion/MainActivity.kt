@@ -83,7 +83,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var rootCol: LinearLayout
     private lateinit var mainColV: LinearLayout
     private lateinit var stageV: FrameLayout
-    private lateinit var sideScroll: android.widget.ScrollView
+    private lateinit var sideScroll: android.view.View // bottom controls
+    private lateinit var topRowV: android.view.View // title + step bar
     private var wideExit: android.view.View? = null
     private var wideHidden: List<Pair<android.view.View, Int>> = emptyList()
     private lateinit var sideButton: Button
@@ -292,7 +293,7 @@ class MainActivity : ComponentActivity() {
         stepBar = LinearLayout(this).apply { gravity = Gravity.CENTER }
         listOf("스킨", "리깅", "편 손", "측정", "재생", "게임", "저장").forEachIndexed { i, name ->
             stepBar.addView(TextView(this).apply {
-                text = "${i + 1}\n$name"; textSize = 11f; gravity = Gravity.CENTER; setPadding(2, 8, 2, 8)
+                text = "${i + 1} $name"; textSize = 12f; gravity = Gravity.CENTER; setPadding(2, 6, 2, 6)
                 setOnClickListener { goStep(i + 1) }
             }, LinearLayout.LayoutParams(0, -2, 1f))
         }
@@ -301,10 +302,11 @@ class MainActivity : ComponentActivity() {
         guideMain = Button(this).apply { textSize = 16f; setOnClickListener { guideAction(true) } }
         guideAlt = Button(this).apply { setOnClickListener { guideAction(false) } }
         mainCol.addView(guideText)
-        mainCol.addView(LinearLayout(this).apply {
+        val guideRow = LinearLayout(this).apply {
             gravity = Gravity.CENTER
             addView(guideMain, LinearLayout.LayoutParams(0, -2, 2f)); addView(guideAlt, LinearLayout.LayoutParams(0, -2, 1f))
-        })
+        }
+        mainCol.addView(guideRow)
         val buttons = LinearLayout(this).apply { gravity = Gravity.CENTER }
         recordButton = Button(this).apply {
             text = "측정 시작"; isEnabled = false
@@ -521,7 +523,7 @@ class MainActivity : ComponentActivity() {
             if (recording || analysing) { Toast.makeText(this@MainActivity, "측정을 멈춘 뒤 열 수 있습니다", Toast.LENGTH_SHORT).show(); return }
             stopPoints(); handView.reviewStop(); handView.frozen = true
             provider?.unbindAll()
-            val hidden = listOf<android.view.View>(title, this@MainActivity.sideScroll, this@MainActivity.status, buttons, this@MainActivity.preview, this@MainActivity.overlay, this@MainActivity.busyLabel)
+            val hidden = listOf<android.view.View>(title, this@MainActivity.sideScroll, this@MainActivity.topRowV, this@MainActivity.status, buttons, this@MainActivity.preview, this@MainActivity.overlay, this@MainActivity.busyLabel)
             val was = hidden.map { it.visibility }
             hidden.forEach { it.visibility = android.view.View.GONE }
             optsScroll.visibility = android.view.View.GONE; mainCol.visibility = android.view.View.VISIBLE
@@ -560,18 +562,29 @@ class MainActivity : ComponentActivity() {
             textSize = 12f
         }
         opts.addView(note)
-        // Landscape app (user, v0.63: portrait was awkward, and the game screen is landscape): the
-        // camera / skin view on the left, the steps and buttons in a scrolling column on the right.
-        val side = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(12, 0, 0, 0) }
-        root.removeView(title); side.addView(title)
-        val moved = (0 until mainCol.childCount).map { mainCol.getChildAt(it) }.filter { it !== stage }
-        moved.forEach { mainCol.removeView(it); side.addView(it) }
-        buttons.orientation = LinearLayout.VERTICAL
-        mainCol.orientation = LinearLayout.HORIZONTAL
-        mainCol.removeView(stage)
-        mainCol.addView(stage, LinearLayout.LayoutParams(0, -1, 1f))
-        sideScroll = android.widget.ScrollView(this).apply { addView(side) }
-        mainCol.addView(sideScroll, LinearLayout.LayoutParams((resources.displayMetrics.density * 300).toInt(), -1))
+        // Landscape app (user, v0.63: portrait was awkward, the game screen is landscape; v0.64: buttons
+        // at the bottom): step bar on top, camera / skin view in the middle, the guide and the buttons
+        // in one row at the bottom.
+        (0 until mainCol.childCount).map { mainCol.getChildAt(it) }.forEach { mainCol.removeView(it) }
+        root.removeView(title)
+        title.textSize = 11f
+        val topRow = LinearLayout(this).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            addView(title, LinearLayout.LayoutParams(-2, -2)); addView(stepBar, LinearLayout.LayoutParams(0, -2, 1f))
+        }
+        guideRow.removeAllViews()
+        guideText.textSize = 12f; guideText.maxLines = 2
+        val bottomRow = LinearLayout(this).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            addView(guideText, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(guideMain, LinearLayout.LayoutParams(-2, -2)); addView(guideAlt, LinearLayout.LayoutParams(-2, -2))
+            addView(buttons, LinearLayout.LayoutParams(-2, -2))
+        }
+        val bottomBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; addView(modelPanel); addView(status); addView(bottomRow) }
+        mainCol.addView(topRow)
+        mainCol.addView(stage, LinearLayout.LayoutParams(-1, 0, 1f))
+        mainCol.addView(bottomBox)
+        sideScroll = bottomBox; topRowV = topRow
         root.addView(mainCol, LinearLayout.LayoutParams(-1, 0, 1f))
         root.addView(optsScroll, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
@@ -585,7 +598,7 @@ class MainActivity : ComponentActivity() {
     private fun showStep() {
         for (i in 0 until stepBar.childCount) {
             val v = stepBar.getChildAt(i) as TextView; val n = i + 1
-            v.text = (if (n in doneSteps) "✓\n" else "${n}\n") + listOf("스킨", "리깅", "편 손", "측정", "재생", "게임", "저장")[i]
+            v.text = (if (n in doneSteps) "✓ " else "${n} ") + listOf("스킨", "리깅", "편 손", "측정", "재생", "게임", "저장")[i]
             v.setTextColor(if (n == step) android.graphics.Color.WHITE else if (n in doneSteps) android.graphics.Color.rgb(120, 200, 140) else android.graphics.Color.GRAY)
             v.setBackgroundColor(if (n == step) android.graphics.Color.rgb(40, 90, 170) else android.graphics.Color.TRANSPARENT)
         }
