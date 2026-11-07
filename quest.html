@@ -21,7 +21,7 @@
 </head>
 <body>
 <main>
-  <h1>Quest 손 기록 (학습 정답용)</h1>
+  <h1>Quest 손 기록 (학습 정답용) <small style="font-size:13px;color:#9aa4ae">v2</small></h1>
   <p>Quest 3 손 추적으로 손 관절 25개(위치·회전)를 매 프레임 기록해요. 휴대폰 앱 측정과 <b>동시에</b> 쓰세요.</p>
   <ol>
     <li>컨트롤러를 내려놓고, 아래 <b>테이크 이름</b>을 적어요 (예: B1_천천히).</li>
@@ -141,21 +141,44 @@ function listTakes() {
   });
 }
 
+// requestSession must run straight from the tap (a browser needs the user's gesture): no await before it.
+// The mode is chosen when the page loads; if a session with hand tracking as required fails, try it
+// as optional, then the other mode.
+let MODE = 'immersive-vr';
+const errText = (e) => (e && (e.name || e.message) ? `${e.name || ''} ${e.message || ''}`.trim() : String(e));
+async function openSession() {
+  const tries = [
+    [MODE, { requiredFeatures: ['hand-tracking'], optionalFeatures: ['local-floor'] }],
+    [MODE, { optionalFeatures: ['hand-tracking', 'local-floor'] }],
+    [MODE === 'immersive-ar' ? 'immersive-vr' : 'immersive-ar', { optionalFeatures: ['hand-tracking', 'local-floor'] }],
+  ];
+  const errs = [];
+  const first = navigator.xr.requestSession(tries[0][0], tries[0][1]); // called synchronously in the tap
+  try { return { session: await first, mode: tries[0][0] }; } catch (e) { errs.push(`${tries[0][0]}: ${errText(e)}`); }
+  for (const [m, o] of tries.slice(1)) {
+    try { return { session: await navigator.xr.requestSession(m, o), mode: m }; } catch (e) { errs.push(`${m}: ${errText(e)}`); }
+  }
+  throw new Error(errs.join('\n'));
+}
 async function start() {
-  const xr = navigator.xr;
-  const mode = (await xr.isSessionSupported('immersive-ar').catch(() => false)) ? 'immersive-ar' : 'immersive-vr';
-  let session;
+  let session; let mode;
   try {
-    session = await xr.requestSession(mode, { requiredFeatures: ['hand-tracking'], optionalFeatures: ['local-floor'] });
+    ({ session, mode } = await openSession());
   } catch (e) {
-    say('기록 시작 실패: ' + (e && e.message ? e.message : e) + '\n손 추적이 꺼져 있으면 Quest 설정 > 움직임 추적 > 손 추적을 켜 주세요.');
+    say('기록 시작 실패:\n' + (e && e.message ? e.message : e) + '\n\n손 추적이 꺼져 있으면 Quest 설정 > 움직임 추적 > 손 추적(Hand tracking)을 켜 주세요. 이 문구를 그대로 보내 주세요.');
     return;
   }
-  renderer.xr.setReferenceSpaceType('local-floor');
-  await renderer.xr.setSession(session);
+  const hasHands = !session.enabledFeatures || session.enabledFeatures.includes('hand-tracking');
+  let refType = 'local-floor';
+  if (session.enabledFeatures && !session.enabledFeatures.includes('local-floor')) refType = 'local';
+  renderer.xr.setReferenceSpaceType(refType);
+  try { await renderer.xr.setSession(session); } catch (e) {
+    renderer.xr.setReferenceSpaceType('local');
+    try { await renderer.xr.setSession(session); } catch (e2) { say('XR 화면 시작 실패: ' + errText(e2)); session.end().catch(() => {}); return; }
+  }
   take = { name: (nameEl.value || 'take').replace(/[^\w가-힣.-]+/g, '_'), startWall: Date.now(), frames: [], pinches: [], mode };
   lastSave = 0;
-  say(`기록 중 (${mode === 'immersive-ar' ? '패스스루' : 'VR'}) · Meta 버튼으로 나오면 저장돼요`);
+  say(`기록 중 (${mode === 'immersive-ar' ? '패스스루' : 'VR'}${hasHands ? '' : ' · 손 추적 기능이 안 켜졌을 수 있음'}) · Meta 버튼으로 나오면 저장돼요`);
   session.addEventListener('end', () => {
     const t = take; take = null;
     if (!t || !t.frames.length) { say('손이 한 번도 잡히지 않아 저장할 게 없어요. 컨트롤러를 내려놓고 손을 앞에 보여주세요.'); return; }
@@ -174,6 +197,7 @@ renderer.setAnimationLoop(onFrame);
   const ar = await navigator.xr.isSessionSupported('immersive-ar').catch(() => false);
   const vr = await navigator.xr.isSessionSupported('immersive-vr').catch(() => false);
   if (!ar && !vr) { say('이 기기는 몰입형 WebXR을 지원하지 않아요. Quest 브라우저로 열어 주세요.'); startBtn.disabled = true; return; }
+  MODE = ar ? 'immersive-ar' : 'immersive-vr';
   say(`준비됨 (${ar ? '패스스루 AR' : 'VR'}). 테이크 이름을 적고 기록 시작을 누르세요.`);
   startBtn.onclick = () => { startBtn.disabled = true; start().finally(() => { startBtn.disabled = false; }); };
 })();
