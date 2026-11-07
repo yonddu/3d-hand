@@ -21,7 +21,7 @@
 </head>
 <body>
 <main>
-  <h1>Quest 손 기록 (학습 정답용) <small style="font-size:13px;color:#9aa4ae">v2</small></h1>
+  <h1>Quest 손 기록 (학습 정답용) <small style="font-size:13px;color:#9aa4ae">v3</small></h1>
   <p>Quest 3 손 추적으로 손 관절 25개(위치·회전)를 매 프레임 기록해요. 휴대폰 앱 측정과 <b>동시에</b> 쓰세요.</p>
   <ol>
     <li>컨트롤러를 내려놓고, 아래 <b>테이크 이름</b>을 적어요 (예: B1_천천히).</li>
@@ -146,14 +146,19 @@ function listTakes() {
 // as optional, then the other mode.
 let MODE = 'immersive-vr';
 const errText = (e) => (e && (e.name || e.message) ? `${e.name || ''} ${e.message || ''}`.trim() : String(e));
+// A session left open (an earlier try, another tab) blocks a new one ("immersive web experience still
+// running in the background"): end ours first, and end it when the page goes away.
+let activeSession = null;
+addEventListener('pagehide', () => { if (activeSession) activeSession.end().catch(() => {}); });
 async function openSession() {
+  if (activeSession) { try { await activeSession.end(); } catch (e) { /* already over */ } activeSession = null; }
   const tries = [
     [MODE, { requiredFeatures: ['hand-tracking'], optionalFeatures: ['local-floor'] }],
     [MODE, { optionalFeatures: ['hand-tracking', 'local-floor'] }],
     [MODE === 'immersive-ar' ? 'immersive-vr' : 'immersive-ar', { optionalFeatures: ['hand-tracking', 'local-floor'] }],
   ];
   const errs = [];
-  const first = navigator.xr.requestSession(tries[0][0], tries[0][1]); // called synchronously in the tap
+  const first = navigator.xr.requestSession(tries[0][0], tries[0][1]); // called synchronously in the tap (when no old session)
   try { return { session: await first, mode: tries[0][0] }; } catch (e) { errs.push(`${tries[0][0]}: ${errText(e)}`); }
   for (const [m, o] of tries.slice(1)) {
     try { return { session: await navigator.xr.requestSession(m, o), mode: m }; } catch (e) { errs.push(`${m}: ${errText(e)}`); }
@@ -168,6 +173,8 @@ async function start() {
     say('기록 시작 실패:\n' + (e && e.message ? e.message : e) + '\n\n손 추적이 꺼져 있으면 Quest 설정 > 움직임 추적 > 손 추적(Hand tracking)을 켜 주세요. 이 문구를 그대로 보내 주세요.');
     return;
   }
+  activeSession = session;
+  session.addEventListener('end', () => { if (activeSession === session) activeSession = null; });
   const hasHands = !session.enabledFeatures || session.enabledFeatures.includes('hand-tracking');
   let refType = 'local-floor';
   if (session.enabledFeatures && !session.enabledFeatures.includes('local-floor')) refType = 'local';
