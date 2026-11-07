@@ -22,7 +22,7 @@
 </head>
 <body>
 <main>
-  <h1>Quest 손 기록 (학습 정답용) <small style="font-size:13px;color:#9aa4ae">v5</small></h1>
+  <h1>Quest 손 기록 (학습 정답용) <small style="font-size:13px;color:#9aa4ae">v6</small></h1>
   <p>Quest 3 손 추적으로 손 관절 25개(위치·회전)를 매 프레임 기록해요. 휴대폰 앱 측정과 <b>동시에</b> 쓰세요.</p>
   <ol>
     <li>컨트롤러를 내려놓고, 아래 <b>테이크 이름</b>을 적어요 (예: B1_천천히).</li>
@@ -82,14 +82,18 @@ const r4 = (v) => Math.round(v * 1e4) / 1e4;
 const r5 = (v) => Math.round(v * 1e5) / 1e5;
 
 // In-headset panel: frames, hands, pinches and the last error, so a problem shows while wearing it.
-const panelCanvas = document.createElement('canvas'); panelCanvas.width = 512; panelCanvas.height = 160;
+const panelCanvas = document.createElement('canvas'); panelCanvas.width = 512; panelCanvas.height = 200;
 const panelTex = new THREE.CanvasTexture(panelCanvas);
-const panel = new THREE.Mesh(new THREE.PlaneGeometry(0.32, 0.1), new THREE.MeshBasicMaterial({ map: panelTex, transparent: true, depthTest: false }));
+const panel = new THREE.Mesh(new THREE.PlaneGeometry(0.32, 0.125), new THREE.MeshBasicMaterial({ map: panelTex, transparent: true, depthTest: false }));
 panel.renderOrder = 10; panel.visible = false; scene.add(panel);
-let panelPlaced = false; let lastErr = ''; let errCount = 0; let tick = 0; let vis = '';
+// something to see in VR (else the view is all black): floor grid and a cube placed 1 m ahead at start
+const grid = new THREE.GridHelper(4, 16, 0x557799, 0x334455); grid.visible = false; scene.add(grid);
+const cube = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1), new THREE.MeshNormalMaterial()); cube.visible = false; scene.add(cube);
+const tmpQ = new THREE.Quaternion(); const tmpV = new THREE.Vector3();
+let panelPlaced = false; let lastErr = ''; let errCount = 0; let tick = 0; let vis = ''; let inputs = '';
 function drawPanel(lines) {
   const g = panelCanvas.getContext('2d');
-  g.clearRect(0, 0, 512, 160); g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillRect(0, 0, 512, 160);
+  g.clearRect(0, 0, 512, 200); g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillRect(0, 0, 512, 200);
   g.fillStyle = '#fff'; g.font = '28px sans-serif';
   lines.forEach((t, i) => { g.fillStyle = i === lines.length - 1 && errCount ? '#ff8a80' : '#fff'; g.fillText(t, 14, 40 + i * 38); });
   panelTex.needsUpdate = true;
@@ -102,12 +106,16 @@ function onFrame(time, frame) {
 function onFrameBody(time, frame) {
   if (frame && take) {
     tick++;
-    if (!panelPlaced) {
-      const vp0 = frame.getViewerPose(renderer.xr.getReferenceSpace());
-      if (vp0) { const p = vp0.transform.position; const q = vp0.transform.orientation;
-        const fwd = new THREE.Vector3(0, -0.25, -0.7).applyQuaternion(new THREE.Quaternion(q.x, q.y, q.z, q.w));
-        panel.position.set(p.x + fwd.x, p.y + fwd.y, p.z + fwd.z); panel.quaternion.set(q.x, q.y, q.z, q.w); panel.visible = true; panelPlaced = true; }
-    }
+    // the panel follows the head (always in view), 0.6 m ahead and a little down
+    { const vp0 = frame.getViewerPose(renderer.xr.getReferenceSpace());
+      if (vp0) { const p = vp0.transform.position; const q = vp0.transform.orientation; tmpQ.set(q.x, q.y, q.z, q.w);
+        tmpV.set(0, -0.12, -0.6).applyQuaternion(tmpQ).add(new THREE.Vector3(p.x, p.y, p.z));
+        if (!panelPlaced) { panel.position.copy(tmpV); panel.quaternion.copy(tmpQ);
+          if (take && take.mode === 'immersive-vr') { grid.visible = true; grid.position.set(p.x, 0, p.z); cube.visible = true; cube.position.copy(new THREE.Vector3(0, 0, -1).applyQuaternion(tmpQ).add(new THREE.Vector3(p.x, p.y, p.z))); }
+          panel.visible = true; panelPlaced = true; }
+        else { panel.position.lerp(tmpV, 0.15); panel.quaternion.slerp(tmpQ, 0.15); }
+        if (tick % 15 === 1) { let nh = 0, nc = 0; for (const src of frame.session.inputSources) { if (src.hand) nh++; else nc++; } inputs = `입력: 손 ${nh} · 컨트롤러 ${nc}`; } } }
+    cube.rotation.y += 0.02;
     const ref = renderer.xr.getReferenceSpace();
     const session = frame.session;
     const hands = {};
@@ -145,7 +153,7 @@ function onFrameBody(time, frame) {
       const head = vp ? (() => { const p = vp.transform.position; const q = vp.transform.orientation; return [r5(p.x), r5(p.y), r5(p.z), r4(q.x), r4(q.y), r4(q.z), r4(q.w)]; })() : null;
       take.frames.push({ t: Math.round(time * 10) / 10, wall: Date.now(), head, hands });
     }
-    if (tick % 15 === 0) drawPanel([`기록 중 · ${take.frames.length} 프레임${vis && vis !== 'visible' ? ' · ' + vis : ''}`, `손: ${hands.left ? '왼손 ' : ''}${hands.right ? '오른손' : ''}${!hands.left && !hands.right ? '안 보임' : ''} · 핀치 ${take.pinches.length}`, errCount ? `오류 ${errCount}: ${lastErr.slice(0, 30)}` : '오류 없음']);
+    if (tick % 15 === 0) drawPanel([`기록 중 · ${take.frames.length} 프레임${vis && vis !== 'visible' ? ' · ' + vis : ''}`, `손: ${hands.left ? '왼손 ' : ''}${hands.right ? '오른손' : ''}${!hands.left && !hands.right ? '안 보임' : ''} · 핀치 ${take.pinches.length}`, inputs || '입력: -', errCount ? `오류 ${errCount}: ${lastErr.slice(0, 30)}` : '오류 없음 · 끝: Meta 버튼']);
   }
 }
 
@@ -222,7 +230,7 @@ async function start(forceMode) {
   lastSave = 0;
   say(`기록 중 (${mode === 'immersive-ar' ? '패스스루' : 'VR'}${hasHands ? '' : ' · 손 추적 기능이 안 켜졌을 수 있음'}) · Meta 버튼으로 나오면 저장돼요`);
   session.addEventListener('end', () => {
-    const t = take; take = null; panel.visible = false;
+    const t = take; take = null; panel.visible = false; grid.visible = false; cube.visible = false;
     if (t) t.errors = { count: errCount, last: lastErr };
     const hidden = visLog.filter((x) => x.state !== 'visible').map((x) => `${(x.t / 1000).toFixed(1)}초 ${x.state}`).join(', ');
     if (!t || !t.frames.length) { say('손이 한 번도 잡히지 않아 저장할 게 없어요. 컨트롤러를 내려놓고 손을 앞에 보여주세요.' + (hidden ? `\n화면 상태: ${hidden}` : '')); return; }
