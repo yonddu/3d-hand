@@ -6,10 +6,11 @@
 //    * a model with bones: each point takes the nearest bone (bone head), so a rig whose bone
 //      names the app does not know can be driven (map kept per model file);
 //    * a model without bones (AI meshes): bones are made on the points (Mixamo names) and the
-//      skin is bound to them (each vertex to its nearest bone segments).
+//      skin is bound to them (weights by distance along the skin, weights.js).
 import * as THREE from 'three';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { surfaceWeights } from './weights.js';
 
 export const POINTS = [
   ['손목', 'WRIST', '손목 주름 한가운데, 손목이 꺾이는 관절 중심'],
@@ -170,6 +171,29 @@ function segDist(p, a, b) {
   return p.distanceTo(a.clone().addScaledVector(ab, t));
 }
 
+// Skin weights of one mesh (root space): surface distance (weights.js); window.HMS_OLDWEIGHT = the
+// old straight-line nearest bone (kept for comparison tests).
+function skinWeights(pos, index, toRoot, segs, scale) {
+  const n = pos.count; const p = new Float32Array(n * 3); const v = new THREE.Vector3();
+  for (let i = 0; i < n; i++) { v.fromBufferAttribute(pos, i).applyMatrix4(toRoot); p[3 * i] = v.x; p[3 * i + 1] = v.y; p[3 * i + 2] = v.z; }
+  if (!window.HMS_OLDWEIGHT) {
+    const t0 = performance.now(); const r = surfaceWeights(p, index ? index.array : null, segs, scale);
+    window.lastWeights = { ...r.stats, ms: Math.round(performance.now() - t0) };
+    return r;
+  }
+  const si = new Uint16Array(n * 4); const sw = new Float32Array(n * 4);
+  for (let i = 0; i < n; i++) {
+    v.set(p[3 * i], p[3 * i + 1], p[3 * i + 2]);
+    const per = new Map(); for (const sg of segs) { const dd = segDist(v, sg.a, sg.b); if (!per.has(sg.bi) || per.get(sg.bi) > dd) per.set(sg.bi, dd); }
+    const list = [...per.entries()].map(([bi, dd]) => ({ bi, d: dd })).sort((a, b) => a.d - b.d).slice(0, 4);
+    const d0 = list[0].d; const blend = Math.max(0.06 * scale, d0 * 0.5);
+    let ws = list.map((x) => (x.d - d0 > blend ? 0 : Math.pow(1 - (x.d - d0) / blend, 2)));
+    const sum = ws.reduce((a, b) => a + b, 0) || 1; ws = ws.map((w) => w / sum);
+    list.forEach((x, k) => { si[i * 4 + k] = x.bi; sw[i * 4 + k] = ws[k]; });
+  }
+  return { si, sw };
+}
+
 // A model without bones: bones on the points (Mixamo names, so the app finds them), skin bound.
 function buildSkeleton(root, pts, side) {
   root.updateMatrixWorld(true);
@@ -198,19 +222,7 @@ function buildSkeleton(root, pts, side) {
     const g = mesh.geometry.index ? mesh.geometry : mesh.geometry; // indexed or not, per vertex
     const pos = g.attributes.position; const n = pos.count;
     const toRoot = rootInv.clone().multiply(mesh.matrixWorld);
-    const si = new Uint16Array(n * 4); const sw = new Float32Array(n * 4);
-    const v = new THREE.Vector3();
-    for (let i = 0; i < n; i++) {
-      v.fromBufferAttribute(pos, i).applyMatrix4(toRoot);
-      const d = segs.map((s) => ({ bi: s.bi, d: segDist(v, s.a, s.b) }));
-      // one weight per bone: its nearest segment
-      const per = new Map(); for (const x of d) if (!per.has(x.bi) || per.get(x.bi) > x.d) per.set(x.bi, x.d);
-      const list = [...per.entries()].map(([bi, dd]) => ({ bi, d: dd })).sort((a, b) => a.d - b.d).slice(0, 4);
-      const d0 = list[0].d; const blend = Math.max(0.06 * palm, d0 * 0.5);
-      let ws = list.map((x) => (x.d - d0 > blend ? 0 : Math.pow(1 - (x.d - d0) / blend, 2)));
-      const sum = ws.reduce((a, b) => a + b, 0) || 1; ws = ws.map((w) => w / sum);
-      list.forEach((x, k) => { si[i * 4 + k] = x.bi; sw[i * 4 + k] = ws[k]; });
-    }
+    const { si, sw } = skinWeights(pos, g.index, toRoot, segs, palm);
     const geo = g.clone();
     geo.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(si, 4));
     geo.setAttribute('skinWeight', new THREE.Float32BufferAttribute(sw, 4));
@@ -300,16 +312,7 @@ function bindBones(root, defs, scale) {
   for (const mesh of meshes) {
     const g = mesh.geometry; const pos = g.attributes.position; const n = pos.count;
     const toRoot = rootInv.clone().multiply(mesh.matrixWorld);
-    const si = new Uint16Array(n * 4); const sw = new Float32Array(n * 4); const v = new THREE.Vector3();
-    for (let i = 0; i < n; i++) {
-      v.fromBufferAttribute(pos, i).applyMatrix4(toRoot);
-      const per = new Map(); for (const sg of segs) { const dd = segDist(v, sg.a, sg.b); if (!per.has(sg.bi) || per.get(sg.bi) > dd) per.set(sg.bi, dd); }
-      const list = [...per.entries()].map(([bi, dd]) => ({ bi, d: dd })).sort((a, b) => a.d - b.d).slice(0, 4);
-      const d0 = list[0].d; const blend = Math.max(0.06 * scale, d0 * 0.5);
-      let ws = list.map((x) => (x.d - d0 > blend ? 0 : Math.pow(1 - (x.d - d0) / blend, 2)));
-      const sum = ws.reduce((a, b) => a + b, 0) || 1; ws = ws.map((w) => w / sum);
-      list.forEach((x, k) => { si[i * 4 + k] = x.bi; sw[i * 4 + k] = ws[k]; });
-    }
+    const { si, sw } = skinWeights(pos, g.index, toRoot, segs, scale);
     const geo = g.clone();
     geo.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(si, 4));
     geo.setAttribute('skinWeight', new THREE.Float32BufferAttribute(sw, 4));
