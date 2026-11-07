@@ -22,13 +22,14 @@
 </head>
 <body>
 <main>
-  <h1>Quest 손 기록 (학습 정답용) <small style="font-size:13px;color:#9aa4ae">v6</small></h1>
+  <h1>Quest 손 기록 (학습 정답용) <small style="font-size:13px;color:#9aa4ae">v7</small></h1>
   <p>Quest 3 손 추적으로 손 관절 25개(위치·회전)를 매 프레임 기록해요. 휴대폰 앱 측정과 <b>동시에</b> 쓰세요.</p>
   <ol>
     <li>컨트롤러를 내려놓고, 아래 <b>테이크 이름</b>을 적어요 (예: B1_천천히).</li>
     <li><b>기록 시작</b>을 누르고 손 추적 권한을 허용해요. 손 관절에 작은 점이 보이면 기록 중이에요.</li>
-    <li>휴대폰 앱에서도 측정을 시작하고, 엄지-검지 <b>핀치 3번</b> (점이 노랗게 깜빡여요).</li>
+    <li>휴대폰 앱에서도 측정을 시작하고, <b>양손 검지 끝을 3번 톡톡 맞대요</b> (점이 노랗게 깜빡여요). 엄지-검지 핀치는 쓰지 마세요: 손바닥이 얼굴을 보는 핀치는 퀘스트 메뉴를 불러서 기록 화면이 뒤로 가요.</li>
     <li>동작이 끝나면 Meta(오큘러스) 버튼으로 나와요. 파일(JSON)이 다운로드 폴더에 저장돼요.</li>
+    <li>"몰입형 웹 경험이 백그라운드에서 실행 중" 창이 뜨면 <b>다시 시작하기</b>를 누르면 기록으로 돌아가요 (종료 = 저장).</li>
   </ol>
   <div><input id="name" value="take1" aria-label="테이크 이름"> <button id="start">기록 시작</button> <button id="startVr" style="background:#555">VR로 시작</button></div>
   <p style="font-size:14px">기록이 시작돼도 브라우저 창이 앞에 남아 있으면 <b>VR로 시작</b>을 눌러 보세요 (배경이 검정, 손 기록은 같아요). 브라우저 창을 최소화하면 기록이 끝나요.</p>
@@ -75,7 +76,7 @@ for (const side of ['left', 'right']) {
 let take = null; // { name, startWall, frames: [], pinches: [] }
 const takes = [];
 let lastSave = 0;
-const pinchState = { left: false, right: false };
+const pinchState = { left: false, right: false }; let tipState = false;
 const MIN_DT = 1000 / 60; // keep at most 60 frames per second
 
 const r4 = (v) => Math.round(v * 1e4) / 1e4;
@@ -140,12 +141,21 @@ function onFrameBody(time, frame) {
       const a = rows[4]; const b = rows[9];
       if (a && b) {
         const dd = Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) - (a[7] || 0) - (b[7] || 0);
-        if (!pinchState[side] && dd < 0.01) { pinchState[side] = true; take.pinches.push({ t: time, side }); }
+        if (!pinchState[side] && dd < 0.01) { pinchState[side] = true; take.pinches.push({ t: time, side, kind: 'pinch' }); }
         else if (pinchState[side] && dd > 0.025) pinchState[side] = false;
         dots[side][4].material = dots[side][9].material = pinchState[side] ? pinchMat : mats[side];
       }
     }
     for (const side of ['left', 'right']) if (!hands[side]) dots[side].forEach((d) => { d.visible = false; });
+    // sync mark: both index tips touching (skin gap < 1 cm, open again > 3 cm). Thumb-index pinch with
+    // the palm toward the face is Quest's system menu gesture (it sends the session to the background).
+    { const a = hands.left && hands.left[9]; const b = hands.right && hands.right[9];
+      if (a && b) {
+        const dd = Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) - (a[7] || 0) - (b[7] || 0);
+        if (!tipState && dd < 0.01) { tipState = true; take.pinches.push({ t: time, side: 'both', kind: 'index-tips' }); }
+        else if (tipState && dd > 0.03) tipState = false;
+        dots.left[9].material = tipState ? pinchMat : mats.left; dots.right[9].material = tipState ? pinchMat : mats.right;
+      } else tipState = false; }
     if (time - lastSave >= MIN_DT && (hands.left || hands.right)) {
       lastSave = time;
       // view (head) pose too: lets a later step check how the head moved
@@ -153,7 +163,7 @@ function onFrameBody(time, frame) {
       const head = vp ? (() => { const p = vp.transform.position; const q = vp.transform.orientation; return [r5(p.x), r5(p.y), r5(p.z), r4(q.x), r4(q.y), r4(q.z), r4(q.w)]; })() : null;
       take.frames.push({ t: Math.round(time * 10) / 10, wall: Date.now(), head, hands });
     }
-    if (tick % 15 === 0) drawPanel([`기록 중 · ${take.frames.length} 프레임${vis && vis !== 'visible' ? ' · ' + vis : ''}`, `손: ${hands.left ? '왼손 ' : ''}${hands.right ? '오른손' : ''}${!hands.left && !hands.right ? '안 보임' : ''} · 핀치 ${take.pinches.length}`, inputs || '입력: -', errCount ? `오류 ${errCount}: ${lastErr.slice(0, 30)}` : '오류 없음 · 끝: Meta 버튼']);
+    if (tick % 15 === 0) drawPanel([`기록 중 · ${take.frames.length} 프레임${vis && vis !== 'visible' ? ' · ' + vis : ''}`, `손: ${hands.left ? '왼손 ' : ''}${hands.right ? '오른손' : ''}${!hands.left && !hands.right ? '안 보임' : ''} · 맞대기 ${take.pinches.filter((x) => x.kind === 'index-tips').length}`, inputs || '입력: -', errCount ? `오류 ${errCount}: ${lastErr.slice(0, 30)}` : '오류 없음 · 끝: Meta 버튼']);
   }
 }
 
