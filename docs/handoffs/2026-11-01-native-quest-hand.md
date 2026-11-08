@@ -452,3 +452,8 @@ Kept limits; thumb limits change almost nothing.
 - Tried picture rule (tip projected past knuckle t>1.3/1.6 => no flip, patch scratchpad backctx.patch): fbx1 open fixed, nat1/u4 fist folds drop (u4 ring 93->23 at 1.3). Not kept. Asked user for an open/close palm take.
 
 ## v0.67 (8838ec1, code 69): THUMB_MIN_DEG +5 -> -25 (user card: thumb may open 25 deg toward back). CI 42444592816 pass, artifact 13602883796. Not phone-verified. Backfix open-vs-fist rule still open (needs user open/close palm take).
+
+## 2026-11-08 Quest pair1: first real ground truth
+Quest q0.1 installed via phone + Bugjaeger (PC USB failed). File: Quest browser can't see app-created Download files; shell `cp` to .txt fixed it.
+pair1 = quest-hands-20261108-235035.jsonl (123.6 s, 36 fps, both hands) + phone video KakaoTalk_20261109_000604335.mp4 (1080p30, 125.8 s, top-down desk). Index-touch marks were before the video, so sync by hand-openness cross-correlation: video t = quest t - 2.70 s (corr 0.91). Files + scripts: /mnt/project-files/hand-motion-studio/quest/pair1/.
+Finger bend error vs Quest (14 joints x 2 hands, ~3450 frames): MP raw signed 24.0 deg, app v0.67 (angle copy, gauntlet2) 19.8 (corr 0.55, >30 deg 22%). Variants: NOBACKFIX 19.5, BACKCTX 1.3/1.6 19.5/19.6, NOLIMIT 20.1, MCPBACK 19.8, PURE 20.7. Rules are not the bottleneck; next = more pairs + learned correction (target <=10 deg).
