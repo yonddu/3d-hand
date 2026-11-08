@@ -443,3 +443,5 @@ Test flag HMS_NOLIMIT (patch only, scratchpad nolimit.patch) skipped MCP/PIP/DIP
 - distance to MediaPipe's own points (% palm) mean: 22.8/23.3/32.8/46.3 -> 20.8/22.8/31.6/39.5 (MP is not truth).
 - readings the limits act on: MCP bent back >20 deg 66/4/51/64% (fbx1/n49/nat1/u4), middle joints back >20 deg 21/1/17/11%, middle joints past 115 deg u4 27%.
 Kept limits; thumb limits change almost nothing.
+
+## v0.66 (c9580e0, code 68): body mode + body model without recognised body bones opens the body rig screen (guide rig step too); rig example panel 76 px left. CI run 42431657674 passed, artifact 13598175888. Not phone-verified.
