@@ -445,3 +445,8 @@ Test flag HMS_NOLIMIT (patch only, scratchpad nolimit.patch) skipped MCP/PIP/DIP
 Kept limits; thumb limits change almost nothing.
 
 ## v0.66 (c9580e0, code 68): body mode + body model without recognised body bones opens the body rig screen (guide rig step too); rig example panel 76 px left. CI run 42431657674 passed, artifact 13598175888. Not phone-verified.
+
+## 2026-11-08 open palm looks awkward (user) - findings, nothing shipped
+- Thumb: open-hand MP reads thumb MCP/IP median -9..+4 deg (55-100% below +5). HMS_THUMBMIN=-25: thumb tip err 37->34/52->48/63->60, jumps same. Decision card posted.
+- Main cause: backfix (joint read >35 deg back, MCP >55) flips open-hand back reads into curls (fbx1_sw frames 253/255; open index DIP 35 vs MP 34->9 without). HMS_NOBACKFIX: jumps 775->419 but fists open (fbx1 fist index 65->12).
+- Tried picture rule (tip projected past knuckle t>1.3/1.6 => no flip, patch scratchpad backctx.patch): fbx1 open fixed, nat1/u4 fist folds drop (u4 ring 93->23 at 1.3). Not kept. Asked user for an open/close palm take.
