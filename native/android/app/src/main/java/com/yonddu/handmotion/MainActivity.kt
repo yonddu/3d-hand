@@ -79,6 +79,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var guideMain: Button
     private lateinit var guideAlt: Button
     private var guideRig: () -> Unit = {}
+    private var openRigScreen: (String) -> Unit = {}
     // 16:9 landscape check (user: the final skinned view must be checked as the game's 16:9 screen)
     private lateinit var rootCol: LinearLayout
     private lateinit var mainColV: LinearLayout
@@ -165,7 +166,14 @@ class MainActivity : ComponentActivity() {
                     handView.loadModel(name, bytes) { result ->
                         modelButton.isEnabled = true
                         modelFile = true; listOf(rigButton, bodyRigButton, freeRigButton).forEach { it.visibility = android.view.View.VISIBLE }
-                        if (result.startsWith("ok:")) { modelLoaded(result); goStep(3, 1, 2) }
+                        // body tracking (user, v0.66): a body model opens the body rig screen like the hand
+                        // rig, unless its body bones were already recognised (or a body rig is saved)
+                        if (poseOn && !result.contains("전신")) {
+                            if (result.startsWith("ok:")) modelLoaded(result) else modelButton.text = "스킨 빼기 (내 손 점만 보기)"
+                            goStep(2, 1)
+                            modelInfo.text = "몸 모델: 몸 리깅 점을 찍어 주세요"
+                            openRigScreen("body")
+                        } else if (result.startsWith("ok:")) { modelLoaded(result); goStep(3, 1, 2) }
                         else {
                             goStep(2, 1)
                             modelButton.text = "스킨 빼기 (내 손 점만 보기)"
@@ -551,7 +559,8 @@ class MainActivity : ComponentActivity() {
             setOnClickListener { openRig(kind) }
         }
         rigButton = rigBtn("손 리깅 잡기 (MediaPipe 손 점 21개)", "hand")
-        guideRig = { openRig("hand") }
+        guideRig = { openRig(if (poseOn) "body" else "hand") }
+        openRigScreen = { k -> openRig(k) }
         bodyRigButton = rigBtn("몸 리깅 잡기 (MediaPipe Pose 점 17개)", "body")
         freeRigButton = rigBtn("기타 리깅 잡기 (자유롭게 점 찍기 → 뼈 넣은 GLB 저장)", "free")
         opts.addView(rigButton, opts.indexOfChild(sideButton) + 1)

@@ -496,7 +496,7 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
   const label = document.createElement('div'); label.style.marginBottom = '6px';
   const row = document.createElement('div'); Object.assign(row.style, { display: 'flex', flexWrap: 'wrap', gap: '6px' });
   const btn = (t, f) => { const b = document.createElement('button'); b.textContent = t; Object.assign(b.style, window.innerWidth > window.innerHeight ? { font: '13px sans-serif', padding: '5px 8px' } : { font: '15px sans-serif', padding: '8px 10px' }); b.onclick = f; row.appendChild(b); return b; };
-  const guide = document.createElement('div'); Object.assign(guide.style, { position: 'absolute', right: '6px', top: '96px', zIndex: 5 });
+  const guide = document.createElement('div'); Object.assign(guide.style, { position: 'absolute', right: '82px', top: '96px', zIndex: 5 });
   // tap a dot (or a name) in the example to choose which point to place/fix next: any order
   guide.addEventListener('pointerdown', (e) => { e.stopPropagation(); const t = e.target.closest('[data-i]'); if (t) select(+t.dataset.i); });
   ui.appendChild(label); ui.appendChild(row);
