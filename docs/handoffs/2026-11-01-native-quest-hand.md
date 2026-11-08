@@ -450,3 +450,5 @@ Kept limits; thumb limits change almost nothing.
 - Thumb: open-hand MP reads thumb MCP/IP median -9..+4 deg (55-100% below +5). HMS_THUMBMIN=-25: thumb tip err 37->34/52->48/63->60, jumps same. Decision card posted.
 - Main cause: backfix (joint read >35 deg back, MCP >55) flips open-hand back reads into curls (fbx1_sw frames 253/255; open index DIP 35 vs MP 34->9 without). HMS_NOBACKFIX: jumps 775->419 but fists open (fbx1 fist index 65->12).
 - Tried picture rule (tip projected past knuckle t>1.3/1.6 => no flip, patch scratchpad backctx.patch): fbx1 open fixed, nat1/u4 fist folds drop (u4 ring 93->23 at 1.3). Not kept. Asked user for an open/close palm take.
+
+## v0.67 (8838ec1, code 69): THUMB_MIN_DEG +5 -> -25 (user card: thumb may open 25 deg toward back). CI 42444592816 pass, artifact 13602883796. Not phone-verified. Backfix open-vs-fist rule still open (needs user open/close palm take).
