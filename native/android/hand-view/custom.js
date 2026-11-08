@@ -743,7 +743,7 @@ function bendOf(a, b, lat, palmSign) {
 // middle / end joint bends sideways only a little, so all of the bend beyond SIDE_RAD is taken
 // as flex (the bend's size is kept); only a clearly backward bend (past 10 deg) counts as back.
 const MIN_FLEX_DEG = 5;
-const THUMB_MIN_DEG = 5; // thumb middle / end joints: at least this much toward the palm (user)
+const THUMB_MIN_DEG = -25; // thumb middle / end joints: at most 25 deg toward the back (user 2026-11-08: open palm, was +5)
 const EDGE_ON = 0.25; // picture: |sin| of the angle wrist->index root / wrist->pinky root below this = edge-on
 const EDGE_K = 0.3; // edge-on: share of the way to the new reading per frame // 'MediaPipe as is' fingers: each joint bent at least this much toward the palm
 function seenBend(a, b, lat, palmSign) {
