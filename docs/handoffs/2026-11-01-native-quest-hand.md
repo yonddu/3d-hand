@@ -436,3 +436,10 @@ not started. Retarget onto other skins is NOT proven visually (only equal bend n
 
 ## Quest hand recorder q0.1 (native f3c8f4a, CI run 42382425873 PASS, artifact 13578610506)
 - Browser WebXR unusable on the user's Quest (session pushed to background, also three.js example). native/quest: C++ NativeActivity + Khronos OpenXR loader 1.1.61 (Maven prefab), XR_EXT_hand_tracking 26 joints, XR_FB_passthrough, GLES3 points. Writes /sdcard/Download/quest-hands-*.jsonl (header + frame lines <=60/s + index-tip touch marks + focus events). Workflow .github/workflows/quest-android.yml. Compiles in CI; NOT device-verified (no headset here).
+
+## 2026-11-08 finger limit removal check (native angle-copy mode, not shipped)
+Test flag HMS_NOLIMIT (patch only, scratchpad nolimit.patch) skipped MCP/PIP/DIP min/max, backfix, side limit. gauntlet2, takes n49/fbx1/nat1/u4 (_sw):
+- jumps >15 deg/frame total: limits on 775, off 894 (+15%), off + thumb limits off 898, MCP -30 deg back allowed 810 (+5%).
+- distance to MediaPipe's own points (% palm) mean: 22.8/23.3/32.8/46.3 -> 20.8/22.8/31.6/39.5 (MP is not truth).
+- readings the limits act on: MCP bent back >20 deg 66/4/51/64% (fbx1/n49/nat1/u4), middle joints back >20 deg 21/1/17/11%, middle joints past 115 deg u4 27%.
+Kept limits; thumb limits change almost nothing.
