@@ -11,6 +11,7 @@ import * as THREE from 'three';
 import { CustomHand, loadFile, exportGlb, bakeFitted, smoothTake } from './custom.js';
 import { parseBody, CustomBody } from './body.js';
 import { cleanTake } from './clean.js';
+import { predictBends } from './fingercorr.js';
 import { openEditor, applyRig, applyBodyRig, applyFreeRig } from './rig.js';
 
 const canvas = document.getElementById('c');
@@ -378,6 +379,7 @@ window.setHands = function setHands(data) {
     const side = hand.side === 'left' ? 'left' : 'right';
     const n = used[side]++;
     if (!hand.cam || hand.cam.length < 63) continue;
+    const rawWorld = hand.world; // the bend model was trained on MediaPipe's raw points (filtered: 12.8 -> raw 11.1 deg on Quest pair 2)
     if (!d.record && !window.HMS_NOFILTER) { // live: One Euro filter on the points (saved frames stay raw)
       hand.cam = liveFilter(`${side}${n}c`, hand.cam, now);
       if (hand.world && hand.world.length >= 63) hand.world = liveFilter(`${side}${n}w`, hand.world, now, window.HMS_OEZ != null ? +window.HMS_OEZ : OE_ZK);
@@ -405,6 +407,8 @@ window.setHands = function setHands(data) {
       const inst = customSlots[side][n];
       inst.live = !d.record;
       inst.fresh = now - (lastSeen[side][n] || -1e9) < 300; // last pose recent: smooth from it
+      // v0.68: learned finger bends from MediaPipe's 3D points (Quest truth); HMS_NOCORR = old reading
+      inst.corr = window.HMS_NOCORR ? null : predictBends(window.HMS_CORRFILT ? hand.world : rawWorld, side);
       custom.pose(inst, P, elbow, Wd);
       posed.add(inst);
       lastSeen[side][n] = now;

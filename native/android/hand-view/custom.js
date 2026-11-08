@@ -455,7 +455,10 @@ export class CustomHand {
       const off = 3 - list.length; // two bones only: they are the outer ones
       const seen = [0, 1, 2].map((k) => Wd[f.mp[k + 1]].clone().sub(Wd[f.mp[k]]).normalize());
       let pipFlex = 0;
+      const fIdx = FINGERS.indexOf(f);
       list.forEach((bone, k) => {
+        // v0.68: learned bend (fingercorr.js, Quest truth) for this joint, degrees, when on
+        const cv = inst.corr ? inst.corr[fIdx === 0 ? k + off - 1 : 2 + (fIdx - 1) * 3 + k + off] : null;
         at(bone, pos);
         const child = list[k + 1] || ch.tip;
         const was = child ? at(child, nextPos).sub(pos) : pos.clone().sub(at(bone.parent, par));
@@ -499,8 +502,11 @@ export class CustomHand {
           if (f.key !== 'thumb') {
             const n = ps * d.z; const r = Math.hypot(d.y, n);
             let a0 = Math.atan2(n, d.y);
-            if (a0 < -BACK_MAX - 20 * D2R && !window.HMS_NOBACKFIX) a0 = -a0; // knuckle bent far back: read flipped
-            const ang = Math.min(100 * D2R, Math.max(window.HMS_MCPBACK ? -30 * D2R : minR, a0)); // never past the back of the hand, a little bent (user)
+            // learned bend replaces the seen one (and the flip rule). Adding the model's own
+            // wrist -> knuckle tilt (Quest measures from that line) was tried: MCP 17.1 -> 17.3, not kept.
+            if (cv != null) a0 = cv * D2R;
+            else if (a0 < -BACK_MAX - 20 * D2R && !window.HMS_NOBACKFIX) a0 = -a0; // knuckle bent far back: read flipped
+            const ang = Math.min(100 * D2R, Math.max(window.HMS_MCPBACK || (cv != null && window.HMS_CORRBACK) ? -30 * D2R : minR, a0)); // never past the back of the hand, a little bent (user)
             d.y = r * Math.cos(ang); d.z = ps * r * Math.sin(ang);
           }
           target = d.applyMatrix3(F3);
@@ -509,9 +515,9 @@ export class CustomHand {
           // little sideways), applied to the model's own bone before: no twist, never bent back.
           const a = seenBend(seen[k + off - 1], seen[k + off], latSeen, ps);
           const o = cal && cal.off[f.key][k];
-          let flex = a.flex + (o ? o.flex : 0);
+          let flex = cv != null ? cv * D2R : a.flex + (o ? o.flex : 0);
           let side = a.side + (o ? o.side : 0);
-          flex = Math.min(115 * D2R, Math.max(minR, flex)); // never bent back, a little bent (user)
+          flex = Math.min(115 * D2R, Math.max(cv != null && window.HMS_CORRBACK ? -20 * D2R : minR, flex)); // never bent back, a little bent (user)
           const sideLim = window.HMS_SIDE != null ? window.HMS_SIDE * D2R : SIDE_RAD;
           side = Math.min(sideLim, Math.max(-sideLim, side));
           // End joint moves with the middle one (one tendon drives both): about 2/3 of its bend,
@@ -540,6 +546,13 @@ export class CustomHand {
               const ax = new THREE.Vector3().crossVectors(pd, target);
               if (ax.lengthSq() > 1e-12) target = pd.clone().applyAxisAngle(ax.normalize(), lim);
             }
+          }
+          // learned bend: the seen bending plane, the learned size. (Signed about the palm-fold
+          // axis was tried: thumb 13.4 -> 14.9 deg on Quest pair 2, not kept.)
+          if (cv != null) {
+            const pd = pos.clone().sub(at(list[k - 1], par)).normalize();
+            const ax = new THREE.Vector3().crossVectors(pd, target);
+            if (ax.lengthSq() > 1e-8) target = pd.clone().applyAxisAngle(ax.normalize(), Math.min(90, Math.abs(cv)) * D2R);
           }
         }
         // Thumb (user): its middle and end joints never bend toward the back of the hand and stay
