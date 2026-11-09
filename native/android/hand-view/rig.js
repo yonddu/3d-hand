@@ -194,14 +194,45 @@ function skinWeights(pos, index, toRoot, segs, scale) {
   return { si, sw };
 }
 
+// Elbow for a boneless hand model: when skin reaches more than FORE_MIN palms behind the wrist
+// (against wrist -> middle root), the middle of its farthest part; else null. Root space.
+const FORE_MIN = 1.2;
+function elbowOf(root, pts) {
+  root.updateMatrixWorld(true);
+  const rootInv = root.matrixWorld.clone().invert();
+  const y = pts[9].clone().sub(pts[0]); const palm = y.length() || 1; y.normalize();
+  const behind = []; const v = new THREE.Vector3();
+  root.traverse((o) => {
+    if (!o.isMesh || o.isSkinnedMesh) return;
+    const pos = o.geometry.attributes.position; const m = rootInv.clone().multiply(o.matrixWorld);
+    const step = Math.max(1, Math.floor(pos.count / 20000));
+    for (let i = 0; i < pos.count; i += step) { v.fromBufferAttribute(pos, i).applyMatrix4(m); const d = -v.clone().sub(pts[0]).dot(y); if (d > 0.3 * palm) behind.push([d, v.clone()]); }
+  });
+  if (!behind.length) return null;
+  const far = Math.max(...behind.map((x) => x[0]));
+  if (far < FORE_MIN * palm) return null;
+  const end = behind.filter((x) => x[0] > far - 0.25 * palm);
+  const c = new THREE.Vector3(); end.forEach((x) => c.add(x[1])); c.multiplyScalar(1 / end.length);
+  // a little inside the sleeve's end: the elbow joint, not the cut edge
+  return pts[0].clone().lerp(c, 0.92);
+}
+
 // A model without bones: bones on the points (Mixamo names, so the app finds them), skin bound.
 function buildSkeleton(root, pts, side) {
   root.updateMatrixWorld(true);
   const S = side === 'left' ? 'Left' : 'Right';
   const rootInv = root.matrixWorld.clone().invert();
   const hand = new THREE.Bone(); hand.name = `${S}Hand`; hand.position.copy(pts[0]);
-  root.add(hand);
   const all = [hand]; const segs = []; // {bone index, a, b} in root space
+  // v0.70 (user: a gauntlet reaching to the elbow flew about with every wrist turn): skin that
+  // reaches well behind the wrist gets a forearm bone (elbow = middle of the skin's far end), so
+  // the app's first-person arm holds the sleeve and only the hand bends at the wrist.
+  const elbow = window.HMS_NOFOREARM ? null : elbowOf(root, pts);
+  if (elbow) {
+    const fore = new THREE.Bone(); fore.name = `${S}ForeArm`; fore.position.copy(elbow);
+    root.add(fore); hand.position.copy(pts[0]).sub(elbow); fore.add(hand);
+    all.unshift(fore); segs.push({ bi: 0, a: elbow, b: pts[0] });
+  } else root.add(hand);
   const at = new Map([[0, hand]]);
   for (const key of FINGER_KEYS) {
     const m = MP[key];
