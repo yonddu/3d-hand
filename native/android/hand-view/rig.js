@@ -197,6 +197,7 @@ function skinWeights(pos, index, toRoot, segs, scale) {
 // Elbow for a boneless hand model: when skin reaches more than FORE_MIN palms behind the wrist
 // (against wrist -> middle root), the middle of its farthest part; else null. Root space.
 const FORE_MIN = 1.2;
+const ELBOW_MAX = 2.8; // palms (wrist -> middle root); a human forearm is ~2.7
 function elbowOf(root, pts) {
   root.updateMatrixWorld(true);
   const rootInv = root.matrixWorld.clone().invert();
@@ -213,8 +214,12 @@ function elbowOf(root, pts) {
   if (far < FORE_MIN * palm) return null;
   const end = behind.filter((x) => x[0] > far - 0.25 * palm);
   const c = new THREE.Vector3(); end.forEach((x) => c.add(x[1])); c.multiplyScalar(1 / end.length);
-  // a little inside the sleeve's end: the elbow joint, not the cut edge
-  return pts[0].clone().lerp(c, 0.92);
+  // a little inside the sleeve's end: the elbow joint, not the cut edge; but never farther than
+  // a real forearm (ELBOW_MAX palms): a long sleeve (Meshy gauntlet ~5 palms) made the elbow
+  // reach swing a long lever. The sleeve past the elbow rides on the forearm bone.
+  const dir = c.clone().sub(pts[0]); const dist = dir.length() * 0.92;
+  if (window.HMS_LONGFORE || dist <= ELBOW_MAX * palm) return pts[0].clone().lerp(c, 0.92);
+  return pts[0].clone().addScaledVector(dir.normalize(), ELBOW_MAX * palm);
 }
 
 // A model without bones: bones on the points (Mixamo names, so the app finds them), skin bound.

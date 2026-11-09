@@ -409,7 +409,11 @@ export class CustomHand {
     {
       if (E) {
         const was = handRestPos.clone().sub(inst.restElbow).normalize().applyQuaternion(Wq);
-        const R = new THREE.Quaternion().setFromUnitVectors(was, P[0].clone().sub(E).normalize()).multiply(Wq);
+        const fd = P[0].clone().sub(E).normalize();
+        const R = new THREE.Quaternion().setFromUnitVectors(was, fd).multiply(Wq);
+        // The forearm takes only part of the hand's roll (FORE_TWIST): with the whole roll a long
+        // sleeve spun with every turn of the hand (Meshy gauntlet: up to 32 deg a frame).
+        if (!window.HMS_FULLTWIST) R.premultiply(new THREE.Quaternion().setFromAxisAngle(fd, -(1 - FORE_TWIST) * rollOf(inst, new THREE.Vector3().setFromMatrixColumn(restFrame, 2).applyQuaternion(R), fd)));
         // Model turned with the forearm from the elbow to the wrist; then the hand turned back to the seen palm.
         root.matrix.compose(new THREE.Vector3(), R, new THREE.Vector3(s, s, s));
         const shift = E.clone().sub(inst.restElbow.clone().applyMatrix4(root.matrix));
@@ -892,6 +896,23 @@ export async function bakeFitted(custom, scene, seenSide, user) {
 
 // First person: where the shoulder is (three.js camera space, m; x toward the hand's own side),
 // upper arm length, and how far the wrist bends from the forearm line at most.
+// Roll of the (forearm-turned) palm about the forearm line fd (radians), 0 = thumb up (palm toward the body
+// middle) for a forearm pointing away from the camera. Reference carried from -z to fd by the
+// least turn, so the only blind direction is a forearm pointing straight at the camera.
+// Unwrapped against the last frame (no jump at +-180), kept within +-ROLL_MAX.
+const FORE_TWIST = 0.5;
+const ROLL_MAX = 1.5 * Math.PI;
+function rollOf(inst, palmZ, fd) { // palmZ: the turned rest palm frame's z
+  const palm = palmZ.clone().multiplyScalar(inst.palmSign);
+  palm.addScaledVector(fd, -palm.dot(fd));
+  if (palm.lengthSq() < 1e-8) return inst.lastRoll || 0;
+  const ref = new THREE.Vector3(-inst.palmSign, 0, 0).applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, -1), fd));
+  ref.addScaledVector(fd, -ref.dot(fd));
+  let a = Math.atan2(new THREE.Vector3().crossVectors(ref, palm).dot(fd), ref.dot(palm));
+  if (inst.lastRoll != null) { a += 2 * Math.PI * Math.round((inst.lastRoll - a) / (2 * Math.PI)); if (Math.abs(a) > ROLL_MAX) a -= 2 * Math.PI * Math.sign(a); }
+  inst.lastRoll = a;
+  return a;
+}
 const SHOULDER = [0.18, -0.28, 0.05];
 const UPPER_ARM = 0.29;
 const WRIST_MAX = 65 * Math.PI / 180;
