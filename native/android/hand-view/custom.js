@@ -724,9 +724,14 @@ export class CustomHand {
   snapshot(inst, t) {
     const pos = new THREE.Vector3(); const quat = new THREE.Quaternion(); const scl = new THREE.Vector3();
     inst.root.matrix.decompose(pos, quat, scl);
-    // Unscaled root that keeps the hand bone where it is: hand = rootPos + quat * handRest.
-    const handNow = new THREE.Vector3().setFromMatrixPosition(inst.handM).multiplyScalar(scl.x).applyQuaternion(quat).add(pos);
-    const rootPos = handNow.clone().sub(new THREE.Vector3().setFromMatrixPosition(inst.handM).applyQuaternion(quat));
+    // Unscaled root, in the model's own units: the scene (metres) divided by the drawn scale, so the
+    // hand moves its real distance at the model's size (pos / scl). Before v0.73 the hand's metres
+    // were added to model units as they were: a model in cm (Meshy FBX) kept the wrist all but still
+    // (30 cm -> 0.3 cm) and the arm swung around the pinned hand (user: "the arm spins").
+    const rootPos = window.HMS_OLDROOT
+      ? new THREE.Vector3().setFromMatrixPosition(inst.handM).multiplyScalar(scl.x).applyQuaternion(quat).add(pos)
+        .sub(new THREE.Vector3().setFromMatrixPosition(inst.handM).applyQuaternion(quat))
+      : pos.clone().multiplyScalar(1 / scl.x);
     return { t, p: rootPos.toArray(), q: quat.toArray(), nodes: inst.animNodes.map((o) => o.quaternion.toArray()) };
   }
 
@@ -737,7 +742,7 @@ export class CustomHand {
     inst.root.matrix.decompose(pos, quat, scl);
     const q = new THREE.Quaternion().fromArray(f.q);
     const hr = new THREE.Vector3().setFromMatrixPosition(inst.handM).applyQuaternion(q);
-    const p = new THREE.Vector3().fromArray(f.p).add(hr.clone().multiplyScalar(1 - scl.x));
+    const p = window.HMS_OLDROOT ? new THREE.Vector3().fromArray(f.p).add(hr.clone().multiplyScalar(1 - scl.x)) : new THREE.Vector3().fromArray(f.p).multiplyScalar(scl.x);
     inst.root.matrix.compose(p, q, scl);
     inst.animNodes.forEach((o, i) => { if (f.nodes[i]) o.quaternion.fromArray(f.nodes[i]); });
     inst.outer.visible = true;
