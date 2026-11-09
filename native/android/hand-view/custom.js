@@ -25,7 +25,7 @@ const FINGERS = [
 ];
 const BACK_MAX = THREE.MathUtils.degToRad(35);
 const SIDE_RAD = THREE.MathUtils.degToRad(15); // most a middle / end finger joint bends sideways (was 20)
-const TOUCH_IN = 0.2; const TOUCH_OUT = 0.28; const TOUCH_EASE = 0.25; const TOUCH_ITERS = 12; const TOUCH_STEP = THREE.MathUtils.degToRad(40);
+const TOUCH_IN = 0.3; const TOUCH_OUT = 0.38; const TOUCH_EASE = 0.25; const TOUCH_ITERS = 12; const TOUCH_STEP = THREE.MathUtils.degToRad(40); // v0.74: IN/OUT were 0.2/0.28 (fingertips only)
 const DIP_RATIO = 2 / 3; // end joint bend / middle joint bend (tendon coupling)
 const TIP = /tip|end|nub|null|_4$|\.004$|4$|_end/;
 
@@ -678,21 +678,35 @@ export class CustomHand {
   touch(inst, Wd, palmW, s, at, turnOf) {
     const th = inst.h.chains.thumb;
     if (!palmW || !th.tip || th.bones.length < 2) { inst.touchW = 0; return; }
-    const tipOf = { index: 8, middle: 12, ring: 16, pinky: 20 };
+    // contact points: each fingertip, and (v0.74) the middle and end joints too: in a fist
+    // MediaPipe's thumb tip lies over the index / middle middle joints (user take n49: nearest
+    // index PIP 27, middle PIP 27, index DIP 19 of 90 fist frames; a fingertip in 1), which the
+    // fingertip-only check missed, so the model's thumb stayed short of wrapping the fist (user).
+    const tipOf = {};
+    const nodeOf = {};
+    for (const [k, base] of [['index', 5], ['middle', 9], ['ring', 13], ['pinky', 17]]) {
+      const ch = inst.h.chains[k];
+      if (ch.tip) { tipOf[k] = base + 3; nodeOf[k] = ch.tip; }
+      if (!window.HMS_TIPTOUCH && ch.bones.length === 3) {
+        tipOf[`${k}1`] = base + 1; nodeOf[`${k}1`] = ch.bones[1];
+        tipOf[`${k}2`] = base + 2; nodeOf[`${k}2`] = ch.bones[2];
+      }
+    }
     let best = null; let bd = Infinity;
-    for (const [k, mi] of Object.entries(tipOf)) { const d = Wd[4].distanceTo(Wd[mi]) / palmW; if (d < bd && inst.h.chains[k].tip) { bd = d; best = k; } }
+    for (const [k, mi] of Object.entries(tipOf)) { const d = Wd[4].distanceTo(Wd[mi]) / palmW; if (d < bd) { bd = d; best = k; } }
     const was = inst.touchOn;
-    const on = best && (bd < TOUCH_IN || (was === best && bd < TOUCH_OUT));
+    const tin = window.HMS_TOUCHIN != null ? +window.HMS_TOUCHIN : TOUCH_IN; const tout = tin + TOUCH_OUT - TOUCH_IN;
+    const on = best && (bd < tin || (was === best && bd < tout));
     if (on && was && was !== best && bd > TOUCH_IN) { /* keep the old finger while it still holds */ }
-    inst.touchOn = on ? best : (was && Wd[4].distanceTo(Wd[tipOf[was]]) / palmW < TOUCH_OUT ? was : null);
+    inst.touchOn = on ? best : (was && tipOf[was] != null && Wd[4].distanceTo(Wd[tipOf[was]]) / palmW < tout ? was : null);
     const w0 = inst.touchW || 0;
     inst.touchW = inst.touchOn ? Math.min(1, w0 + TOUCH_EASE) : Math.max(0, w0 - TOUCH_EASE);
     const key = inst.touchOn || inst.touchLast;
     if (inst.touchOn) inst.touchLast = inst.touchOn;
-    if (!key || inst.touchW <= 0) return;
+    if (!key || inst.touchW <= 0 || tipOf[key] == null) return;
     const mi = tipOf[key];
     const k = (s * inst.restPalm) / palmW; // MediaPipe metres -> model (outer) units
-    const tip = new THREE.Vector3(); const fingerTip = at(inst.h.chains[key].tip, new THREE.Vector3());
+    const tip = new THREE.Vector3(); const fingerTip = at(nodeOf[key], new THREE.Vector3());
     const goal = fingerTip.clone().addScaledVector(Wd[4].clone().sub(Wd[mi]), k);
     at(th.tip, tip);
     const before = tip.distanceTo(goal); const gap0 = tip.distanceTo(fingerTip);
