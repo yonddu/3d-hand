@@ -492,7 +492,7 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
   const howTo = '탭=점 놓기 · 화살표 끌기=그 축으로 이동(0.3배) · 빈 곳 끌기=회전 · 두 손가락 벌리기=확대, 같이 밀기=화면 이동';
   if (kind === 'body') head.innerHTML = '<b>몸 리깅 (MediaPipe Pose): 관절 중심, 팔다리 두께 한가운데에. 왼쪽 = 모델 자신의 왼쪽 (정면에서 보면 화면 오른쪽)</b><br>' + howTo + ' · 오른쪽 예시에서 점 고르기<br>색: ' + Object.keys(BODY_KO).map((k) => `<span style="color:${hex(BODY_COL[k])}">●</span>${BODY_KO[k]}`).join(' ');
   else if (kind === 'free') head.innerHTML = '<b>기타 리깅: 찍은 점마다 뼈가 생겨요. "새 점 추가" = 지금 점에 이어지는 다음 뼈 (꼬리·날개·소품 등). 완료하면 뼈 넣은 GLB로 저장</b><br>' + howTo;
-  else head.innerHTML = '<b>손목, 손가락 뿌리 5개, 손가락 끝 5개만 찍으세요 (11점). 가운데 관절은 자동으로 놓여요.</b><br>' + howTo + ' · 놓은 점 탭=고치기 · 오른쪽 예시에서 점 고르기(순서 상관없음)<br>색: ' + FINGER_KO.map((n, k) => `<span style="color:${hex(COLORS[k])}">●</span>${n}`).join(' ');
+  else head.innerHTML = '<b>손목, 손가락 뿌리 5개, 손가락 끝 5개만 찍으세요 (11점). 가운데 관절은 자동으로 놓여요.</b> <span style="color:#33dd55">초록 화살표 = 손바닥 쪽</span> (반대면 "손바닥 방향 뒤집기")<br>' + howTo + ' · 놓은 점 탭=고치기 · 오른쪽 예시에서 점 고르기(순서 상관없음)<br>색: ' + FINGER_KO.map((n, k) => `<span style="color:${hex(COLORS[k])}">●</span>${n}`).join(' ');
   const label = document.createElement('div'); label.style.marginBottom = '6px';
   const row = document.createElement('div'); Object.assign(row.style, { display: 'flex', flexWrap: 'wrap', gap: '6px' });
   const btn = (t, f) => { const b = document.createElement('button'); b.textContent = t; Object.assign(b.style, window.innerWidth > window.innerHeight ? { font: '13px sans-serif', padding: '5px 8px' } : { font: '15px sans-serif', padding: '8px 10px' }); b.onclick = f; row.appendChild(b); return b; };
@@ -515,8 +515,9 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
   if (kind === 'free') btn('새 점 추가 (지금 점에 이어서)', () => { pts.push(null); dots.push(null); parents.push(pts[cur] ? cur : parents[cur]); select(pts.length - 1); });
   btn('화면 가운데로', () => { pan.set(0, 0, 0); });
   btn('이 점 지우기', () => { pts[cur] = null; if (kind === 'hand' && MIDS.has(cur)) { manual.delete(cur); autoMids(); } redraw(); select(cur); });
-  const sideBtn = kind === 'hand' ? btn('', () => { side0 = side0 === 'left' ? 'right' : 'left'; sideBtn.textContent = side0 === 'left' ? '모델: 왼손' : '모델: 오른손'; drawLines(); }) : document.createElement('button');
-  sideBtn.textContent = side0 === 'left' ? '모델: 왼손' : '모델: 오른손';
+  const sideText = () => `손바닥 방향 뒤집기 (지금: ${side0 === 'left' ? '왼손' : '오른손'})`;
+  const sideBtn = kind === 'hand' ? btn('', () => { side0 = side0 === 'left' ? 'right' : 'left'; sideBtn.textContent = sideText(); drawLines(); }) : document.createElement('button');
+  sideBtn.textContent = sideText();
   // Hand rig check (user GLB: points stacked, 85 % of the skin ended on the wrist bone): before
   // finishing, warn about points on top of each other, too short finger segments and points
   // outside the model; a second press finishes anyway.
@@ -609,6 +610,22 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
     lines.clear();
     const seg = (a, b) => { if (!pts[a] || !pts[b]) return; const g = new THREE.BufferGeometry().setFromPoints([pts[a], pts[b]]); const l = new THREE.Line(g, new THREE.LineBasicMaterial({ color: colorAt(b), depthTest: false })); l.renderOrder = 9; lines.add(l); };
     for (const [a, b] of segList()) seg(a, b);
+    // Palm side (user v0.69): green arrow out of the palm. It follows from which hand the model is
+    // (custom.js: right hand palm = +z of wrist / index / middle / pinky frame, left = -z), so
+    // "손바닥 방향 뒤집기" swaps the hand side.
+    if (kind === 'hand' && pts[0] && pts[5] && pts[9] && pts[17]) {
+      const y = pts[9].clone().sub(pts[0]); const len = y.length(); y.normalize();
+      const x = pts[5].clone().sub(pts[17]); x.addScaledVector(y, -x.dot(y)).normalize();
+      const z = new THREE.Vector3().crossVectors(x, y).multiplyScalar(side0 === 'left' ? -1 : 1);
+      const c = pts[0].clone().add(pts[5]).add(pts[9]).add(pts[17]).multiplyScalar(0.25);
+      const mat = new THREE.MeshBasicMaterial({ color: 0x33dd55, depthTest: false, transparent: true });
+      const arrow = new THREE.Group();
+      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(len * 0.035, len * 0.035, len * 0.65, 10), mat); shaft.position.y = len * 0.325;
+      const tipM = new THREE.Mesh(new THREE.ConeGeometry(len * 0.1, len * 0.25, 14), mat); tipM.position.y = len * 0.775;
+      arrow.add(shaft, tipM); arrow.position.copy(c); arrow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), z);
+      arrow.traverse((o) => { o.renderOrder = 10; });
+      lines.add(arrow);
+    }
     const n = pts.filter(Boolean).length;
     if (typeof guide !== 'undefined' && guide) { guide.innerHTML = panelHtml(); guide.style.top = (head.offsetHeight + 6) + 'px'; }
     if (!doneBtn) return;
@@ -729,7 +746,8 @@ export function openEditor({ renderer, canvas, template, name, side, saved, onDo
     screenOf: (i) => { scene.updateMatrixWorld(true); const v = pts[i].clone().applyMatrix4(model.matrixWorld).project(camera); return [(v.x + 1) / 2 * W, (1 - v.y) / 2 * H]; },
     local: (i) => pts[i].toArray(),
     pan: () => pan.toArray(),
-    setSide: (v) => { side0 = v; sideBtn.textContent = side0 === 'left' ? '모델: 왼손' : '모델: 오른손'; },
+    setSide: (v) => { side0 = v; sideBtn.textContent = sideText(); drawLines(); },
+    view: (x, y) => { turn.rotation.set(x, y, 0); }, // tests
     finish,
   };
 }
