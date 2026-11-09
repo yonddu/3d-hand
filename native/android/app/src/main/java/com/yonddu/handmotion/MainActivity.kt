@@ -152,13 +152,22 @@ class MainActivity : ComponentActivity() {
         if (uri == null) return@registerForActivityResult
         exportWorker.execute {
             try {
-                val name = contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                val picked = contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
                     if (c.moveToFirst()) c.getString(0) else null
-                } ?: "model.glb"
-                val lower = name.lowercase(Locale.ROOT)
-                require(lower.endsWith(".glb") || lower.endsWith(".gltf") || lower.endsWith(".fbx")) { "GLB, glTF(파일 하나) 또는 FBX만 열 수 있습니다: $name" }
+                } ?: "model"
                 val bytes = contentResolver.openInputStream(uri)!!.use { it.readBytes() }
                 require(bytes.size <= 60 * 1024 * 1024) { "60 MB보다 큰 모델은 열지 않습니다" }
+                // v0.69.1 (user: an unzipped .fbx was refused): the kind comes from the file's own
+                // first bytes, not the name the file picker reports (some give no extension)
+                val kind = ModelKind.of(bytes)
+                require(kind != "zip") { "압축(zip) 파일이에요. 먼저 압축을 풀고 안에 있는 .fbx 또는 .glb 파일을 고르세요: $picked" }
+                val lower0 = picked.lowercase(Locale.ROOT)
+                val name = when {
+                    kind == null && (lower0.endsWith(".glb") || lower0.endsWith(".gltf") || lower0.endsWith(".fbx")) -> picked
+                    kind == null -> throw IllegalArgumentException("GLB, glTF(파일 하나) 또는 FBX만 열 수 있습니다: $picked")
+                    lower0.endsWith(".$kind") -> picked
+                    else -> "$picked.$kind"
+                }
                 runOnUiThread {
                     if (destroyed) return@runOnUiThread
                     modelButton.isEnabled = false

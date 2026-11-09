@@ -6,8 +6,8 @@ android {
         applicationId = "com.yonddu.handmotion.benchmark"
         minSdk = 31
         targetSdk = 35
-        versionCode = 71
-        versionName = "0.69-palm-arrow"
+        versionCode = 72
+        versionName = "0.69.1-file-kind"
         ndk { abiFilters += "arm64-v8a" }
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
