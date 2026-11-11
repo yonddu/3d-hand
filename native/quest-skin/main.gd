@@ -2,7 +2,7 @@ extends Node3D
 ## Quest app: the user's skin follows their tracked hands.
 ## Panel buttons are pressed by touching them with an index fingertip.
 
-const VERSION := "q-skin 0.2"
+const VERSION := "q-skin 0.3"
 const DEFAULT_SKIN := "res://skins/hand_left.glb.bin"
 const SKIN_DIRS := ["/sdcard/Download", "/sdcard/Download/HandSkin", "/sdcard/HandSkin"]
 const SIZE_STEP := 1.05
@@ -193,7 +193,7 @@ func _process(dt: float) -> void:
 			for j in 26:
 				joints.append(origin.global_transform * tr.get_hand_joint_transform(j))
 			last_joints[s] = joints
-			r.apply(joints)
+			r.apply(joints, cam.global_transform)
 			tips.append((joints[10] as Transform3D).origin)
 			var mm: MultiMesh = dots[s].multimesh
 			for j in 26:

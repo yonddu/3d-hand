@@ -22,6 +22,6 @@ Google Drive. Camera (phone MediaPipe) tracking is no longer the main path.
   `godot --headless --path native/quest-skin --script res://tests/retarget_test.gd -- <jsonl>`
 - Default skin: `skins/hand_left.glb.bin` = user's gauntlet2_rigged_left.glb (raw bytes, loaded
   at runtime by the same GLTFDocument path as user files).
-- Forearm/upper arm follow the wrist frame rigidly for now (elbow IK = step 3).
+- Elbow IK (0.3): shoulder = eyes + 0.18 m out, 0.24 m down, 0.06 m back (head yaw); pole down/out/back; upper arm and forearm roll from the elbow hinge axis, forearm takes half of the hand twist. Test: shoulder 0.31 m from eyes, hand stays on wrist (0.000 m), fingers still 0.0 deg.
 
 Not yet verified on the Quest.

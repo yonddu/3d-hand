@@ -22,12 +22,14 @@ func _run() -> void:
 		var e := r.load_skin(bytes, skin.get_extension() if skin.get_extension() == "fbx" else "glb")
 		print(s, " load: ", e if e != "" else r.status, " map=", r._map.joints.size(), " tips=", r._map.tip.keys())
 		rigs[s] = r
+		r.use_ik = OS.get_environment("NOIK") == ""
 	var f := FileAccess.open(path, FileAccess.READ)
 	f.get_line()
 	var n := 0
 	var err := {"left": [], "right": []}
 	var tipd := {"left": [], "right": []}
 	var backd := {"left": [], "right": []}
+	var elbow := {"left": [], "right": []}
 	while not f.eof_reached() and n < max_frames:
 		var d = JSON.parse_string(f.get_line())
 		if d == null or not d.has("hands"):
@@ -40,7 +42,16 @@ func _run() -> void:
 			for row in arr:
 				J.append(Transform3D(Basis(Quaternion(row[3], row[4], row[5], row[6])), Vector3(row[0], row[1], row[2])))
 			var r: SkinRig = rigs[s]
-			r.apply(J)
+			var hd = d.get("head")
+			var head = null
+			if hd != null and hd.size() >= 7:
+				head = Transform3D(Basis(Quaternion(hd[3], hd[4], hd[5], hd[6])), Vector3(hd[0], hd[1], hd[2]))
+			r.apply(J, head)
+			if head != null and r._map.forearm >= 0 and r._map.upperarm >= 0:
+				var sk: Skeleton3D = r._skel
+				var ua: Vector3 = sk.global_transform * sk.get_bone_global_pose(r._map.upperarm).origin
+				var el: Vector3 = sk.global_transform * sk.get_bone_global_pose(r._map.forearm).origin
+				elbow[s].append([ua.distance_to(head.origin), el.y - head.origin.y, r.bone_world(1).distance_to(J[1].origin)])
 			for base in [2, 6, 11, 16, 21]:
 				var last: int = base + (3 if base == 2 else 4)
 				for j in range(base if base == 2 else base + 1, last - 1):
@@ -61,6 +72,10 @@ func _run() -> void:
 		var td: Array = tipd[s]; td.sort()
 		if e.is_empty(): continue
 		var bd: Array = backd[s]; bd.sort()
+		var el: Array = elbow[s]
+		if el.size():
+			var m: Array = el[el.size() / 2]
+			print("%s arm: shoulder-head %.2f m, elbow below eyes %.2f m, hand on wrist %.3f m (mid frame)" % [s, m[0], -m[1], m[2]])
 		print("%s back-of-hand vs Quest palm normal: median %.1f p90 %.1f deg" % [s, bd[bd.size()/2], bd[int(bd.size()*0.9)]])
 		print("%s: frames-bones %d  bone dir err median %.1f  p90 %.1f  max %.1f deg | index tip off median %.1f cm (scale %.3f)" % [s, e.size(), e[e.size()/2], e[int(e.size()*0.9)], e[-1], td[td.size()/2] if td.size() else -1.0, rigs[s].auto_scale])
 	quit()

@@ -18,7 +18,11 @@ var _map := {}
 var _order: PackedInt32Array = []
 var _offset := {}                # bone -> Basis (rest frame -> bone rest basis)
 var _target_joint := {}          # bone -> xr joint
-var _arm := []                   # [bone, child_pos_bone] for forearm/upperarm rigid follow
+var _arm_off := {}               # "forearm"/"upperarm" -> rest offset
+var _arm_len := [0.0, 0.0]       # forearm, upper arm length (skeleton space)
+var use_ik := true
+var _wrist_back := Vector3.UP
+const SHOULDER := Vector3(0.18, -0.24, 0.06)   # from eyes: side, down, back (metres, user's body)
 var _mirror := false
 var _model_len := 0.0            # skin wrist -> middle tip at scale 1 (metres in world)
 var _len_samples: Array = []
@@ -134,8 +138,9 @@ func _prepare() -> void:
 			roll = deg_to_rad(THUMB_ROLL_DEG) * (1.0 if _map.side == "left" else -1.0)
 		_offset[b] = _frame(fwd, back, roll).inverse() * rest[b].basis
 		_target_joint[b] = j
-	# forearm / upper arm follow the wrist frame rigidly for now (elbow IK comes later)
-	_arm.clear()
+	# forearm / upper arm: elbow IK from an estimated shoulder (head pose); wrist frame if no head
+	_arm_off.clear()
+	_arm_len = [0.0, 0.0]
 	for key in ["forearm", "upperarm"]:
 		var b: int = _map[key]
 		if b < 0:
@@ -143,8 +148,10 @@ func _prepare() -> void:
 		var child: int = hand if key == "forearm" else _map.forearm
 		if child < 0:
 			continue
-		var fwd: Vector3 = (rest[child].origin - rest[b].origin).normalized()
-		_offset[b] = _frame(fwd, back, 0.0).inverse() * rest[b].basis
+		var fwd: Vector3 = (rest[child].origin - rest[b].origin)
+		_arm_len[0 if key == "forearm" else 1] = fwd.length()
+		_arm_off[key] = _frame(fwd, back, 0.0).inverse() * rest[b].basis
+		_offset[b] = _arm_off[key]
 		_target_joint[b] = HandBoneMap.WRIST
 	var tip: int = _map.tip.get("middle", J.get(14, -1))
 	_model_len = 0.0
@@ -168,8 +175,9 @@ func _next_bone(j: int) -> int:
 
 
 ## Frame with Quest/OpenXR convention: -Z toward fingertip, +Y back of hand, X = Y x Z.
-static func _frame(fwd: Vector3, back: Vector3, roll: float) -> Basis:
-	var z := -fwd.normalized()
+static func _frame(fwd_in: Vector3, back: Vector3, roll: float) -> Basis:
+	var fwd := fwd_in.normalized()
+	var z := -fwd
 	var y := back - fwd * back.dot(fwd)
 	if y.length() < 1e-5:
 		y = Vector3.UP - fwd * fwd.y
@@ -181,7 +189,7 @@ static func _frame(fwd: Vector3, back: Vector3, roll: float) -> Basis:
 
 
 ## joints: Array of 26 Transform3D in world space (null when the joint has no pose).
-func apply(joints: Array) -> void:
+func apply(joints: Array, head = null) -> void:
 	if _skel == null:
 		return
 	var wt: Transform3D = joints[HandBoneMap.WRIST]
@@ -201,7 +209,11 @@ func apply(joints: Array) -> void:
 		if _mirror:
 			f.x = -f.x
 		frames[b] = f * _offset[b]
+		if b == _map.hand:
+			_wrist_back = f.y
 	var wrist_local: Vector3 = inv * wt.origin
+	if head != null and use_ik and _arm_off.has("forearm") and _arm_off.has("upperarm"):
+		_elbow_ik(frames, inv, head, wrist_local)
 	var glob := {}
 	for b in _order:
 		var p := _skel.get_bone_parent(b)
@@ -224,6 +236,40 @@ func apply(joints: Array) -> void:
 		_skel.set_bone_pose_position(b, loc.origin)
 
 
+func _elbow_ik(frames: Dictionary, inv: Transform3D, head: Transform3D, w: Vector3) -> void:
+	var yaw := -head.basis.z
+	yaw.y = 0.0
+	yaw = yaw.normalized() if yaw.length() > 0.01 else Vector3(0, 0, -1)
+	var right := yaw.cross(Vector3.UP)
+	var out := -right if side == "left" else right
+	var sh_w := head.origin + out * SHOULDER.x + Vector3.UP * SHOULDER.y - yaw * SHOULDER.z
+	var pole_w := (Vector3.DOWN + out * 0.5 - yaw * 0.3).normalized()
+	var sh: Vector3 = inv * sh_w
+	var pole: Vector3 = (inv.basis * pole_w).normalized()
+	var a: float = _arm_len[1]
+	var b: float = _arm_len[0]
+	var to := w - sh
+	var d := clampf(to.length(), absf(a - b) + 1e-4, a + b - 1e-4)
+	var dir := to.normalized()
+	var cos_a := clampf((a * a + d * d - b * b) / (2.0 * a * d), -1.0, 1.0)
+	var perp := pole - dir * pole.dot(dir)
+	perp = perp.normalized() if perp.length() > 1e-5 else Vector3.DOWN
+	var e := sh + dir * (a * cos_a) + perp * (a * sqrt(1.0 - cos_a * cos_a))
+	var up_f := (e - sh).normalized()
+	var fo_f := (w - e).normalized()
+	var hb := _wrist_back
+	var n := up_f.cross(fo_f)
+	if n.length() < 1e-3:
+		n = hb
+	n = n.normalized()
+	if n.dot(hb) < 0.0:
+		n = -n
+	var hbp := hb - fo_f * hb.dot(fo_f)
+	var fb := (n + hbp.normalized()).normalized() if hbp.length() > 1e-4 else n
+	frames[_map.upperarm] = _frame(up_f, n, 0.0) * _arm_off["upperarm"]
+	frames[_map.forearm] = _frame(fo_f, fb, 0.0) * _arm_off["forearm"]
+
+
 ## "손 펴고 맞추기": the user holds their hand like the skin's rest pose; from now on that
 ## pose of theirs = the skin's rest pose (fixes skins whose rest pose is curled or twisted).
 func calibrate(joints: Array) -> void:
@@ -231,6 +277,8 @@ func calibrate(joints: Array) -> void:
 		return
 	var inv := _skel.global_transform.affine_inverse()
 	for b in _target_joint:
+		if b == _map.forearm or b == _map.upperarm:
+			continue
 		var f := (inv * (joints[_target_joint[b]] as Transform3D)).basis.orthonormalized()
 		if _mirror:
 			f.x = -f.x
