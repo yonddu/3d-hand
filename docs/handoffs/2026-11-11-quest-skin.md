@@ -12,11 +12,12 @@ GodotOpenXRVendors 4.2.0), CI `.github/workflows/quest-skin.yml`.
 |---|---|---|---|
 | q-skin 0.1 | first commit | 42935964541 | built; Linux plugin lib wrongly removed -> Meta export options ignored |
 | q-skin 0.2 | second commit | 42936370606 (artifact 13818417392, APK 87 MB) | PASS, manifest has HAND_TRACKING + handtracking feature + files permission. NOT tried on Quest |
+| q-skin 0.3 | 03a014f | 42937040698 (artifact 13819271308) | PASS; elbow IK from head pose. NOT tried on Quest |
 
 Verified offline: tests/retarget_test.gd on quest-hands-20261108-235035.jsonl: bone direction 0.0 deg,
 back of hand 0.0 deg, index tip 2.5 cm off (skin proportions), both hands; names_test 20/20.
 
-Open / next: passthrough feature not in manifest (background black); elbow IK; full character
+Open / next: passthrough feature not in manifest (background black); full character
 (one instance for both hands) + mirror; recording -> GLB/FBX export with engine camera choice;
 items + controller mode; Drive (device-code login drive.file upload, skins by share link);
 fingertip contact correction.
