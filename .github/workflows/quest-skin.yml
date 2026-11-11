@@ -1,0 +1,86 @@
+name: Quest hand skin app
+concurrency:
+  group: quest-skin-${{ github.ref }}
+  cancel-in-progress: true
+on:
+  push:
+    paths: ['native/quest-skin/**', '.github/workflows/quest-skin.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  GODOT: 4.5.1
+  VENDORS: 4.2.0-stable
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: native/quest-skin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Cache Godot + templates + vendors plugin
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/godot
+            ~/.local/share/godot/export_templates
+          key: godot-${{ env.GODOT }}-vendors-${{ env.VENDORS }}
+      - name: Download Godot, export templates, OpenXR vendors plugin
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/godot && cd ~/godot
+          curl -sSLO https://github.com/godotengine/godot/releases/download/${GODOT}-stable/Godot_v${GODOT}-stable_linux.x86_64.zip
+          unzip -q Godot_v${GODOT}-stable_linux.x86_64.zip && mv Godot_v${GODOT}-stable_linux.x86_64 godot && rm *.zip
+          curl -sSL -o t.tpz https://github.com/godotengine/godot/releases/download/${GODOT}-stable/Godot_v${GODOT}-stable_export_templates.tpz
+          mkdir -p ~/.local/share/godot/export_templates/${GODOT}.stable
+          unzip -q t.tpz -d tpl && rm t.tpz
+          cp tpl/templates/android_source.zip tpl/templates/android_debug.apk tpl/templates/android_release.apk tpl/templates/version.txt ~/.local/share/godot/export_templates/${GODOT}.stable/
+          rm -rf tpl
+          curl -sSL -o v.zip https://github.com/GodotVR/godot_openxr_vendors/releases/download/${VENDORS}/godotopenxrvendorsaddon.zip
+          unzip -q v.zip -d vendors && rm v.zip
+          find vendors -path '*/.bin/*' -type d \( -name macos -o -name windows -o -name x86_64 \) -prune -exec rm -rf {} + || true
+      - name: Godot editor settings (SDK, Java, debug key)
+        run: |
+          mkdir -p ~/.config/godot
+          cat > ~/.config/godot/editor_settings-4.5.tres <<EOF
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/android_sdk_path = "$ANDROID_HOME"
+          export/android/java_sdk_path = "$JAVA_HOME"
+          export/android/debug_keystore = "$PWD/ci/debug.keystore"
+          export/android/debug_keystore_user = "androiddebugkey"
+          export/android/debug_keystore_pass = "android"
+          EOF
+          sed -i 's/^          //' ~/.config/godot/editor_settings-4.5.tres
+          cat ~/.config/godot/editor_settings-4.5.tres
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.1" "platform-tools" > /dev/null || true
+      - name: Add plugin and import
+        run: |
+          mkdir -p addons && cp -r ~/godot/vendors/asset/addons/godotopenxrvendors addons/
+          ls addons/godotopenxrvendors/.bin/android || true
+          ~/godot/godot --headless --path . --import || true
+      - name: Tests (bone names)
+        run: ~/godot/godot --headless --path . --script res://tests/names_test.gd
+      - name: Export Quest APK
+        run: |
+          mkdir -p build
+          ~/godot/godot --headless --path . --install-android-build-template --export-debug "Quest" build/quest-skin.apk 2>&1 | tee build/export.log
+          ls -la build
+          test -f build/quest-skin.apk
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: quest-hand-skin
+          path: |
+            native/quest-skin/build/quest-skin.apk
+            native/quest-skin/build/export.log
+          if-no-files-found: warn
+          retention-days: 14
