@@ -70,6 +70,9 @@ func use_scene(scene: Node) -> String:
 	auto_scale = 0.0
 	_len_samples.clear()
 	status = "%d bones%s" % [_map.joints.size(), " (mirrored)" if _mirror else ""]
+	var miss := missing_fingers()
+	if not miss.is_empty():
+		status += ", no " + ",".join(miss)
 	return ""
 
 
@@ -219,6 +222,37 @@ func apply(joints: Array) -> void:
 			loc = Transform3D(g.basis, g.origin + delta)
 		_skel.set_bone_pose_rotation(b, loc.basis.get_rotation_quaternion())
 		_skel.set_bone_pose_position(b, loc.origin)
+
+
+## "손 펴고 맞추기": the user holds their hand like the skin's rest pose; from now on that
+## pose of theirs = the skin's rest pose (fixes skins whose rest pose is curled or twisted).
+func calibrate(joints: Array) -> void:
+	if _skel == null:
+		return
+	var inv := _skel.global_transform.affine_inverse()
+	for b in _target_joint:
+		var f := (inv * (joints[_target_joint[b]] as Transform3D)).basis.orthonormalized()
+		if _mirror:
+			f.x = -f.x
+		_offset[b] = f.inverse() * _skel.get_bone_global_rest(b).basis
+	status = status.replace(", calibrated", "") + ", calibrated"
+
+
+func reset_calibration() -> void:
+	if _skel:
+		_prepare()
+		status = status.replace(", calibrated", "")
+
+
+func missing_fingers() -> PackedStringArray:
+	var out := PackedStringArray()
+	if _skel == null:
+		return out
+	for f in HandBoneMap.FINGER_BASE:
+		var base: int = HandBoneMap.FINGER_BASE[f]
+		if not _map.joints.has(base + 1) and not _map.joints.has(base + 2):
+			out.append(f)
+	return out
 
 
 ## World position of a mapped joint after posing (tests / debug).

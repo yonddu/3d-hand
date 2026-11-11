@@ -31,7 +31,7 @@ jobs:
           path: |
             ~/godot
             ~/.local/share/godot/export_templates
-          key: godot-${{ env.GODOT }}-vendors-${{ env.VENDORS }}
+          key: godot-${{ env.GODOT }}-vendors-${{ env.VENDORS }}-v2
       - name: Download Godot, export templates, OpenXR vendors plugin
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
@@ -45,7 +45,7 @@ jobs:
           rm -rf tpl
           curl -sSL -o v.zip https://github.com/GodotVR/godot_openxr_vendors/releases/download/${VENDORS}/godotopenxrvendorsaddon.zip
           unzip -q v.zip -d vendors && rm v.zip
-          find vendors -path '*/.bin/*' -type d \( -name macos -o -name windows -o -name x86_64 \) -prune -exec rm -rf {} + || true
+          rm -rf vendors/asset/addons/godotopenxrvendors/.bin/macos vendors/asset/addons/godotopenxrvendors/.bin/windows
       - name: Godot editor settings (SDK, Java, debug key)
         run: |
           mkdir -p ~/.config/godot
@@ -75,6 +75,13 @@ jobs:
           ~/godot/godot --headless --path . --install-android-build-template --export-debug "Quest" build/quest-skin.apk 2>&1 | tee build/export.log
           ls -la build
           test -f build/quest-skin.apk
+      - name: Check manifest (hand tracking, passthrough, files)
+        run: |
+          AAPT=$(ls -d $ANDROID_HOME/build-tools/*/ | sort -V | tail -1)aapt
+          $AAPT dump xmltree build/quest-skin.apk AndroidManifest.xml > build/manifest.txt
+          grep -E "permission|feature|meta-data" -A2 build/manifest.txt | grep -E 'Raw: "' | sort -u
+          grep -q "com.oculus.permission.HAND_TRACKING" build/manifest.txt
+          grep -q "oculus.software.handtracking" build/manifest.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -82,5 +89,6 @@ jobs:
           path: |
             native/quest-skin/build/quest-skin.apk
             native/quest-skin/build/export.log
+            native/quest-skin/build/manifest.txt
           if-no-files-found: warn
           retention-days: 14
