@@ -25,3 +25,12 @@ Google Drive. Camera (phone MediaPipe) tracking is no longer the main path.
 - Elbow IK (0.3): shoulder = eyes + 0.18 m out, 0.24 m down, 0.06 m back (head yaw); pole down/out/back; upper arm and forearm roll from the elbow hinge axis, forearm takes half of the hand twist. Test: shoulder 0.31 m from eyes, hand stays on wrist (0.000 m), fingers still 0.0 deg.
 
 Not yet verified on the Quest.
+- 2026-11-14 proof (user doubt "putting a model on always distorts it"): `tests/bake_glb.gd` bakes a
+  recording segment onto the skin and exports animated GLBs + joints JSON; `tests/proof/` renders
+  Quest joints | skin side by side (three.js + Playwright), stacked with the phone video (pair1, video
+  t = quest t - 2.70). Segment 23-43 s: fingertip offset median 0.7 cm / p90 3.0 cm; thumb-index pinch
+  frames: skin gap = Quest gap (1.1 cm median; 2.6 cm without the contact fix).
+  Fixes found by it: auto size now uses middle-finger chain length (wrist->tip distance shrank the skin
+  to x0.35 when the take started in a fist); `_thumb_contact` (thumb + finger CCD toward the real gap
+  when real tips are < 4.5 cm apart; costs up to ~28 deg bone direction in those frames).
+  Output: /mnt/project-files/hand-motion-studio/quest/skin-proof/.

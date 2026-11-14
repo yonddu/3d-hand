@@ -1,0 +1,39 @@
+<!doctype html><html><body style="margin:0;background:#111">
+<canvas id="c" width="1280" height="540"></canvas>
+<script type="importmap">{"imports":{"three":"./three/three.module.min.js","three/addons/":"./three/addons/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+const W=640,H=540;
+const cv=document.getElementById('c');
+const R=new THREE.WebGLRenderer({canvas:cv,antialias:true,preserveDrawingBuffer:true});
+R.setScissorTest(true);
+const J=await (await fetch('quest_joints.json')).json();
+const mk=()=>{const s=new THREE.Scene();s.background=new THREE.Color(0x1b1d22);s.add(new THREE.HemisphereLight(0xffffff,0x334455,1.6));const d=new THREE.DirectionalLight(0xffffff,1.6);d.position.set(0.5,2,1);s.add(d);return s;};
+const sA=mk(), sB=mk();
+const cam=new THREE.PerspectiveCamera(62,W/H,0.01,10);
+// first-person camera: average head, looking at average wrist position
+let hp=new THREE.Vector3(),wp=new THREE.Vector3(),n=0;
+for(let i=0;i<J.head.length;i++){const h=J.head[i];if(!h)continue;hp.add(new THREE.Vector3(h[0],h[1],h[2]));for(const s of ['left','right']){const p=J[s][i][1];wp.add(new THREE.Vector3(...p).multiplyScalar(0.5));}n++;}
+hp.divideScalar(n);wp.divideScalar(n);
+cam.position.copy(hp).lerp(wp,0.15);cam.lookAt(wp);
+const CH=[[1,2,3,4,5],[1,6,7,8,9,10],[1,11,12,13,14,15],[1,16,17,18,19,20],[1,21,22,23,24,25]];
+function skel(scene,color,dotSize,withLines){
+  const g={};
+  const dm=new THREE.MeshBasicMaterial({color,depthTest:!withLines?false:true});
+  g.dots=[];for(let j=0;j<26;j++){const m=new THREE.Mesh(new THREE.SphereGeometry(dotSize,8,6),dm);m.renderOrder=5;scene.add(m);g.dots.push(m);}
+  g.lines=[];if(withLines){const lm=new THREE.LineBasicMaterial({color});for(const c of CH){const geo=new THREE.BufferGeometry().setFromPoints(c.map(()=>new THREE.Vector3()));const l=new THREE.Line(geo,lm);scene.add(l);g.lines.push([l,c]);}}
+  return g;}
+const A={left:skel(sA,0x5aa0ff,0.005,true),right:skel(sA,0x5aff8a,0.005,true)};
+const B={left:skel(sB,0xffd04a,0.0025,false),right:skel(sB,0xffd04a,0.0025,false)};
+const loader=new GLTFLoader();const mixers=[];
+for(const s of ['left','right']){const g=await loader.loadAsync('skin_'+s+'.glb');sB.add(g.scene);const mx=new THREE.AnimationMixer(g.scene);mx.clipAction(g.animations[0]).play();mixers.push(mx);}
+window.draw=(i)=>{
+  for(const s of ['left','right']){const P=J[s][i];
+    for(const G of [A[s],B[s]]){G.dots.forEach((d,j)=>d.position.set(...P[j]));for(const [l,c] of G.lines){const a=l.geometry.attributes.position;c.forEach((j,k)=>a.setXYZ(k,...P[j]));a.needsUpdate=true;}}}
+  for(const m of mixers)m.setTime(i/J.fps);
+  R.setViewport(0,0,W,H);R.setScissor(0,0,W,H);R.render(sA,cam);
+  R.setViewport(W,0,W,H);R.setScissor(W,0,W,H);R.render(sB,cam);
+  return cv.toDataURL('image/png');};
+window.ready=true;
+</script></body></html>

@@ -21,11 +21,17 @@ var _target_joint := {}          # bone -> xr joint
 var _arm_off := {}               # "forearm"/"upperarm" -> rest offset
 var _arm_len := [0.0, 0.0]       # forearm, upper arm length (skeleton space)
 var use_ik := true
+var last_contact := []
+var contact_fix := true            # real thumb tip near a fingertip -> skin thumb tip near it too
+const CONTACT_FULL := 0.025        # Quest gap (m) at or below which the skin gap follows fully
+const CONTACT_NONE := 0.045        # Quest gap above which nothing is changed
+const CONTACT_MAX_DEG := 30.0      # most a thumb bone may turn for it per frame
 var _wrist_back := Vector3.UP
 const SHOULDER := Vector3(0.18, -0.24, 0.06)   # from eyes: side, down, back (metres, user's body)
 var _mirror := false
 var _model_len := 0.0            # skin wrist -> middle tip at scale 1 (metres in world)
 var _len_samples: Array = []
+var _len_from := 0                # chain the skin length was measured on (Quest side matches it)
 
 
 func _init(p_side := "left") -> void:
@@ -153,11 +159,19 @@ func _prepare() -> void:
 		_arm_off[key] = _frame(fwd, back, 0.0).inverse() * rest[b].basis
 		_offset[b] = _arm_off[key]
 		_target_joint[b] = HandBoneMap.WRIST
-	var tip: int = _map.tip.get("middle", J.get(14, -1))
+	# hand size = length along the middle finger chain (pose independent: a fist is as long as a flat hand)
+	var chain := [hand]
+	for j in [12, 13, 14]:
+		if J.has(j):
+			chain.append(J[j])
+	if _map.tip.has("middle"):
+		chain.append(_map.tip["middle"])
 	_model_len = 0.0
-	if tip >= 0:
+	_len_from = chain.size()
+	if chain.size() >= 3:
 		var w := _skel.global_transform
-		_model_len = (w * rest[tip].origin).distance_to(w * hp)
+		for i in range(1, chain.size()):
+			_model_len += (w * rest[chain[i]].origin).distance_to(w * rest[chain[i - 1]].origin)
 		_model_len /= max(absf(_skin_root.global_transform.basis.get_scale().x), 1e-6)
 
 
@@ -193,9 +207,8 @@ func apply(joints: Array, head = null) -> void:
 	if _skel == null:
 		return
 	var wt: Transform3D = joints[HandBoneMap.WRIST]
-	var mt: Transform3D = joints[15]
 	if auto_scale == 0.0 and _model_len > 0.0:
-		_len_samples.append(wt.origin.distance_to(mt.origin))
+		_len_samples.append(_quest_len(joints))
 		if _len_samples.size() >= 30:
 			_len_samples.sort()
 			auto_scale = _len_samples[15] / _model_len
@@ -222,6 +235,8 @@ func apply(joints: Array, head = null) -> void:
 		if frames.has(b):
 			g.basis = frames[b]
 		glob[b] = g
+	if contact_fix:
+		_thumb_contact(glob, joints, inv)
 	# move the whole skeleton so the hand bone sits on the tracked wrist
 	var delta: Vector3 = wrist_local - glob[_map.hand].origin
 	for b in _order:
@@ -301,6 +316,84 @@ func missing_fingers() -> PackedStringArray:
 		if not _map.joints.has(base + 1) and not _map.joints.has(base + 2):
 			out.append(f)
 	return out
+
+
+## Pinch / touch keeping: when the real thumb tip is within a few cm of a real fingertip, turn the
+## skin's thumb (distal, proximal, metacarpal; CCD) so its tip sits at the same offset from the skin's
+## fingertip. Fixes contacts that a rotation copy breaks when the skin's proportions differ.
+func _thumb_contact(glob: Dictionary, joints: Array, inv: Transform3D) -> void:
+	var tt: int = _map.tip.get("thumb", -1)
+	if tt < 0:
+		return
+	var qt: Vector3 = (joints[5] as Transform3D).origin
+	var best := -1
+	var bd := 1e9
+	for f in ["index", "middle", "ring", "little"]:
+		if not _map.tip.has(f):
+			continue
+		var d: float = qt.distance_to((joints[HandBoneMap.FINGER_BASE[f] + 4] as Transform3D).origin)
+		if d < bd:
+			bd = d
+			best = HandBoneMap.FINGER_BASE[f]
+	if best < 0 or bd > CONTACT_NONE:
+		return
+	var w := clampf((CONTACT_NONE - bd) / (CONTACT_NONE - CONTACT_FULL), 0.0, 1.0)
+	var fname: String = HandBoneMap.FINGER_BASE.find_key(best)
+	var ftip: int = _map.tip[fname]
+	var gap: Vector3 = inv.basis * (qt - (joints[best + 4] as Transform3D).origin)
+	var t_chain := []
+	for j in [4, 3, 2]:
+		if _map.joints.has(j):
+			t_chain.append(_map.joints[j])
+	var f_chain := []
+	for j in [best + 3, best + 2, best + 1]:
+		if _map.joints.has(j):
+			f_chain.append(_map.joints[j])
+	var start_t: Vector3 = glob[tt].origin
+	var start_f: Vector3 = glob[ftip].origin
+	# both sides move: the thumb toward (fingertip + real gap), the finger toward (thumb tip - real gap)
+	for it in 4:
+		_ccd(glob, t_chain, tt, glob[tt].origin.lerp(glob[ftip].origin + gap, w))
+		_ccd(glob, f_chain, ftip, glob[ftip].origin.lerp(glob[tt].origin - gap, w * 0.5))
+	last_contact = [fname, bd, w, ((glob[tt].origin - glob[ftip].origin) - gap).length(), start_t.distance_to(glob[tt].origin), start_f.distance_to(glob[ftip].origin)]
+
+
+func _ccd(glob: Dictionary, chain: Array, tip: int, want: Vector3) -> void:
+	for b in chain:
+		var piv: Vector3 = glob[b].origin
+		var v1: Vector3 = glob[tip].origin - piv
+		var v2: Vector3 = want - piv
+		if v1.length() < 1e-6 or v2.length() < 1e-6:
+			continue
+		var ax := v1.cross(v2)
+		if ax.length() < 1e-8:
+			continue
+		var ang := minf(v1.angle_to(v2), deg_to_rad(CONTACT_MAX_DEG))
+		_turn_subtree(glob, b, Basis(ax.normalized(), ang))
+
+
+func _turn_subtree(glob: Dictionary, b: int, q: Basis) -> void:
+	var piv: Vector3 = glob[b].origin
+	var stack := [b]
+	while not stack.is_empty():
+		var c: int = stack.pop_back()
+		var g: Transform3D = glob[c]
+		glob[c] = Transform3D(q * g.basis, piv + q * (g.origin - piv))
+		stack.append_array(Array(_skel.get_bone_children(c)))
+
+
+## Quest length along the same middle-finger chain as the skin: wrist -> proximal -> ... -> tip.
+func _quest_len(joints: Array) -> float:
+	var ids := [1]
+	for j in [12, 13, 14]:
+		if _map.joints.has(j):
+			ids.append(j)
+	if _map.tip.has("middle"):
+		ids.append(15)
+	var L := 0.0
+	for i in range(1, ids.size()):
+		L += (joints[ids[i]] as Transform3D).origin.distance_to((joints[ids[i - 1]] as Transform3D).origin)
+	return L
 
 
 ## World position of a mapped joint after posing (tests / debug).
