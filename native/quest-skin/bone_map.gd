@@ -93,6 +93,9 @@ static func parse(name: String) -> Dictionary:
 static func map_hand(skel: Skeleton3D, want_side: String) -> Dictionary:
 	var by_side := {"left": [], "right": [], "": []}
 	for b in skel.get_bone_count():
+		var lname := skel.get_bone_name(b).to_lower()
+		if lname.ends_with("_half") or lname.contains("thenar") or lname.contains("twist"):
+			continue  # helper bones are driven by SkinRig, not by tracking
 		var p := parse(skel.get_bone_name(b))
 		p["bone"] = b
 		by_side[p.side].append(p)

@@ -21,6 +21,9 @@ var _target_joint := {}          # bone -> xr joint
 var _arm_off := {}               # "forearm"/"upperarm" -> rest offset
 var _arm_len := [0.0, 0.0]       # forearm, upper arm length (skeleton space)
 var use_ik := true
+var _halves := []                 # [helper bone, the bone it follows half-way]
+var _thenar := -1                  # optional helper bone ("...Thenar"), see tools/thenar_helper.py
+const THENAR_SHARE := 0.5
 var last_contact := []
 var contact_fix := true            # real thumb tip near a fingertip -> skin thumb tip near it too
 const CONTACT_FULL := 0.025        # Quest gap (m) at or below which the skin gap follows fully
@@ -75,6 +78,16 @@ func use_scene(scene: Node) -> String:
 		status = "no hand bones found"
 		return status
 	_mirror = _map.side != side
+	_thenar = -1
+	_halves.clear()
+	for b in _skel.get_bone_count():
+		var bn := _skel.get_bone_name(b)
+		if bn.ends_with("_half"):
+			var c := _skel.find_bone(bn.trim_suffix("_half"))
+			if c >= 0:
+				_halves.append([b, c])
+		if _skel.get_bone_name(b).to_lower().contains("thenar"):
+			_thenar = b
 	_skin_root.scale = Vector3(-1, 1, 1) if _mirror else Vector3.ONE
 	_prepare()
 	auto_scale = 0.0
@@ -237,6 +250,21 @@ func apply(joints: Array, head = null) -> void:
 		glob[b] = g
 	if contact_fix:
 		_thumb_contact(glob, joints, inv)
+	if _thenar >= 0 and _map.joints.has(2):
+		# thenar helper turns half as much as the thumb metacarpal -> skin keeps its volume
+		var t1: int = _map.joints[2]
+		var hb: Transform3D = glob[_skel.get_bone_parent(t1)]
+		var q_rest := _skel.get_bone_rest(t1).basis.get_rotation_quaternion()
+		var q_now: Quaternion = (hb.basis.orthonormalized().inverse() * glob[t1].basis.orthonormalized()).get_rotation_quaternion()
+		glob[_thenar] = hb * Transform3D(Basis(q_rest.slerp(q_now, THENAR_SHARE)), _skel.get_bone_rest(t1).origin)
+	# half-joint helpers ("<bone>_half", tools/thenar_helper.py): turn half of their bone's rotation
+	for pair in _halves:
+		var hb: int = pair[0]
+		var c: int = pair[1]
+		var pg: Transform3D = glob[_skel.get_bone_parent(hb)]
+		var qr := _skel.get_bone_rest(c).basis.get_rotation_quaternion()
+		var qn: Quaternion = (pg.basis.orthonormalized().inverse() * glob[c].basis.orthonormalized()).get_rotation_quaternion()
+		glob[hb] = pg * Transform3D(Basis(qr.slerp(qn, 0.5)), _skel.get_bone_rest(c).origin)
 	# move the whole skeleton so the hand bone sits on the tracked wrist
 	var delta: Vector3 = wrist_local - glob[_map.hand].origin
 	for b in _order:

@@ -39,3 +39,9 @@ Not yet verified on the Quest.
   (smoothstep S0..S1, rest to Hand). Default skin now uses S0=-0.5 S1=0.8 ("B", 874 vertices, 159.6
   weight moved); S0=-0.1 S1=0.75 ("A") flattened more but left a narrow neck under the thumb.
   Before/after: /mnt/project-files/hand-motion-studio/quest/skin-proof/thenar_*.png.
+- 2026-11-14 volume (user: empty triangle between thumb base and wrist; skin thins toward the bones):
+  `tools/thenar_helper.py in.glb out.glb` adds helper bones driven at HALF a joint's rotation:
+  `<Side>HandThenar` (thenar skin, half of Thumb1) and `<bone>_half` at the wrist and every knuckle
+  (zone +-0.35 bone length). SkinRig drives them; HandBoneMap ignores *_half / *thenar* / *twist*.
+  Default skin = gauntlet2 + helpers. Same frames before/after: quest/skin-proof/volume_*.png.
+  Weights-only fade (thenar_weights.py) replaced: it left the wedge hollow.
