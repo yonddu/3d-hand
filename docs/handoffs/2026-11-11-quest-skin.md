@@ -21,3 +21,10 @@ Open / next: passthrough feature not in manifest (background black); full charac
 (one instance for both hands) + mirror; recording -> GLB/FBX export with engine camera choice;
 items + controller mode; Drive (device-code login drive.file upload, skins by share link);
 fingertip contact correction.
+
+## 2026-11-14: paused
+User decided the final route: Unreal 5.6 OpenXR hand tracking (Quest via Link, developer runtime
+features on) drives the main character's hand bones live; poses / Take Recorder -> FBX. This Godot app
+(q-skin 0.3) is paused and was never run on a Quest. Its retarget math (rest-frame offsets from bone
+direction + back of hand, thumb roll 88 deg, elbow IK from head) is to be ported to an Unreal component.
+Setup doc: https://claude.ai/artifact/GtFjsC5UgiorzDv3dLoTrp
