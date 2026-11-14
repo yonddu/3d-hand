@@ -34,3 +34,8 @@ Not yet verified on the Quest.
   to x0.35 when the take started in a fist); `_thumb_contact` (thumb + finger CCD toward the real gap
   when real tips are < 4.5 cm apart; costs up to ~28 deg bone direction in those frames).
   Output: /mnt/project-files/hand-motion-studio/quest/skin-proof/.
+- 2026-11-14 thenar weights (user: thumb-base muscle dragged up toward the rig point):
+  `tools/thenar_weights.py in.glb out.glb S0 S1` fades Thumb1 weight in along the thumb metacarpal
+  (smoothstep S0..S1, rest to Hand). Default skin now uses S0=-0.5 S1=0.8 ("B", 874 vertices, 159.6
+  weight moved); S0=-0.1 S1=0.75 ("A") flattened more but left a narrow neck under the thumb.
+  Before/after: /mnt/project-files/hand-motion-studio/quest/skin-proof/thenar_*.png.
